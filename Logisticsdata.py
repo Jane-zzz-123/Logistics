@@ -148,42 +148,51 @@ diff_change = current_diff_avg - prev_diff_avg
 diff_change_text = f"{'↑' if diff_change > 0 else '↓' if diff_change < 0 else '—'} {abs(diff_change):.2f} (上月: {prev_diff_avg:.2f})"
 diff_change_color = "red" if diff_change > 0 else "green" if diff_change < 0 else "gray"
 
-# 显示卡片（一行五列）
+# 显示卡片（一行五列）- 改用HTML自定义样式
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.metric(
-        label="FBA单",
-        value=current_fba,
-        delta=fba_change_text,
-        delta_color=fba_change_color
-    )
+    st.markdown(f"""
+    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
+        <h5 style='margin: 0; color: #333;'>FBA单</h5>
+        <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_fba}</p>
+        <p style='font-size: 14px; color: {fba_change_color}; margin: 0;'>{fba_change_text}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col2:
-    st.markdown(f"<div style='background-color: #f0f8f0; padding: 15px; border-radius: 5px; text-align: center;'>"
-                f"<h4 style='color: green; margin: 0;'>提前/准时数</h4>"
-                f"<p style='font-size: 20px; margin: 5px 0;'>{current_on_time}</p></div>",
-                unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='background-color: #f0f8f0; padding: 15px; border-radius: 8px; text-align: center;'>
+        <h5 style='margin: 0; color: green;'>提前/准时数</h5>
+        <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_on_time}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col3:
-    st.markdown(f"<div style='background-color: #fff0f0; padding: 15px; border-radius: 5px; text-align: center;'>"
-                f"<h4 style='color: red; margin: 0;'>延期数</h4>"
-                f"<p style='font-size: 20px; margin: 5px 0;'>{current_delay}</p></div>",
-                unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='background-color: #fff0f0; padding: 15px; border-radius: 8px; text-align: center;'>
+        <h5 style='margin: 0; color: red;'>延期数</h5>
+        <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_delay}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col4:
-    st.markdown(f"<div style='padding: 15px; border-radius: 5px; text-align: center;'>"
-                f"<h4>绝对值差值均值</h4>"
-                f"<p style='font-size: 20px; margin: 5px 0;'>{current_abs_avg:.2f}</p>"
-                f"<p style='color: {abs_change_color}; font-size: 12px;'>{abs_change_text}</p></div>",
-                unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
+        <h5 style='margin: 0; color: #333;'>绝对值差值均值</h5>
+        <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_abs_avg:.2f}</p>
+        <p style='font-size: 14px; color: {abs_change_color}; margin: 0;'>{abs_change_text}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col5:
-    st.markdown(f"<div style='padding: 15px; border-radius: 5px; text-align: center;'>"
-                f"<h4>实际差值均值</h4>"
-                f"<p style='font-size: 20px; margin: 5px 0;'>{current_diff_avg:.2f}</p>"
-                f"<p style='color: {diff_change_color}; font-size: 12px;'>{diff_change_text}</p></div>",
-                unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
+        <h5 style='margin: 0; color: #333;'>实际差值均值</h5>
+        <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_diff_avg:.2f}</p>
+        <p style='font-size: 14px; color: {diff_change_color}; margin: 0;'>{diff_change_text}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # 生成总结文字
 summary_text = f"""
@@ -312,7 +321,7 @@ with col1:
 # 右：货代准时率和平均差值表格
 with col2:
     freight_metrics = df_current.groupby("货代").agg({
-        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100,
+        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
         "预计物流时效-实际物流时效差值": "mean"
     }).round(2)
     freight_metrics.columns = ["准时率(%)", "平均时效差值"]
@@ -344,7 +353,7 @@ with col1:
 # 右：仓库准时率和平均差值表格
 with col2:
     warehouse_metrics = df_current.groupby("仓库").agg({
-        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100,
+        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
         "预计物流时效-实际物流时效差值": "mean"
     }).round(2)
     warehouse_metrics.columns = ["准时率(%)", "平均时效差值"]
@@ -463,7 +472,7 @@ col1, col2 = st.columns(2)
 # 左：不同月份货代准时情况
 with col1:
     freight_month = df_red.groupby(["到货年月", "货代"]).agg({
-        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100,
+        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
         "预计物流时效-实际物流时效差值": "mean"
     }).round(2)
     freight_month.columns = ["准时率(%)", "平均时效差值"]
@@ -473,7 +482,7 @@ with col1:
 # 右：不同月份仓库准时情况
 with col2:
     warehouse_month = df_red.groupby(["到货年月", "仓库"]).agg({
-        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100,
+        "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
         "预计物流时效-实际物流时效差值": "mean"
     }).round(2)
     warehouse_month.columns = ["准时率(%)", "平均时效差值"]
