@@ -570,47 +570,48 @@ if month_options and selected_month:
     # ===================== 三、数据源 =====================
     st.subheader("📋 数据源筛选")
 
-    # ---------------------- 筛选器（默认全选） ----------------------
+    # ---------------------- 筛选器（单选+默认“全部”） ----------------------
     col1, col2, col3, col4 = st.columns(4)
 
-    # 1. 到货年月筛选器（默认全选）
+    # 1. 到货年月筛选器（单选+默认“全部”）
     with col1:
-        all_months = df_red["到货年月"].unique()
-        filter_month = st.multiselect(
+        month_options_filter = ["全部"] + sorted(df_red["到货年月"].unique(), reverse=True)
+        selected_month_filter = st.selectbox(
             "到货年月",
-            options=all_months,
-            default=all_months,  # 默认全选
-            key="filter_month"
+            options=month_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_month_single"
         )
 
-    # 2. 仓库筛选器（默认全选）
+    # 2. 仓库筛选器（单选+默认“全部”）
     with col2:
-        all_warehouses = df_red["仓库"].unique() if "仓库" in df_red.columns else []
-        filter_warehouse = st.multiselect(
+        warehouse_options_filter = ["全部"] + list(df_red["仓库"].unique()) if "仓库" in df_red.columns else ["全部"]
+        selected_warehouse_filter = st.selectbox(
             "仓库",
-            options=all_warehouses,
-            default=all_warehouses,  # 默认全选
-            key="filter_warehouse"
+            options=warehouse_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_warehouse_single"
         )
 
-    # 3. 货代筛选器（默认全选）
+    # 3. 货代筛选器（单选+默认“全部”）
     with col3:
-        all_freights = df_red["货代"].unique() if "货代" in df_red.columns else []
-        filter_freight = st.multiselect(
+        freight_options_filter = ["全部"] + list(df_red["货代"].unique()) if "货代" in df_red.columns else ["全部"]
+        selected_freight_filter = st.selectbox(
             "货代",
-            options=all_freights,
-            default=all_freights,  # 默认全选
-            key="filter_freight"
+            options=freight_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_freight_single"
         )
 
-    # 4. 提前/延期筛选器（默认全选）
+    # 4. 提前/延期筛选器（单选+默认“全部”）
     with col4:
-        all_status = df_red["提前/延期"].unique() if "提前/延期" in df_red.columns else []
-        filter_status = st.multiselect(
+        status_options_filter = ["全部"] + list(df_red["提前/延期"].unique()) if "提前/延期" in df_red.columns else [
+            "全部"]
+        selected_status_filter = st.selectbox(
             "提前/延期",
-            options=all_status,
-            default=all_status,  # 默认全选
-            key="filter_status"
+            options=status_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_status_single"
         )
 
     # ---------------------- 应用筛选逻辑 ----------------------
@@ -618,22 +619,20 @@ if month_options and selected_month:
     filter_conditions = pd.Series([True] * len(df_red))
 
     # 应用到货年月筛选
-    if len(filter_month) > 0:
-        filter_conditions = filter_conditions & df_red["到货年月"].isin(filter_month)
-    else:
-        filter_conditions = filter_conditions & False  # 无选择时显示空
+    if selected_month_filter != "全部":
+        filter_conditions = filter_conditions & (df_red["到货年月"] == selected_month_filter)
 
     # 应用仓库筛选
-    if "仓库" in df_red.columns and len(filter_warehouse) > 0:
-        filter_conditions = filter_conditions & df_red["仓库"].isin(filter_warehouse)
+    if "仓库" in df_red.columns and selected_warehouse_filter != "全部":
+        filter_conditions = filter_conditions & (df_red["仓库"] == selected_warehouse_filter)
 
     # 应用货代筛选
-    if "货代" in df_red.columns and len(filter_freight) > 0:
-        filter_conditions = filter_conditions & df_red["货代"].isin(filter_freight)
+    if "货代" in df_red.columns and selected_freight_filter != "全部":
+        filter_conditions = filter_conditions & (df_red["货代"] == selected_freight_filter)
 
     # 应用提前/延期筛选
-    if "提前/延期" in df_red.columns and len(filter_status) > 0:
-        filter_conditions = filter_conditions & df_red["提前/延期"].isin(filter_status)
+    if "提前/延期" in df_red.columns and selected_status_filter != "全部":
+        filter_conditions = filter_conditions & (df_red["提前/延期"] == selected_status_filter)
 
     # 执行筛选
     df_filtered = df_red[filter_conditions].copy()
