@@ -570,56 +570,96 @@ if month_options and selected_month:
     # ===================== 三、数据源 =====================
     st.subheader("📋 数据源筛选")
 
-    # 筛选器
+    # ---------------------- 筛选器（默认全选） ----------------------
     col1, col2, col3, col4 = st.columns(4)
+
+    # 1. 到货年月筛选器（默认全选）
     with col1:
+        all_months = df_red["到货年月"].unique()
         filter_month = st.multiselect(
             "到货年月",
-            options=df_red["到货年月"].unique(),
-            default=df_red["到货年月"].unique() if len(df_red["到货年月"].unique()) > 0 else []
+            options=all_months,
+            default=all_months,  # 默认全选
+            key="filter_month"
         )
+
+    # 2. 仓库筛选器（默认全选）
     with col2:
+        all_warehouses = df_red["仓库"].unique() if "仓库" in df_red.columns else []
         filter_warehouse = st.multiselect(
             "仓库",
-            options=df_red["仓库"].unique() if "仓库" in df_red.columns else [],
-            default=df_red["仓库"].unique() if "仓库" in df_red.columns and len(df_red["仓库"].unique()) > 0 else []
+            options=all_warehouses,
+            default=all_warehouses,  # 默认全选
+            key="filter_warehouse"
         )
+
+    # 3. 货代筛选器（默认全选）
     with col3:
+        all_freights = df_red["货代"].unique() if "货代" in df_red.columns else []
         filter_freight = st.multiselect(
             "货代",
-            options=df_red["货代"].unique() if "货代" in df_red.columns else [],
-            default=df_red["货代"].unique() if "货代" in df_red.columns and len(df_red["货代"].unique()) > 0 else []
+            options=all_freights,
+            default=all_freights,  # 默认全选
+            key="filter_freight"
         )
+
+    # 4. 提前/延期筛选器（默认全选）
     with col4:
+        all_status = df_red["提前/延期"].unique() if "提前/延期" in df_red.columns else []
         filter_status = st.multiselect(
             "提前/延期",
-            options=df_red["提前/延期"].unique() if "提前/延期" in df_red.columns else [],
-            default=df_red["提前/延期"].unique() if "提前/延期" in df_red.columns and len(
-                df_red["提前/延期"].unique()) > 0 else []
+            options=all_status,
+            default=all_status,  # 默认全选
+            key="filter_status"
         )
 
-    # 应用筛选
-    if filter_month and len(df_red) > 0:
-        df_filtered = df_red[
-            (df_red["到货年月"].isin(filter_month)) &
-            (df_red["仓库"].isin(filter_warehouse) if "仓库" in df_red.columns else True) &
-            (df_red["货代"].isin(filter_freight) if "货代" in df_red.columns else True) &
-            (df_red["提前/延期"].isin(filter_status) if "提前/延期" in df_red.columns else True)
-            ].copy()
-    else:
-        df_filtered = df_red.copy()
+    # ---------------------- 应用筛选逻辑 ----------------------
+    # 初始化筛选条件（默认全部数据）
+    filter_conditions = pd.Series([True] * len(df_red))
 
-    # 显示数据源表格
+    # 应用到货年月筛选
+    if len(filter_month) > 0:
+        filter_conditions = filter_conditions & df_red["到货年月"].isin(filter_month)
+    else:
+        filter_conditions = filter_conditions & False  # 无选择时显示空
+
+    # 应用仓库筛选
+    if "仓库" in df_red.columns and len(filter_warehouse) > 0:
+        filter_conditions = filter_conditions & df_red["仓库"].isin(filter_warehouse)
+
+    # 应用货代筛选
+    if "货代" in df_red.columns and len(filter_freight) > 0:
+        filter_conditions = filter_conditions & df_red["货代"].isin(filter_freight)
+
+    # 应用提前/延期筛选
+    if "提前/延期" in df_red.columns and len(filter_status) > 0:
+        filter_conditions = filter_conditions & df_red["提前/延期"].isin(filter_status)
+
+    # 执行筛选
+    df_filtered = df_red[filter_conditions].copy()
+
+    # ---------------------- 显示筛选后数据 ----------------------
     st.markdown("### 原始数据（筛选后）")
     if len(df_filtered) > 0:
+        # 定义要显示的列
+        display_cols = [
+            "到货年月", "FBA号", "店铺", "仓库", "货代", "异常备注",
+            "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
+            "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
+            "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值",
+            "提前/延期"
+        ]
+        # 过滤存在的列
+        display_cols = [col for col in display_cols if col in df_filtered.columns]
+
         st.dataframe(
-            df_filtered[df_red.columns],
+            df_filtered[display_cols],
             use_container_width=True,
             height=400
         )
         # 数据量提示
-        st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据")
+        st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_red)} 条")
     else:
-        st.write("⚠️ 暂无筛选结果数据")
+        st.write("⚠️ 暂无符合筛选条件的数据")
 else:
     st.write("⚠️ 请先确保数据源中有有效的到货年月数据")
