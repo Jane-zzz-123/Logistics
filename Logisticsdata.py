@@ -257,6 +257,7 @@ if month_options and selected_month:
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
+    # ---------------------- ② 当月准时率与时效偏差 ----------------------
     st.markdown("### 准时率与时效偏差分布")
     col1, col2 = st.columns(2)
 
@@ -275,7 +276,7 @@ if month_options and selected_month:
         else:
             st.write("⚠️ 暂无准时率数据")
 
-    # 右：拆分为两个直方图（提前/准时 和 延期）
+    # 右：文本直方图（提前/准时 和 延期）
     with col2:
         if diff_col in df_current.columns and len(df_current) > 0:
             # 提取并处理数据
@@ -286,67 +287,37 @@ if month_options and selected_month:
             early_data = diff_data[diff_data >= 0]  # 包含0天（准时）
             delay_data = diff_data[diff_data < 0]  # 延期数据
 
-            # 创建两个子图的容器
-            from plotly.subplots import make_subplots
+            # 统计各天数出现次数
+            early_counts = early_data.value_counts().sort_index(ascending=False)  # 从大到小排序
+            delay_counts = delay_data.value_counts().sort_index()  # 从小到大排序（-7, -6...）
 
-            fig = make_subplots(
-                rows=2, cols=1,
-                subplot_titles=("提前/准时偏差分布", "延期偏差分布"),
-                vertical_spacing=0.2,
-                row_heights=[0.5, 0.5]
+            # 计算最大计数（用于归一化显示长度）
+            max_count = max(
+                early_counts.max() if not early_counts.empty else 0,
+                delay_counts.max() if not delay_counts.empty else 0
             )
+            max_display_length = 20  # 最大显示字符数
 
-            # 1. 提前/准时偏差直方图
-            if not early_data.empty:
-                early_counts = early_data.value_counts().sort_index()
-                early_labels = [f"+{x}天" if x > 0 else "0天" for x in early_counts.index]
+            # 生成文本直方图
+            st.markdown("#### 提前/准时区间分布")
+            if not early_counts.empty:
+                for day, count in early_counts.items():
+                    # 计算显示长度（按比例缩放）
+                    display_length = int((count / max_count) * max_display_length) if max_count > 0 else 0
+                    bar = "█" * display_length
+                    day_label = f"+{day}天" if day > 0 else "0天"  # 0天特殊处理
+                    st.text(f"{day_label:>6} {bar} ({count})")
+            else:
+                st.text("暂无提前/准时数据")
 
-                fig.add_trace(
-                    go.Bar(
-                        x=early_labels,
-                        y=early_counts.values,
-                        marker_color=[
-                            f"rgba({100 + x * 20}, 255, {100 + x * 20}, 0.7)" if x > 0 else "rgba(204, 204, 204, 0.7)"
-                            for x in early_counts.index],
-                        text=early_counts.values,
-                        textposition='outside',
-                        name="提前/准时"
-                    ),
-                    row=1, col=1
-                )
-
-            # 2. 延期偏差直方图
-            if not delay_data.empty:
-                delay_counts = delay_data.value_counts().sort_index()
-                delay_labels = [f"{x}天" for x in delay_counts.index]
-
-                fig.add_trace(
-                    go.Bar(
-                        x=delay_labels,
-                        y=delay_counts.values,
-                        marker_color=[f"rgba(255, {100 + abs(x) * 20}, {100 + abs(x) * 20}, 0.7)" for x in
-                                      delay_counts.index],
-                        text=delay_counts.values,
-                        textposition='outside',
-                        name="延期"
-                    ),
-                    row=2, col=1
-                )
-
-            # 更新布局
-            fig.update_layout(
-                height=600,  # 增加高度以容纳两个子图
-                showlegend=False,
-                margin=dict(l=50, r=50, t=50, b=50)
-            )
-
-            # 设置坐标轴标签
-            fig.update_xaxes(title_text="偏差天数", row=1, col=1)
-            fig.update_xaxes(title_text="偏差天数", row=2, col=1)
-            fig.update_yaxes(title_text="订单数量", row=1, col=1)
-            fig.update_yaxes(title_text="订单数量", row=2, col=1)
-
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("#### 延迟区间分布")
+            if not delay_counts.empty:
+                for day, count in delay_counts.items():
+                    display_length = int((count / max_count) * max_display_length) if max_count > 0 else 0
+                    bar = "█" * display_length
+                    st.text(f"{day}天   {bar} ({count})")
+            else:
+                st.text("暂无延迟数据")
         else:
             st.write("⚠️ 暂无时效偏差数据")
 
