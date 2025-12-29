@@ -1474,30 +1474,7 @@ if month_options and selected_month:
                 st.write("⚠️ 请先选择有效的筛选条件并确保有数据")
 
     st.divider()
-
-
-    # ====================== 核心工具函数 ======================
-    def convert_to_chinese_month(month_str):
-        """转换YYYY-MM为中文年月"""
-        try:
-            year, month = month_str.split("-")
-            return f"{year}年{month}月"
-        except:
-            return month_str
-
-
-    def get_prev_month(month_str):
-        """获取上个月（YYYY-MM格式）"""
-        try:
-            year, month = map(int, month_str.split("-"))
-            if month == 1:
-                return f"{year - 1}-12"
-            else:
-                return f"{year}-{month - 1:02d}"
-        except:
-            return ""
-
-
+    # ====================== 月度货代&仓库分析主模块 ======================
     def get_diff_indicator(current, prev):
         """生成环比差值标注（带箭头+颜色）"""
         if pd.isna(current) or pd.isna(prev) or prev == 0:
@@ -1522,9 +1499,6 @@ if month_options and selected_month:
                 return f"<span style='font-size:10px;'>-</span>"
         else:
             return ""
-
-
-    # ====================== 月度货代&仓库分析主模块 ======================
     st.markdown("## 月度货代&仓库准时情况分析")
 
     # 0. 数据准备（基于已加载的df_red）
