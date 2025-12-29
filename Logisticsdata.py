@@ -875,42 +875,43 @@ if month_options and selected_month:
 
     st.divider()
 
-    # ===================== 二、不同月份的红单情况 =====================
-    st.subheader("📈 不同月份红单趋势分析")
-
-    # ---------------------- ① 不同月份时效情况 ----------------------
-    # ---------------------- 不同月份红单趋势分析 ----------------------
+    # ====================== 不同月份红单趋势分析 ======================
     st.markdown("### 不同月份红单趋势分析")
 
-    # 确保数据中有到货年月列且数据非空
-    if "到货年月" in df_all.columns and "提前/延期" in df_all.columns and len(df_all) > 0:
+    # 增加异常处理：检查df_red是否有效
+    if isinstance(df_red, pd.DataFrame) and "到货年月" in df_red.columns and "提前/延期" in df_red.columns and len(
+            df_red) > 0:
         col1, col2 = st.columns(2)
 
-        # ====================== 左侧：月份趋势分析表格（核心功能） ======================
+        # ====================== 左侧：月份趋势分析表格 ======================
         with col1:
             # 1. 月份范围筛选控件（下拉选择）
             st.markdown("#### 分析条件设置")
             # 获取所有唯一的到货年月并排序
-            all_months = sorted(df_all["到货年月"].unique())
-            if len(all_months) >= 2:
-                default_start = all_months[-3] if len(all_months) >= 3 else all_months[0]  # 默认近3个月
-                default_end = all_months[-1]
+            all_months_trend = sorted(df_red["到货年月"].unique())
+            if len(all_months_trend) >= 2:
+                default_start = all_months_trend[-3] if len(all_months_trend) >= 3 else all_months_trend[0]
+                default_end = all_months_trend[-1]
             else:
-                default_start = default_end = all_months[0] if all_months else None
+                default_start = default_end = all_months_trend[0] if all_months_trend else None
 
-            # 月份范围选择器
-            start_month = st.selectbox(
-                "开始月份",
-                options=all_months,
-                index=all_months.index(default_start) if default_start else 0,
-                key="trend_start_month"
-            )
-            end_month = st.selectbox(
-                "结束月份",
-                options=all_months,
-                index=all_months.index(default_end) if default_end else 0,
-                key="trend_end_month"
-            )
+            # 月份范围选择器（增加空值判断）
+            if all_months_trend:
+                start_month = st.selectbox(
+                    "开始月份",
+                    options=all_months_trend,
+                    index=all_months_trend.index(default_start) if default_start else 0,
+                    key="trend_start_month"
+                )
+                end_month = st.selectbox(
+                    "结束月份",
+                    options=all_months_trend,
+                    index=all_months_trend.index(default_end) if default_end else 0,
+                    key="trend_end_month"
+                )
+            else:
+                start_month = end_month = ""
+                st.write("⚠️ 无可用月份数据")
 
             # 筛选维度（全部/仅提前/仅延期）
             delay_filter = st.radio(
@@ -928,396 +929,444 @@ if month_options and selected_month:
                 key="trend_view_mode"
             )
 
+            # 2. 数据过滤（增加空值判断）
+            if start_month and end_month:
+                # 转换为可比较的格式（如202510）
+                def month_to_num(month_str):
+                    try:
+                        return int(month_str.replace("-", ""))
+                    except:
+                        return 0
 
-            # 2. 数据过滤（按月份范围+状态）
-            # 转换为可比较的格式（如202510）
-            def month_to_num(month_str):
-                return int(month_str.replace("-", ""))
+
+                # 筛选月份范围内的数据
+                df_trend_filtered = df_red[
+                    (df_red["到货年月"].apply(month_to_num) >= month_to_num(start_month)) &
+                    (df_red["到货年月"].apply(month_to_num) <= month_to_num(end_month))
+                    ].copy()
+
+                # 筛选订单状态
+                if delay_filter == "仅提前/准时":
+                    df_trend_filtered = df_trend_filtered[df_trend_filtered["提前/延期"] == "提前/准时"].copy()
+                elif delay_filter == "仅延期":
+                    df_trend_filtered = df_trend_filtered[df_trend_filtered["提前/延期"] == "延期"].copy()
+
+                # 3. 定义差值列
+                abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
+                diff_col = "预计物流时效-实际物流时效差值"
+
+                # 4. 数据聚合
+                if view_mode == "月份汇总（无状态）" and len(df_trend_filtered) > 0:
+                    # 4.1 月份汇总（无状态维度）
+                    trend_data = df_trend_filtered.groupby("到货年月").agg(
+                        订单个数=("FBA号", "count"),
+                        准时率=("提前/延期", lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0),
+                        **{
+                            f"{abs_diff_col}_均值": (abs_diff_col,
+                                                     "mean") if abs_diff_col in df_trend_filtered.columns else 0,
+                            f"{diff_col}_均值": (diff_col, "mean") if diff_col in df_trend_filtered.columns else 0
+                        }
+                    ).reset_index()
+
+                    # 按月份排序
+                    trend_data["年月数值"] = trend_data["到货年月"].apply(month_to_num)
+                    trend_data = trend_data.sort_values("年月数值").drop("年月数值", axis=1)
+
+                elif len(df_trend_filtered) > 0:
+                    # 4.2 月份+准时状态明细
+                    trend_data = df_trend_filtered.groupby(["到货年月", "提前/延期"]).agg(
+                        订单个数=("FBA号", "count"),
+                        准时率=("提前/延期", lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0),
+                        **{
+                            f"{abs_diff_col}_均值": (abs_diff_col,
+                                                     "mean") if abs_diff_col in df_trend_filtered.columns else 0,
+                            f"{diff_col}_均值": (diff_col, "mean") if diff_col in df_trend_filtered.columns else 0
+                        }
+                    ).reset_index()
+
+                    # 按月份+状态排序
+                    trend_data["年月数值"] = trend_data["到货年月"].apply(month_to_num)
+                    trend_data = trend_data.sort_values(["年月数值", "提前/延期"]).drop("年月数值", axis=1)
+                else:
+                    trend_data = pd.DataFrame()
+                    st.write("⚠️ 筛选后无数据")
+
+                # 5. 计算筛选后整体平均值（核心功能）
+                if len(trend_data) > 0:
+                    avg_row = {}
+                    # 定义需要计算平均值的列
+                    avg_cols = ["订单个数", "准时率", f"{abs_diff_col}_均值", f"{diff_col}_均值"]
+
+                    for col in trend_data.columns:
+                        if col == "到货年月":
+                            avg_row[col] = "筛选后平均值"
+                        elif col == "提前/延期":
+                            avg_row[col] = "-"
+                        elif col in avg_cols:
+                            # 计算筛选后所有数据的平均值
+                            valid_vals = trend_data[col].dropna()
+                            if len(valid_vals) > 0:
+                                if col == "订单个数":
+                                    avg_row[col] = round(valid_vals.mean(), 2)
+                                elif col == "准时率":
+                                    avg_row[col] = round(valid_vals.mean(), 4)
+                                else:
+                                    avg_row[col] = round(valid_vals.mean(), 2)
+                            else:
+                                avg_row[col] = 0
+                        else:
+                            avg_row[col] = "-"
+
+                    # 将平均值行插入到表格顶部
+                    df_with_avg = pd.concat([pd.DataFrame([avg_row]), trend_data], ignore_index=True)
 
 
-            # 筛选月份范围内的数据
-            df_trend_filtered = df_all[
-                (month_to_num(df_all["到货年月"]) >= month_to_num(start_month)) &
-                (month_to_num(df_all["到货年月"]) <= month_to_num(end_month))
-                ].copy()
+                    # 6. 计算环比差值（与上月对比）
+                    def calculate_monthly_diff(df, base_col, group_cols=["到货年月"]):
+                        """计算环比差值"""
+                        # 复制数据避免修改原数据（跳过平均值行）
+                        df_data = df.iloc[1:].copy() if len(df) > 1 else df.copy()
+                        if len(df_data) == 0:
+                            return df
 
-            # 筛选订单状态
-            if delay_filter == "仅提前/准时":
-                df_trend_filtered = df_trend_filtered[df_trend_filtered["提前/延期"] == "提前/准时"].copy()
-            elif delay_filter == "仅延期":
-                df_trend_filtered = df_trend_filtered[df_trend_filtered["提前/延期"] == "延期"].copy()
+                        # 按分组列排序
+                        df_data["年月数值"] = df_data["到货年月"].apply(month_to_num)
+                        df_data = df_data.sort_values(["年月数值"] + group_cols[1:])
 
-            # 3. 定义差值列
-            abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
-            diff_col = "预计物流时效-实际物流时效差值"
+                        # 计算环比差值
+                        if view_mode == "月份汇总（无状态）":
+                            df_data[f"{base_col}_环比差值"] = df_data[base_col].diff()
+                        else:
+                            # 按状态分组计算环比
+                            df_data[f"{base_col}_环比差值"] = df_data.groupby("提前/延期")[base_col].diff()
 
-            # 4. 数据聚合
-            if view_mode == "月份汇总（无状态）":
-                # 4.1 月份汇总（无状态维度）
-                trend_data = df_trend_filtered.groupby("到货年月").agg(
-                    订单个数=("FBA号", "count"),
-                    准时率=("提前/延期", lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0),
-                    **{
-                        f"{abs_diff_col}_均值": (abs_diff_col,
-                                                 "mean") if abs_diff_col in df_trend_filtered.columns else 0,
-                        f"{diff_col}_均值": (diff_col, "mean") if diff_col in df_trend_filtered.columns else 0
+                        # 填充第一个月的差值（无上月）
+                        df_data[f"{base_col}_环比差值"] = df_data[f"{base_col}_环比差值"].fillna(0)
+
+                        # 合并平均值行和数据行
+                        if len(df) > 1:
+                            df_result = pd.concat([df.iloc[0:1], df_data], ignore_index=True)
+                        else:
+                            df_result = df_data
+                        return df_result.drop("年月数值", axis=1)
+
+
+                    # 对核心列计算环比
+                    for col in avg_cols:
+                        if col in df_with_avg.columns:
+                            df_with_avg = calculate_monthly_diff(df_with_avg, col)
+
+
+                    # 7. 格式化显示（主值+环比差值小字体+箭头 + 平均值行）
+                    def format_value_with_diff(main_val, diff_val, col_type, is_avg=False):
+                        """
+                        格式化值：主值 + 环比差值（小字体+箭头+颜色）
+                        col_type: num(个数)/rate(准时率)/diff(差值)
+                        is_avg: 是否是平均值行
+                        """
+                        # 平均值行特殊处理
+                        if is_avg:
+                            if col_type == "num":
+                                return f"<strong>{main_val:.2f}</strong>"
+                            elif col_type == "rate":
+                                return f"<strong>{main_val:.2%}</strong>"
+                            elif col_type == "diff":
+                                return f"<strong>{main_val:.2f}</strong>"
+                            else:
+                                return f"<strong>{main_val}</strong>"
+
+                        # 普通行主值格式化
+                        try:
+                            if col_type == "num":
+                                main_str = f"{int(main_val)}"
+                            elif col_type == "rate":
+                                main_str = f"{main_val:.2%}"
+                            elif col_type == "diff":
+                                main_str = f"{main_val:.2f}"
+                            else:
+                                main_str = str(main_val)
+                        except:
+                            main_str = "0"
+
+                        # 环比差值格式化（小字体+箭头）
+                        if diff_val == 0:
+                            diff_str = ""
+                        else:
+                            # 箭头和颜色：上升(red)/下降(green)
+                            if diff_val > 0:
+                                arrow = "↑"
+                                color = "red"
+                            else:
+                                arrow = "↓"
+                                color = "green"
+
+                            # 差值数值格式化
+                            try:
+                                if col_type == "num":
+                                    diff_val_str = f"{abs(int(diff_val))}"
+                                elif col_type == "rate":
+                                    diff_val_str = f"{abs(diff_val):.2%}"
+                                elif col_type == "diff":
+                                    diff_val_str = f"{abs(diff_val):.2f}"
+                                else:
+                                    diff_val_str = f"{abs(diff_val)}"
+                            except:
+                                diff_val_str = "0"
+
+                            diff_str = f"""<span style="font-size: 0.7em; color: {color};">
+                                            {arrow}{diff_val_str}
+                                          </span>"""
+
+                        return f"{main_str} {diff_str}" if diff_str else main_str
+
+
+                    # 8. 生成带环比+平均值的表格数据
+                    trend_display = df_with_avg.copy()
+
+                    # 标记是否是平均值行
+                    trend_display["is_avg"] = trend_display["到货年月"] == "筛选后平均值"
+
+                    # 格式化订单个数
+                    if "订单个数" in trend_display.columns and "订单个数_环比差值" in trend_display.columns:
+                        trend_display["订单个数"] = trend_display.apply(
+                            lambda x: format_value_with_diff(x["订单个数"], x["订单个数_环比差值"], "num", x["is_avg"]),
+                            axis=1
+                        )
+                        trend_display = trend_display.drop(["订单个数_环比差值", "is_avg"], axis=1)
+
+                    # 格式化准时率
+                    if "准时率" in trend_display.columns and "准时率_环比差值" in trend_display.columns:
+                        trend_display["准时率"] = trend_display.apply(
+                            lambda x: format_value_with_diff(x["准时率"], x["准时率_环比差值"], "rate",
+                                                             x["到货年月"] == "筛选后平均值"),
+                            axis=1
+                        )
+                        trend_display = trend_display.drop("准时率_环比差值", axis=1)
+
+                    # 格式化绝对值差值均值
+                    abs_diff_mean_col = f"{abs_diff_col}_均值"
+                    if abs_diff_mean_col in trend_display.columns and f"{abs_diff_mean_col}_环比差值" in trend_display.columns:
+                        trend_display[abs_diff_mean_col] = trend_display.apply(
+                            lambda x: format_value_with_diff(x[abs_diff_mean_col], x[f"{abs_diff_mean_col}_环比差值"],
+                                                             "diff", x["到货年月"] == "筛选后平均值"),
+                            axis=1
+                        )
+                        trend_display = trend_display.drop(f"{abs_diff_mean_col}_环比差值", axis=1)
+
+                    # 格式化时效差值均值
+                    diff_mean_col = f"{diff_col}_均值"
+                    if diff_mean_col in trend_display.columns and f"{diff_mean_col}_环比差值" in trend_display.columns:
+                        trend_display[diff_mean_col] = trend_display.apply(
+                            lambda x: format_value_with_diff(x[diff_mean_col], x[f"{diff_mean_col}_环比差值"], "diff",
+                                                             x["到货年月"] == "筛选后平均值"),
+                            axis=1
+                        )
+                        trend_display = trend_display.drop(f"{diff_mean_col}_环比差值", axis=1)
+
+                    # 9. 生成带固定平均值行的HTML表格
+                    st.markdown(f"#### 月份趋势分析（{start_month} ~ {end_month}）")
+
+                    # 构建表格HTML
+                    html_style = """
+                    <style>
+                    .trend-table-container {
+                        height: 400px;
+                        overflow-y: auto;
+                        border: 1px solid #e0e0e0;
+                        border-radius: 4px;
+                        margin: 10px 0;
                     }
-                ).reset_index()
+                    .trend-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+                    .trend-table th {
+                        position: sticky;
+                        top: 0;
+                        background-color: #f8f9fa;
+                        font-weight: bold;
+                        z-index: 2;
+                        padding: 8px;
+                        border: 1px solid #e0e0e0;
+                    }
+                    .avg-row td {
+                        position: sticky;
+                        top: 38px;
+                        background-color: #fff3cd;
+                        font-weight: bold;
+                        z-index: 1;
+                        padding: 8px;
+                        border: 1px solid #e0e0e0;
+                    }
+                    .trend-table td {
+                        padding: 8px;
+                        border: 1px solid #e0e0e0;
+                    }
+                    </style>
+                    """
 
-                # 按月份排序
-                trend_data["年月数值"] = trend_data["到货年月"].apply(month_to_num)
-                trend_data = trend_data.sort_values("年月数值").drop("年月数值", axis=1)
+                    # 生成表头
+                    headers = [col for col in trend_display.columns if col != "is_avg"]
+                    header_html = "".join([f"<th>{col}</th>" for col in headers])
+
+                    # 生成行数据
+                    rows_html = ""
+                    for idx, row in trend_display.iterrows():
+                        if idx == 0:  # 平均值行
+                            row_html = "<tr class='avg-row'>"
+                            for col in headers:
+                                row_html += f"<td>{row[col]}</td>"
+                            row_html += "</tr>"
+                        else:  # 普通数据行
+                            row_html = "<tr>"
+                            for col in headers:
+                                row_html += f"<td>{row[col]}</td>"
+                            row_html += "</tr>"
+                        rows_html += row_html
+
+                    # 完整HTML
+                    table_html = f"""
+                    {html_style}
+                    <div class='trend-table-container'>
+                        <table class='trend-table'>
+                            <thead><tr>{header_html}</tr></thead>
+                            <tbody>{rows_html}</tbody>
+                        </table>
+                    </div>
+                    """
+
+                    # 渲染表格
+                    st.markdown(table_html, unsafe_allow_html=True)
+
+
+                    # 10. 下载功能
+                    def generate_trend_download_link(df, filename, link_text):
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df.to_excel(writer, index=False, sheet_name='月份趋势')
+                        output.seek(0)
+                        b64 = base64.b64encode(output.read()).decode()
+                        return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{link_text}</a>'
+
+
+                    # 下载包含平均值的原始数据
+                    download_filename = f"月份红单趋势_{start_month}_{end_month}_{view_mode.replace('（', '').replace('）', '').replace(' ', '')}.xlsx"
+                    st.markdown(
+                        generate_trend_download_link(df_with_avg, download_filename, "📥 下载趋势数据（含平均值）"),
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.write("⚠️ 筛选后无数据")
 
             else:
-                # 4.2 月份+准时状态明细
-                trend_data = df_trend_filtered.groupby(["到货年月", "提前/延期"]).agg(
-                    订单个数=("FBA号", "count"),
-                    准时率=("提前/延期", lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0),
-                    **{
-                        f"{abs_diff_col}_均值": (abs_diff_col,
-                                                 "mean") if abs_diff_col in df_trend_filtered.columns else 0,
-                        f"{diff_col}_均值": (diff_col, "mean") if diff_col in df_trend_filtered.columns else 0
-                    }
-                ).reset_index()
-
-                # 按月份+状态排序
-                trend_data["年月数值"] = trend_data["到货年月"].apply(month_to_num)
-                trend_data = trend_data.sort_values(["年月数值", "提前/延期"]).drop("年月数值", axis=1)
-
-            # 5. 计算筛选后整体平均值（核心新增）
-            avg_row = {}
-            # 定义需要计算平均值的列
-            avg_cols = ["订单个数", "准时率", f"{abs_diff_col}_均值", f"{diff_col}_均值"]
-
-            for col in trend_data.columns:
-                if col == "到货年月":
-                    avg_row[col] = "筛选后平均值"
-                elif col == "提前/延期":
-                    avg_row[col] = "-"
-                elif col in avg_cols:
-                    # 计算筛选后所有数据的平均值
-                    valid_vals = trend_data[col].dropna()
-                    if len(valid_vals) > 0:
-                        if col == "订单个数":
-                            avg_row[col] = round(valid_vals.mean(), 2)  # 个数均值保留两位
-                        elif col == "准时率":
-                            avg_row[col] = round(valid_vals.mean(), 4)  # 准时率保留四位（便于百分比）
-                        else:
-                            avg_row[col] = round(valid_vals.mean(), 2)  # 差值均值保留两位
-                    else:
-                        avg_row[col] = 0
-                else:
-                    avg_row[col] = "-"
-
-            # 将平均值行插入到表格顶部
-            df_with_avg = pd.concat([pd.DataFrame([avg_row]), trend_data], ignore_index=True)
-
-
-            # 6. 计算环比差值（与上月对比）
-            def calculate_monthly_diff(df, base_col, group_cols=["到货年月"]):
-                """计算环比差值"""
-                # 复制数据避免修改原数据（跳过平均值行）
-                df_data = df.iloc[1:].copy() if len(df) > 1 else df.copy()
-                # 按分组列排序
-                df_data["年月数值"] = df_data["到货年月"].apply(month_to_num)
-                df_data = df_data.sort_values(["年月数值"] + group_cols[1:])
-
-                # 计算环比差值
-                if view_mode == "月份汇总（无状态）":
-                    df_data[f"{base_col}_环比差值"] = df_data[base_col].diff()
-                else:
-                    # 按状态分组计算环比
-                    df_data[f"{base_col}_环比差值"] = df_data.groupby("提前/延期")[base_col].diff()
-
-                # 填充第一个月的差值（无上月）
-                df_data[f"{base_col}_环比差值"] = df_data[f"{base_col}_环比差值"].fillna(0)
-
-                # 合并平均值行和数据行
-                if len(df) > 1:
-                    df_result = pd.concat([df.iloc[0:1], df_data], ignore_index=True)
-                else:
-                    df_result = df_data
-                return df_result.drop("年月数值", axis=1)
-
-
-            # 对核心列计算环比
-            for col in avg_cols:
-                if col in df_with_avg.columns:
-                    df_with_avg = calculate_monthly_diff(df_with_avg, col)
-
-
-            # 7. 格式化显示（主值+环比差值小字体+箭头 + 平均值行）
-            def format_value_with_diff(main_val, diff_val, col_type, is_avg=False):
-                """
-                格式化值：主值 + 环比差值（小字体+箭头+颜色）
-                col_type: num(个数)/rate(准时率)/diff(差值)
-                is_avg: 是否是平均值行
-                """
-                # 平均值行特殊处理
-                if is_avg:
-                    if col_type == "num":
-                        return f"<strong>{main_val:.2f}</strong>"  # 加粗显示平均值
-                    elif col_type == "rate":
-                        return f"<strong>{main_val:.2%}</strong>"
-                    elif col_type == "diff":
-                        return f"<strong>{main_val:.2f}</strong>"
-                    else:
-                        return f"<strong>{main_val}</strong>"
-
-                # 普通行主值格式化
-                if col_type == "num":
-                    main_str = f"{int(main_val)}"
-                elif col_type == "rate":
-                    main_str = f"{main_val:.2%}"
-                elif col_type == "diff":
-                    main_str = f"{main_val:.2f}"
-                else:
-                    main_str = str(main_val)
-
-                # 环比差值格式化（小字体+箭头）
-                if diff_val == 0:
-                    diff_str = ""
-                else:
-                    # 箭头和颜色：上升(red)/下降(green)
-                    if diff_val > 0:
-                        arrow = "↑"
-                        color = "red"
-                    else:
-                        arrow = "↓"
-                        color = "green"
-
-                    # 差值数值格式化
-                    if col_type == "num":
-                        diff_val_str = f"{abs(int(diff_val))}"
-                    elif col_type == "rate":
-                        diff_val_str = f"{abs(diff_val):.2%}"
-                    elif col_type == "diff":
-                        diff_val_str = f"{abs(diff_val):.2f}"
-                    else:
-                        diff_val_str = f"{abs(diff_val)}"
-
-                    diff_str = f"""<span style="font-size: 0.7em; color: {color};">
-                                    {arrow}{diff_val_str}
-                                  </span>"""
-
-                return f"{main_str} {diff_str}" if diff_str else main_str
-
-
-            # 8. 生成带环比+平均值的表格数据
-            trend_display = df_with_avg.copy()
-
-            # 标记是否是平均值行
-            trend_display["is_avg"] = trend_display["到货年月"] == "筛选后平均值"
-
-            # 格式化订单个数
-            if "订单个数" in trend_display.columns and "订单个数_环比差值" in trend_display.columns:
-                trend_display["订单个数"] = trend_display.apply(
-                    lambda x: format_value_with_diff(x["订单个数"], x["订单个数_环比差值"], "num", x["is_avg"]),
-                    axis=1
-                )
-                trend_display = trend_display.drop(["订单个数_环比差值", "is_avg"], axis=1)
-
-            # 格式化准时率
-            if "准时率" in trend_display.columns and "准时率_环比差值" in trend_display.columns:
-                trend_display["准时率"] = trend_display.apply(
-                    lambda x: format_value_with_diff(x["准时率"], x["准时率_环比差值"], "rate",
-                                                     x["到货年月"] == "筛选后平均值"),
-                    axis=1
-                )
-                trend_display = trend_display.drop("准时率_环比差值", axis=1)
-
-            # 格式化绝对值差值均值
-            abs_diff_mean_col = f"{abs_diff_col}_均值"
-            if abs_diff_mean_col in trend_display.columns and f"{abs_diff_mean_col}_环比差值" in trend_display.columns:
-                trend_display[abs_diff_mean_col] = trend_display.apply(
-                    lambda x: format_value_with_diff(x[abs_diff_mean_col], x[f"{abs_diff_mean_col}_环比差值"], "diff",
-                                                     x["到货年月"] == "筛选后平均值"),
-                    axis=1
-                )
-                trend_display = trend_display.drop(f"{abs_diff_mean_col}_环比差值", axis=1)
-
-            # 格式化时效差值均值
-            diff_mean_col = f"{diff_col}_均值"
-            if diff_mean_col in trend_display.columns and f"{diff_mean_col}_环比差值" in trend_display.columns:
-                trend_display[diff_mean_col] = trend_display.apply(
-                    lambda x: format_value_with_diff(x[diff_mean_col], x[f"{diff_mean_col}_环比差值"], "diff",
-                                                     x["到货年月"] == "筛选后平均值"),
-                    axis=1
-                )
-                trend_display = trend_display.drop(f"{diff_mean_col}_环比差值", axis=1)
-
-            # 9. 生成带固定平均值行的HTML表格（解决滚动后看不到的问题）
-            st.markdown(f"#### 月份趋势分析（{start_month} ~ {end_month}）")
-
-            # 构建表格HTML
-            html_style = """
-            <style>
-            .trend-table-container {
-                height: 400px;
-                overflow-y: auto;
-                border: 1px solid #e0e0e0;
-                border-radius: 4px;
-                margin: 10px 0;
-            }
-            .trend-table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-            .trend-table th {
-                position: sticky;
-                top: 0;
-                background-color: #f8f9fa;
-                font-weight: bold;
-                z-index: 2;
-                padding: 8px;
-                border: 1px solid #e0e0e0;
-            }
-            .avg-row td {
-                position: sticky;
-                top: 38px;
-                background-color: #fff3cd;
-                font-weight: bold;
-                z-index: 1;
-                padding: 8px;
-                border: 1px solid #e0e0e0;
-            }
-            .trend-table td {
-                padding: 8px;
-                border: 1px solid #e0e0e0;
-            }
-            </style>
-            """
-
-            # 生成表头
-            headers = [col for col in trend_display.columns]
-            header_html = "".join([f"<th>{col}</th>" for col in headers])
-
-            # 生成行数据
-            rows_html = ""
-            for idx, row in trend_display.iterrows():
-                if idx == 0:  # 平均值行
-                    row_html = "<tr class='avg-row'>"
-                    for col in headers:
-                        row_html += f"<td>{row[col]}</td>"
-                    row_html += "</tr>"
-                else:  # 普通数据行
-                    row_html = "<tr>"
-                    for col in headers:
-                        row_html += f"<td>{row[col]}</td>"
-                    row_html += "</tr>"
-                rows_html += row_html
-
-            # 完整HTML
-            table_html = f"""
-            {html_style}
-            <div class='trend-table-container'>
-                <table class='trend-table'>
-                    <thead><tr>{header_html}</tr></thead>
-                    <tbody>{rows_html}</tbody>
-                </table>
-            </div>
-            """
-
-            # 渲染表格
-            st.markdown(table_html, unsafe_allow_html=True)
-
-            # 10. 下载功能
-            import pandas as pd
-            from io import BytesIO
-            import base64
-
-
-            def generate_trend_download_link(df, filename, link_text):
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='月份趋势')
-                output.seek(0)
-                b64 = base64.b64encode(output.read()).decode()
-                return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{link_text}</a>'
-
-
-            # 下载包含平均值的原始数据
-            download_filename = f"月份红单趋势_{start_month}_{end_month}_{view_mode.replace('（', '').replace('）', '').replace(' ', '')}.xlsx"
-            st.markdown(
-                generate_trend_download_link(df_with_avg, download_filename, "📥 下载趋势数据（含平均值）"),
-                unsafe_allow_html=True
-            )
+                st.write("⚠️ 请选择有效的月份范围")
 
         # ====================== 右侧：联动折线图 ======================
         with col2:
             st.markdown("#### 红单趋势折线图")
 
-            # 1. 准备图表数据（与左侧筛选条件联动，排除平均值行）
-            chart_data = trend_data.copy()  # 直接使用聚合后的数据（无平均值行）
+            # 检查是否有有效数据
+            if 'trend_data' in locals() and len(trend_data) > 0 and start_month and end_month:
+                # 1. 准备图表数据（排除平均值行）
+                chart_data = trend_data.copy()
 
-            if view_mode == "月份汇总（无状态）":
-                # 汇总模式：按月份显示核心指标
-                chart_data["年月数值"] = chart_data["到货年月"].apply(month_to_num)
-                chart_data = chart_data.sort_values("年月数值")
+                if view_mode == "月份汇总（无状态）":
+                    # 汇总模式：按月份显示核心指标
+                    chart_data["年月数值"] = chart_data["到货年月"].apply(month_to_num)
+                    chart_data = chart_data.sort_values("年月数值")
 
-                # 生成折线图（多指标）
-                fig_trend = px.line(
-                    chart_data,
-                    x="到货年月",
-                    y=["订单个数", "准时率", f"{abs_diff_col}_均值" if abs_diff_col in chart_data.columns else None],
-                    title=f"{start_month} ~ {end_month} 红单核心指标趋势",
-                    labels={"value": "数值", "variable": "指标"},
-                    marker=True
-                )
+                    # 生成折线图（多指标）
+                    y_cols = []
+                    if "订单个数" in chart_data.columns:
+                        y_cols.append("订单个数")
+                    if "准时率" in chart_data.columns:
+                        y_cols.append("准时率")
+                    if abs_diff_col + "_均值" in chart_data.columns:
+                        y_cols.append(abs_diff_col + "_均值")
 
-                # 添加平均值参考线
-                for col in ["订单个数", "准时率", f"{abs_diff_col}_均值"]:
-                    if col in chart_data.columns and col in avg_row:
-                        avg_val = avg_row[col]
-                        if avg_val != 0 and not pd.isna(avg_val):
-                            fig_trend.add_hline(
-                                y=avg_val,
-                                line_dash="dash",
-                                line_color="orange",
-                                annotation_text=f"平均值: {avg_val:.2f}" if col != "准时率" else f"平均值: {avg_val:.2%}",
-                                annotation_position="right"
-                            )
-
-            else:
-                # 明细模式：按月份+状态显示订单个数
-                chart_data["年月数值"] = chart_data["到货年月"].apply(month_to_num)
-                chart_data = chart_data.sort_values(["年月数值", "提前/延期"])
-
-                # 生成折线图（订单个数按状态拆分）
-                fig_trend = px.line(
-                    chart_data,
-                    x="到货年月",
-                    y="订单个数",
-                    color="提前/延期",
-                    title=f"{start_month} ~ {end_month} 各状态订单数趋势",
-                    color_discrete_map={"提前/准时": "green", "延期": "red"},
-                    marker=True
-                )
-
-                # 按状态添加平均值参考线
-                for status in ["提前/准时", "延期"]:
-                    if status in chart_data["提前/延期"].unique():
-                        status_avg = chart_data[chart_data["提前/延期"] == status]["订单个数"].mean()
-                        fig_trend.add_hline(
-                            y=status_avg,
-                            line_dash="dash",
-                            line_color="green" if status == "提前/准时" else "red",
-                            annotation_text=f"{status}平均值: {status_avg:.0f}",
-                            annotation_position="right"
+                    if y_cols:
+                        fig_trend = px.line(
+                            chart_data,
+                            x="到货年月",
+                            y=y_cols,
+                            title=f"{start_month} ~ {end_month} 红单核心指标趋势",
+                            labels={"value": "数值", "variable": "指标"},
+                            marker=True
                         )
 
-            # 2. 图表样式优化
-            fig_trend.update_layout(
-                height=400,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                hovermode="x unified"
-            )
+                        # 添加平均值参考线
+                        if 'avg_row' in locals():
+                            for col in y_cols:
+                                avg_val = avg_row.get(col, 0)
+                                if avg_val != 0 and not pd.isna(avg_val):
+                                    fig_trend.add_hline(
+                                        y=avg_val,
+                                        line_dash="dash",
+                                        line_color="orange",
+                                        annotation_text=f"平均值: {avg_val:.2f}" if col != "准时率" else f"平均值: {avg_val:.2%}",
+                                        annotation_position="right"
+                                    )
 
-            # 3. 显示图表
-            st.plotly_chart(fig_trend, use_container_width=True)
+                        # 图表样式优化
+                        fig_trend.update_layout(
+                            height=400,
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                            hovermode="x unified"
+                        )
+
+                        # 显示图表
+                        st.plotly_chart(fig_trend, use_container_width=True)
+                    else:
+                        st.write("⚠️ 无可用的图表指标")
+
+                else:
+                    # 明细模式：按月份+状态显示订单个数
+                    chart_data["年月数值"] = chart_data["到货年月"].apply(month_to_num)
+                    chart_data = chart_data.sort_values(["年月数值", "提前/延期"])
+
+                    # 生成折线图（订单个数按状态拆分）
+                    if "订单个数" in chart_data.columns:
+                        fig_trend = px.line(
+                            chart_data,
+                            x="到货年月",
+                            y="订单个数",
+                            color="提前/延期",
+                            title=f"{start_month} ~ {end_month} 各状态订单数趋势",
+                            color_discrete_map={"提前/准时": "green", "延期": "red"},
+                            marker=True
+                        )
+
+                        # 按状态添加平均值参考线
+                        if 'avg_row' in locals():
+                            for status in ["提前/准时", "延期"]:
+                                if status in chart_data["提前/延期"].unique():
+                                    status_data = chart_data[chart_data["提前/延期"] == status]
+                                    if len(status_data) > 0:
+                                        status_avg = status_data["订单个数"].mean()
+                                        fig_trend.add_hline(
+                                            y=status_avg,
+                                            line_dash="dash",
+                                            line_color="green" if status == "提前/准时" else "red",
+                                            annotation_text=f"{status}平均值: {status_avg:.0f}",
+                                            annotation_position="right"
+                                        )
+
+                        # 图表样式优化
+                        fig_trend.update_layout(
+                            height=400,
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                            hovermode="x unified"
+                        )
+
+                        # 显示图表
+                        st.plotly_chart(fig_trend, use_container_width=True)
+                    else:
+                        st.write("⚠️ 无可用的订单个数数据")
+            else:
+                st.write("⚠️ 请先选择有效的筛选条件并确保有数据")
 
     else:
-        st.write("⚠️ 暂无月份红单趋势数据")
+        st.write("⚠️ 暂无月份红单趋势数据（请检查数据是否包含「到货年月」和「提前/延期」列）")
 
     st.divider()
 
