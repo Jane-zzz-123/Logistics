@@ -1475,35 +1475,312 @@ if month_options and selected_month:
 
     st.divider()
 
-    # ---------------------- ② 不同月份货代/仓库准时情况 ----------------------
-    st.markdown("### 月度货代&仓库准时情况")
-    col1, col2 = st.columns(2)
 
-    # 左：不同月份货代准时情况
-    with col1:
-        if "货代" in df_red.columns and len(df_red) > 0:
-            freight_month = df_red.groupby(["到货年月", "货代"]).agg({
-                "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
-                diff_col: "mean"
-            }).round(2)
-            freight_month.columns = ["准时率(%)", "平均时效差值"]
-            st.markdown("#### 货代月度准时率")
-            st.dataframe(freight_month, use_container_width=True, height=400)
-        else:
-            st.write("⚠️ 暂无货代月度数据")
+    # ====================== 核心工具函数 ======================
+    def convert_to_chinese_month(month_str):
+        """转换YYYY-MM为中文年月"""
+        try:
+            year, month = month_str.split("-")
+            return f"{year}年{month}月"
+        except:
+            return month_str
 
-    # 右：不同月份仓库准时情况
-    with col2:
-        if "仓库" in df_red.columns and len(df_red) > 0:
-            warehouse_month = df_red.groupby(["到货年月", "仓库"]).agg({
-                "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
-                diff_col: "mean"
-            }).round(2)
-            warehouse_month.columns = ["准时率(%)", "平均时效差值"]
-            st.markdown("#### 仓库月度准时率")
-            st.dataframe(warehouse_month, use_container_width=True, height=400)
+
+    def get_prev_month(month_str):
+        """获取上个月（YYYY-MM格式）"""
+        try:
+            year, month = map(int, month_str.split("-"))
+            if month == 1:
+                return f"{year - 1}-12"
+            else:
+                return f"{year}-{month - 1:02d}"
+        except:
+            return ""
+
+
+    def get_diff_indicator(current, prev):
+        """生成环比差值标注（带箭头+颜色）"""
+        if pd.isna(current) or pd.isna(prev) or prev == 0:
+            return ""
+
+        diff = current - prev
+        # 数值型（差值/绝对值）：上升↑红色，下降↓绿色
+        if isinstance(current, (int, float)) and isinstance(prev, (int, float)):
+            if diff > 0:
+                return f"<span style='color:red; font-size:10px;'>↑{diff:.2f}</span>"
+            elif diff < 0:
+                return f"<span style='color:green; font-size:10px;'>↓{abs(diff):.2f}</span>"
+            else:
+                return f"<span style='font-size:10px;'>-</span>"
+        # 百分比（准时率）：上升↑红色，下降↓绿色
+        elif "%" in str(current) or isinstance(current, (int, float)):
+            if diff > 0:
+                return f"<span style='color:red; font-size:10px;'>↑{diff:.1f}%</span>"
+            elif diff < 0:
+                return f"<span style='color:green; font-size:10px;'>↓{abs(diff):.1f}%</span>"
+            else:
+                return f"<span style='font-size:10px;'>-</span>"
         else:
-            st.write("⚠️ 暂无仓库月度数据")
+            return ""
+
+
+    # ====================== 月度货代&仓库分析主模块 ======================
+    st.markdown("## 月度货代&仓库准时情况分析")
+
+    # 0. 数据准备（基于已加载的df_red）
+    required_cols = [
+        "到货年月", "货代", "仓库", "提前/延期",
+        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
+    ]
+    # 过滤有效数据
+    df_analysis = df_red[[col for col in required_cols if col in df_red.columns]].copy()
+    df_analysis = df_analysis.dropna(subset=["到货年月"])
+
+    if len(df_analysis) == 0:
+        st.warning("⚠️ 无有效数据进行月度分析")
+    else:
+        # 1. 全局筛选条件
+        st.sidebar.markdown("### 月度分析筛选")
+        # 1.1 到货年月范围筛选
+        all_months = sorted(df_analysis["到货年月"].unique())
+        start_month = st.sidebar.selectbox("起始年月", all_months, index=0)
+        end_month = st.sidebar.selectbox("结束年月", all_months, index=len(all_months) - 1)
+        # 1.2 仓库筛选（多选）
+        all_warehouses = sorted(df_analysis["仓库"].dropna().unique())
+        selected_warehouses = st.sidebar.multiselect("筛选仓库", all_warehouses, default=all_warehouses)
+
+        # 应用筛选
+        df_filtered = df_analysis[
+            (df_analysis["到货年月"] >= start_month) &
+            (df_analysis["到货年月"] <= end_month) &
+            (df_analysis["仓库"].isin(selected_warehouses))
+            ].copy()
+
+
+        # 2. 核心计算函数（复用）
+        def calculate_metrics(df, group_col, target_month):
+            """
+            计算指定分组（货代/仓库）、指定月份的指标
+            返回：当前月数据 + 上月环比
+            """
+            # 过滤当前月数据
+            df_current = df[df["到货年月"] == target_month].copy()
+            if len(df_current) == 0:
+                return pd.DataFrame()
+
+            # 计算当前月指标
+            metrics_current = df_current.groupby(group_col).agg({
+                "提前/延期": [
+                    ("个数", "count"),
+                    ("准时率", lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0)
+                ],
+                "预计物流时效-实际物流时效差值(绝对值)": [("均值", "mean")],
+                "预计物流时效-实际物流时效差值": [("均值", "mean")]
+            }).round(2)
+
+            # 扁平化列名
+            metrics_current.columns = ["个数", "准时率", "预计物流时效-实际物流时效差值(绝对值)",
+                                       "预计物流时效-实际物流时效差值"]
+            metrics_current = metrics_current.reset_index()
+
+            # 计算上月环比
+            prev_month = get_prev_month(target_month)
+            df_prev = df[df["到货年月"] == prev_month].copy()
+            if len(df_prev) > 0:
+                metrics_prev = df_prev.groupby(group_col).agg({
+                    "提前/延期": [
+                        ("个数", "count"),
+                        ("准时率", lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0)
+                    ],
+                    "预计物流时效-实际物流时效差值(绝对值)": [("均值", "mean")],
+                    "预计物流时效-实际物流时效差值": [("均值", "mean")]
+                }).round(2)
+                metrics_prev.columns = ["个数_上月", "准时率_上月", "绝对值差值_上月", "时效差值_上月"]
+                metrics_prev = metrics_prev.reset_index()
+
+                # 合并当前月+上月数据
+                metrics_merged = pd.merge(
+                    metrics_current, metrics_prev,
+                    on=group_col, how="left", suffixes=("", "_上月")
+                )
+            else:
+                # 无上月数据
+                metrics_merged = metrics_current.copy()
+                metrics_merged["个数_上月"] = np.nan
+                metrics_merged["准时率_上月"] = np.nan
+                metrics_merged["绝对值差值_上月"] = np.nan
+                metrics_merged["时效差值_上月"] = np.nan
+
+            return metrics_merged
+
+
+        # 3. 选择分析月份（主筛选）
+        analysis_month = st.selectbox(
+            "选择分析月份",
+            sorted(df_filtered["到货年月"].unique()),
+            format_func=convert_to_chinese_month
+        )
+
+        # 4. 双列布局：货代（左） + 仓库（右）
+        col1, col2 = st.columns(2)
+
+        # ========== 左侧：货代月度分析表格 ==========
+        with col1:
+            st.markdown(f"### 货代月度分析（{convert_to_chinese_month(analysis_month)}）")
+
+            # 计算货代指标
+            freight_metrics = calculate_metrics(df_filtered, "货代", analysis_month)
+
+            if len(freight_metrics) > 0:
+                # 构建带环比标注的展示表格
+                freight_display = freight_metrics.copy()
+
+                # 生成环比标注列
+                freight_display["个数_环比"] = freight_display.apply(
+                    lambda row: get_diff_indicator(row["个数"], row["个数_上月"]), axis=1
+                )
+                freight_display["准时率_环比"] = freight_display.apply(
+                    lambda row: get_diff_indicator(row["准时率"], row["准时率_上月"]), axis=1
+                )
+                freight_display["绝对值差值_环比"] = freight_display.apply(
+                    lambda row: get_diff_indicator(row["预计物流时效-实际物流时效差值(绝对值)"],
+                                                   row["绝对值差值_上月"]), axis=1
+                )
+                freight_display["时效差值_环比"] = freight_display.apply(
+                    lambda row: get_diff_indicator(row["预计物流时效-实际物流时效差值"], row["时效差值_上月"]), axis=1
+                )
+
+                # 构建HTML表格（核心：主数值+小字体环比）
+                html_table = """
+                <table style="width:100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #f0f2f6;">
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">货代</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">个数</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">准时率(%)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">预计物流时效-实际物流时效差值(绝对值)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">预计物流时效-实际物流时效差值</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for _, row in freight_display.iterrows():
+                    html_table += f"""
+                    <tr>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{row['货代']}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['个数']}<br/>{row['个数_环比']}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['准时率']:.1f}%<br/>{row['准时率_环比']}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['预计物流时效-实际物流时效差值(绝对值)']:.2f}<br/>{row['绝对值差值_环比']}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['预计物流时效-实际物流时效差值']:.2f}<br/>{row['时效差值_环比']}
+                        </td>
+                    </tr>
+                    """
+
+                html_table += """
+                    </tbody>
+                </table>
+                """
+
+                # 渲染HTML表格
+                st.markdown(html_table, unsafe_allow_html=True)
+
+                # 原始数据下载（可选）
+                csv = freight_metrics.to_csv(index=False, encoding="utf-8-sig")
+                st.download_button(
+                    "下载货代数据",
+                    data=csv,
+                    file_name=f"货代月度分析_{analysis_month}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.write(f"⚠️ 暂无{convert_to_chinese_month(analysis_month)}货代数据")
+
+        # ========== 右侧：仓库月度分析表格 ==========
+        with col2:
+            st.markdown(f"### 仓库月度分析（{convert_to_chinese_month(analysis_month)}）")
+
+            # 计算仓库指标
+            warehouse_metrics = calculate_metrics(df_filtered, "仓库", analysis_month)
+
+            if len(warehouse_metrics) > 0:
+                # 构建带环比标注的展示表格
+                warehouse_display = warehouse_metrics.copy()
+
+                # 生成环比标注列
+                warehouse_display["个数_环比"] = warehouse_display.apply(
+                    lambda row: get_diff_indicator(row["个数"], row["个数_上月"]), axis=1
+                )
+                warehouse_display["准时率_环比"] = warehouse_display.apply(
+                    lambda row: get_diff_indicator(row["准时率"], row["准时率_上月"]), axis=1
+                )
+                warehouse_display["绝对值差值_环比"] = warehouse_display.apply(
+                    lambda row: get_diff_indicator(row["预计物流时效-实际物流时效差值(绝对值)"],
+                                                   row["绝对值差值_上月"]), axis=1
+                )
+                warehouse_display["时效差值_环比"] = warehouse_display.apply(
+                    lambda row: get_diff_indicator(row["预计物流时效-实际物流时效差值"], row["时效差值_上月"]), axis=1
+                )
+
+                # 构建HTML表格
+                html_table = """
+                <table style="width:100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #f0f2f6;">
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">仓库</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">个数</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">准时率(%)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">预计物流时效-实际物流时效差值(绝对值)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">预计物流时效-实际物流时效差值</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for _, row in warehouse_display.iterrows():
+                    html_table += f"""
+                    <tr>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{row['仓库']}</td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['个数']}<br/>{row['个数_环比']}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['准时率']:.1f}%<br/>{row['准时率_环比']}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['预计物流时效-实际物流时效差值(绝对值)']:.2f}<br/>{row['绝对值差值_环比']}
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
+                            {row['预计物流时效-实际物流时效差值']:.2f}<br/>{row['时效差值_环比']}
+                        </td>
+                    </tr>
+                    """
+
+                html_table += """
+                    </tbody>
+                </table>
+                """
+
+                # 渲染HTML表格
+                st.markdown(html_table, unsafe_allow_html=True)
+
+                # 原始数据下载
+                csv = warehouse_metrics.to_csv(index=False, encoding="utf-8-sig")
+                st.download_button(
+                    "下载仓库数据",
+                    data=csv,
+                    file_name=f"仓库月度分析_{analysis_month}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.write(f"⚠️ 暂无{convert_to_chinese_month(analysis_month)}仓库数据")
 
     st.divider()
 
