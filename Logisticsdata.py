@@ -266,11 +266,25 @@ if month_options and selected_month:
     with col1:
         if "提前/延期" in df_current.columns and len(df_current) > 0:
             pie_data = df_current["提前/延期"].value_counts()
+
+            # 确保颜色映射严格生效（显式指定颜色列表）
+            # 提取类别并按顺序映射颜色
+            categories = pie_data.index.tolist()
+            colors = []
+            for cat in categories:
+                if cat == "提前/准时":
+                    colors.append("green")
+                elif cat == "延期":
+                    colors.append("red")
+                else:
+                    colors.append("gray")  # 处理意外类别
+
             fig_pie = px.pie(
                 values=pie_data.values,
                 names=pie_data.index,
                 title=f"{selected_month} 红单准时率分布",
-                color_discrete_map={"提前/准时": "green", "延期": "red"}
+                color=pie_data.index,  # 显式指定颜色依据
+                color_discrete_sequence=colors  # 使用顺序颜色列表确保对应关系
             )
             fig_pie.update_layout(height=400)
             st.plotly_chart(fig_pie, use_container_width=True)
