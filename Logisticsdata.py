@@ -353,6 +353,7 @@ if month_options and selected_month:
     # ---------------------- ③ 当月红单明细表格 ----------------------
     # ---------------------- ③ 当月红单明细表格 ----------------------
     # ---------------------- ③ 当月红单明细表格 ----------------------
+    # ---------------------- ③ 当月红单明细表格 ----------------------
     st.markdown("### 红单明细（含平均值）")
 
     # 准备明细数据
@@ -420,29 +421,30 @@ if month_options and selected_month:
                 return str(val)
 
 
-        # === 核心修复：统一列宽 + 同步滚动 + 固定行 ===
-        # 1. 生成列宽样式（按列数均分宽度）
-        col_width = 100 / len(detail_cols)
-        col_style = f"""
-        <style>
-        /* 强制所有表格列宽统一 */
-        .fixed-table th, .fixed-table td {{
-            width: {col_width}%;
-            min-width: {col_width}%;
-            max-width: {col_width}%;
-            box-sizing: border-box;
-        }}
-        </style>
-        """
+        # === 1. 解决列名不完整：换行/自适应宽度 ===
+        # 处理长列名（换行显示）
+        def format_colname(col):
+            """列名换行处理，避免截断"""
+            if len(col) > 8:
+                # 按特殊字符拆分长列名
+                if "-" in col:
+                    return col.replace("-", "<br>-")
+                elif "（" in col:
+                    return col.replace("（", "<br>（")
+                else:
+                    # 手动换行
+                    return col[:8] + "<br>" + col[8:]
+            return col
 
-        # 2. 生成完整的表格HTML（单表格+sticky固定，替代绝对定位）
+
+        # === 2. 生成带固定行的表格（列名完整） ===
         html_content = f"""
-        {col_style}
         <style>
         /* 容器样式 */
         .table-container {{
             height: 400px;
             overflow-y: auto;
+            overflow-x: auto;  /* 横向滚动，避免列名截断 */
             border: 1px solid #e0e0e0;
             border-radius: 4px;
             margin: 10px 0;
@@ -451,36 +453,45 @@ if month_options and selected_month:
         /* 核心：单表格 + sticky固定行 */
         .data-table {{
             width: 100%;
+            min-width: max-content;  /* 确保列名完整显示 */
             border-collapse: collapse;
-            table-layout: fixed; /* 强制列宽均分 */
         }}
 
-        /* 表头固定 */
+        /* 表头固定 + 列名完整显示 */
         .data-table thead th {{
             position: sticky;
             top: 0;
             background-color: #f8f9fa;
             font-weight: bold;
             z-index: 2;
+            padding: 8px 4px;  /* 减小内边距，增加显示空间 */
+            white-space: normal;  /* 允许列名换行 */
+            line-height: 1.2;     /* 行高适配换行 */
+            text-align: center;   /* 列名居中，更易读 */
         }}
 
         /* 平均值行固定（紧跟表头） */
         .avg-row td {{
             position: sticky;
-            top: 38px; /* 表头高度，精准匹配 */
+            top: 60px; /* 适配换行后的表头高度 */
             background-color: #fff3cd;
             font-weight: 500;
             z-index: 1;
+            text-align: center;
         }}
 
         /* 通用单元格样式 */
         .data-table th, .data-table td {{
             padding: 8px;
-            text-align: left;
             border: 1px solid #e0e0e0;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }}
+
+        /* 数据行左对齐 */
+        .data-table tbody tr td {{
+            text-align: left;
         }}
 
         /* 高亮样式 */
@@ -491,10 +502,10 @@ if month_options and selected_month:
 
         <div class="table-container">
             <table class="data-table">
-                <!-- 表头 -->
+                <!-- 表头（列名换行处理） -->
                 <thead>
                     <tr>
-                        {''.join([f'<th>{col}</th>' for col in detail_cols])}
+                        {''.join([f'<th>{format_colname(col)}</th>' for col in detail_cols])}
                     </tr>
                 </thead>
                 <tbody>
@@ -520,8 +531,42 @@ if month_options and selected_month:
         </div>
         """
 
-        # 渲染修复后的表格
+        # 渲染表格
         st.markdown(html_content, unsafe_allow_html=True)
+
+        # === 3. 添加表格下载功能 ===
+        import pandas as pd
+        from io import BytesIO
+        import base64
+
+        # 构建带平均值的完整数据（用于下载）
+        df_download = pd.concat([pd.DataFrame([avg_row]), df_detail], ignore_index=True)
+
+
+        # 定义下载函数
+        def get_table_download_link(df, filename, text):
+            """生成表格下载链接"""
+            # 保存为Excel（保留格式）
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='红单明细')
+            output.seek(0)
+            b64 = base64.b64encode(output.read()).decode()
+
+            # 生成下载链接
+            href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
+            return href
+
+
+        # 显示下载按钮
+        st.markdown(
+            get_table_download_link(
+                df_download,
+                f"红单明细_{selected_month}.xlsx",
+                "📥 下载红单明细表格（Excel格式）"
+            ),
+            unsafe_allow_html=True
+        )
 
     else:
         st.write("⚠️ 暂无明细数据")
