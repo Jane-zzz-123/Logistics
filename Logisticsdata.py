@@ -574,12 +574,14 @@ if month_options and selected_month:
     st.divider()
 
     # ---------------------- ④ 当月货代准时情况 ----------------------
+    # ---------------------- 货代准时情况分析 ----------------------
     st.markdown("### 货代准时情况分析")
-    col1, col2 = st.columns(2)
 
-    # 左：货代柱形图
-    with col1:
-        if "货代" in df_current.columns and "提前/延期" in df_current.columns and len(df_current) > 0:
+    if "货代" in df_current.columns and "提前/延期" in df_current.columns and len(df_current) > 0:
+        col1, col2 = st.columns(2)
+
+        # 左：货代准时情况柱状图（保留原有逻辑）
+        with col1:
             # 按货代统计提前/准时和延期数量
             freight_data = df_current.groupby(["货代", "提前/延期"]).size().unstack(fill_value=0)
             if "提前/准时" not in freight_data.columns:
@@ -595,20 +597,130 @@ if month_options and selected_month:
             )
             fig_freight.update_layout(height=400)
             st.plotly_chart(fig_freight, use_container_width=True)
-        else:
-            st.write("⚠️ 暂无货代准时情况数据")
 
-    # 右：货代准时率和平均差值表格
-    with col2:
-        if "货代" in df_current.columns and len(df_current) > 0:
-            freight_metrics = df_current.groupby("货代").agg({
-                "提前/延期": lambda x: (x == "提前/准时").sum() / len(x) * 100 if len(x) > 0 else 0,
-                diff_col: "mean"
-            }).round(2)
-            freight_metrics.columns = ["准时率(%)", "平均时效差值"]
-            st.dataframe(freight_metrics, use_container_width=True)
-        else:
-            st.write("⚠️ 暂无货代指标数据")
+        # 右：货代多维度分析表格（实现筛选+个数+差值计算）
+        with col2:
+            # 1. 筛选控件：选择分析维度（全部/仅提前/仅延期）
+            st.markdown("#### 分析维度筛选")
+            delay_filter = st.radio(
+                "选择订单范围",
+                options=["全部订单", "仅提前/准时", "仅延期"],
+                horizontal=True,
+                key="freight_table_filter"
+            )
+
+            # 2. 根据筛选条件过滤数据
+            if delay_filter == "仅提前/准时":
+                df_filtered = df_current[df_current["提前/延期"] == "提前/准时"].copy()
+            elif delay_filter == "仅延期":
+                df_filtered = df_current[df_current["提前/延期"] == "延期"].copy()
+            else:
+                df_filtered = df_current.copy()
+
+            # 3. 定义需要计算的差值列
+            abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
+            diff_col = "预计物流时效-实际物流时效差值"
+
+            # 4. 核心：双层聚合（支持「货代」+「提前/延期」维度）
+            # 4.1 基础聚合（货代+准时状态）
+            freight_detail = df_filtered.groupby(["货代", "提前/延期"]).agg(
+                订单个数=("FBA号", "count"),  # 新增个数列
+                准时率=("提前/延期", lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0),
+                **{
+                    f"{abs_diff_col}_均值": (abs_diff_col, "mean") if abs_diff_col in df_filtered.columns else 0,
+                    f"{diff_col}_均值": (diff_col, "mean") if diff_col in df_filtered.columns else 0
+                }
+            ).reset_index()
+
+            # 4.2 货代汇总聚合（无准时状态维度，用于对比）
+            freight_summary = df_filtered.groupby("货代").agg(
+                总订单个数=("FBA号", "count"),
+                整体准时率=("提前/延期", lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0),
+                **{
+                    f"{abs_diff_col}_整体均值": (abs_diff_col, "mean") if abs_diff_col in df_filtered.columns else 0,
+                    f"{diff_col}_整体均值": (diff_col, "mean") if diff_col in df_filtered.columns else 0
+                }
+            ).reset_index()
+
+            # 5. 数值格式化
+            # 5.1 明细表格格式化
+            freight_detail["准时率"] = freight_detail["准时率"].apply(lambda x: f"{x:.2%}")
+            if abs_diff_col in freight_detail.columns:
+                freight_detail[f"{abs_diff_col}_均值"] = freight_detail[f"{abs_diff_col}_均值"].round(2)
+            if diff_col in freight_detail.columns:
+                freight_detail[f"{diff_col}_均值"] = freight_detail[f"{diff_col}_均值"].round(2)
+
+            # 5.2 汇总表格格式化
+            freight_summary["整体准时率"] = freight_summary["整体准时率"].apply(lambda x: f"{x:.2%}")
+            if abs_diff_col in freight_summary.columns:
+                freight_summary[f"{abs_diff_col}_整体均值"] = freight_summary[f"{abs_diff_col}_整体均值"].round(2)
+            if diff_col in freight_summary.columns:
+                freight_summary[f"{diff_col}_整体均值"] = freight_summary[f"{diff_col}_整体均值"].round(2)
+
+            # 6. 切换显示模式（汇总/明细）
+            view_mode = st.radio(
+                "表格显示模式",
+                options=["货代汇总（无状态）", "货代+准时状态（明细）"],
+                horizontal=True,
+                key="freight_view_mode"
+            )
+
+            # 7. 显示对应表格
+            st.markdown(f"#### {view_mode}")
+            if view_mode == "货代汇总（无状态）":
+                # 汇总表格（不加提前/准时/延期维度）
+                st.dataframe(
+                    freight_summary,
+                    column_config={
+                        "货代": st.column_config.TextColumn("货代名称"),
+                        "总订单个数": st.column_config.NumberColumn("总订单个数", format="%d"),
+                        "整体准时率": st.column_config.TextColumn("整体准时率"),
+                        f"{abs_diff_col}_整体均值": st.column_config.NumberColumn("绝对值差值整体均值", format="%.2f"),
+                        f"{diff_col}_整体均值": st.column_config.NumberColumn("时效差值整体均值", format="%.2f")
+                    },
+                    use_container_width=True,
+                    height=350
+                )
+            else:
+                # 明细表格（加提前/准时/延期维度）
+                st.dataframe(
+                    freight_detail,
+                    column_config={
+                        "货代": st.column_config.TextColumn("货代名称"),
+                        "提前/延期": st.column_config.TextColumn("准时状态"),
+                        "订单个数": st.column_config.NumberColumn("订单个数", format="%d"),
+                        "准时率": st.column_config.TextColumn("准时率"),
+                        f"{abs_diff_col}_均值": st.column_config.NumberColumn("绝对值差值均值", format="%.2f"),
+                        f"{diff_col}_均值": st.column_config.NumberColumn("时效差值均值", format="%.2f")
+                    },
+                    use_container_width=True,
+                    height=350
+                )
+
+            # 8. 下载功能
+            import pandas as pd
+            from io import BytesIO
+            import base64
+
+
+            def generate_download_link(df, filename, link_text):
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name='货代分析')
+                output.seek(0)
+                b64 = base64.b64encode(output.read()).decode()
+                return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{link_text}</a>'
+
+
+            # 下载当前显示的表格数据
+            download_df = freight_summary if view_mode == "货代汇总（无状态）" else freight_detail
+            download_filename = f"货代分析_{selected_month}_{view_mode.replace('（', '').replace('）', '').replace(' ', '')}.xlsx"
+            st.markdown(
+                generate_download_link(download_df, download_filename, "📥 下载当前表格数据"),
+                unsafe_allow_html=True
+            )
+    else:
+        st.write("⚠️ 暂无货代准时情况数据")
 
     st.divider()
 
