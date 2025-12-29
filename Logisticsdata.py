@@ -349,11 +349,14 @@ if month_options and selected_month:
     st.divider()
 
     # ---------------------- ③ 当月红单明细表格 ----------------------
+    # ---------------------- ③ 当月红单明细表格 ----------------------
     st.markdown("### 红单明细（含平均值）")
 
     # 准备明细数据
     detail_cols = [
         "到货年月", "提前/延期", "FBA号", "店铺", "仓库", "货代",
+        # 新增的物流阶段列（加在货代右边）
+        "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
         "签收-发货时间", "上架完成-发货时间",
         abs_col, diff_col
     ]
@@ -366,6 +369,18 @@ if month_options and selected_month:
         if diff_col in df_detail.columns:
             df_detail = df_detail.sort_values(diff_col, ascending=True)
 
+        # 定义需要显示为整数的列
+        int_cols = [
+            "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
+            "签收-发货时间", "上架完成-发货时间"
+        ]
+        # 过滤存在的整数列
+        int_cols = [col for col in int_cols if col in df_detail.columns]
+
+        # 将整数列转换为无小数点格式（空值填充为0）
+        for col in int_cols:
+            df_detail[col] = pd.to_numeric(df_detail[col], errors='coerce').fillna(0).astype(int)
+
         # 计算平均值行
         avg_row = {}
         for col in detail_cols:
@@ -373,14 +388,21 @@ if month_options and selected_month:
                 avg_row[col] = "平均值"
             elif col in ["提前/延期", "FBA号", "店铺", "仓库", "货代"]:
                 avg_row[col] = "-"
+            elif col in int_cols:
+                # 整数列的平均值保留两位小数
+                avg_val = df_detail[col].mean()
+                avg_row[col] = round(avg_val, 2)
             else:
-                avg_row[col] = df_detail[col].mean() if len(df_detail) > 0 else 0
+                # 其他数值列保留两位小数
+                avg_val = df_detail[col].mean() if len(df_detail) > 0 else 0
+                avg_row[col] = round(avg_val, 2)
 
         # 插入平均值行到顶部
         df_detail_with_avg = pd.concat([pd.DataFrame([avg_row]), df_detail], ignore_index=True)
 
         # 高亮大于平均值的单元格
         numeric_detail_cols = [
+            "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
             "签收-发货时间", "上架完成-发货时间",
             abs_col, diff_col
         ]
@@ -393,6 +415,35 @@ if month_options and selected_month:
                 lambda x, col=col, avg=avg_val: highlight_large_cells(x, avg, col),
                 subset=pd.IndexSlice[:, col]
             )
+
+
+        # 格式化显示：整数列无小数点，平均值行保留两位小数
+        def format_cell(val, col):
+            """自定义单元格格式化"""
+            try:
+                # 平均值行保留两位小数
+                if val == "平均值":
+                    return val
+                # 整数列（非平均值行）显示为整数
+                if col in int_cols and not isinstance(val, str):
+                    if pd.isna(val):
+                        return ""
+                    # 区分平均值行和数据行
+                    if isinstance(val, (int, float)) and val == int(val):
+                        return f"{int(val)}"
+                    else:
+                        return f"{val:.2f}"  # 平均值行保留两位小数
+                # 其他数值列保留两位小数
+                elif col in [abs_col, diff_col] and not isinstance(val, str):
+                    return f"{val:.2f}"
+                return val
+            except:
+                return val
+
+
+        # 应用格式化
+        for col in detail_cols:
+            styled_df = styled_df.format(lambda x, col=col: format_cell(x, col), subset=col)
 
         st.dataframe(styled_df, use_container_width=True, height=400)
     else:
