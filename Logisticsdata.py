@@ -258,6 +258,7 @@ if month_options and selected_month:
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
+    # ---------------------- ② 当月准时率与时效偏差 ----------------------
     st.markdown("### 准时率与时效偏差分布")
     col1, col2 = st.columns(2)
 
@@ -298,7 +299,7 @@ if month_options and selected_month:
             )
             max_display_length = 20  # 最大显示字符数
 
-            # 生成文本直方图
+            # 生成文本直方图（使用HTML设置颜色，与饼图保持一致）
             st.markdown("#### 提前/准时区间分布")
             if not early_counts.empty:
                 for day, count in early_counts.items():
@@ -306,7 +307,12 @@ if month_options and selected_month:
                     display_length = int((count / max_count) * max_display_length) if max_count > 0 else 0
                     bar = "█" * display_length
                     day_label = f"+{day}天" if day > 0 else "0天"  # 0天特殊处理
-                    st.text(f"{day_label:>6} {bar} ({count})")
+                    # 绿色显示（与饼图提前/准时颜色一致）
+                    st.markdown(
+                        f"<div style='font-family: monospace;'><span style='display: inline-block; width: 60px;'>{day_label}</span>"
+                        f"<span style='color: green;'>{bar}</span> <span> ({count})</span></div>",
+                        unsafe_allow_html=True
+                    )
             else:
                 st.text("暂无提前/准时数据")
 
@@ -315,7 +321,12 @@ if month_options and selected_month:
                 for day, count in delay_counts.items():
                     display_length = int((count / max_count) * max_display_length) if max_count > 0 else 0
                     bar = "█" * display_length
-                    st.text(f"{day}天   {bar} ({count})")
+                    # 红色显示（与饼图延期颜色一致）
+                    st.markdown(
+                        f"<div style='font-family: monospace;'><span style='display: inline-block; width: 60px;'>{day}天</span>"
+                        f"<span style='color: red;'>{bar}</span> <span> ({count})</span></div>",
+                        unsafe_allow_html=True
+                    )
             else:
                 st.text("暂无延迟数据")
         else:
