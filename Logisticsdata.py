@@ -350,6 +350,7 @@ if month_options and selected_month:
 
     # ---------------------- ③ 当月红单明细表格 ----------------------
     # ---------------------- ③ 当月红单明细表格 ----------------------
+    # ---------------------- ③ 当月红单明细表格 ----------------------
     st.markdown("### 红单明细（含平均值）")
 
     # 准备明细数据
@@ -397,55 +398,139 @@ if month_options and selected_month:
                 avg_val = df_detail[col].mean() if len(df_detail) > 0 else 0
                 avg_row[col] = round(avg_val, 2)
 
-        # 插入平均值行到顶部
-        df_detail_with_avg = pd.concat([pd.DataFrame([avg_row]), df_detail], ignore_index=True)
-
-        # 高亮大于平均值的单元格
-        numeric_detail_cols = [
-            "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
-            "签收-发货时间", "上架完成-发货时间",
-            abs_col, diff_col
-        ]
-        numeric_detail_cols = [col for col in numeric_detail_cols if col in df_detail_with_avg.columns]
-
-        styled_df = df_detail_with_avg.style
-        for col in numeric_detail_cols:
-            avg_val = avg_row[col]
-            styled_df = styled_df.applymap(
-                lambda x, col=col, avg=avg_val: highlight_large_cells(x, avg, col),
-                subset=pd.IndexSlice[:, col]
-            )
+        # 构建带平均值行的完整数据
+        df_avg = pd.DataFrame([avg_row])
+        df_combined = pd.concat([df_avg, df_detail], ignore_index=True)
 
 
-        # 格式化显示：整数列无小数点，平均值行保留两位小数
-        def format_cell(val, col):
-            """自定义单元格格式化"""
+        # 定义格式化函数
+        def format_value(val, col):
+            """格式化单元格值"""
             try:
-                # 平均值行保留两位小数
-                if val == "平均值":
+                # 处理平均值行的数值
+                if val == "平均值" or val == "-":
                     return val
-                # 整数列（非平均值行）显示为整数
-                if col in int_cols and not isinstance(val, str):
-                    if pd.isna(val):
-                        return ""
-                    # 区分平均值行和数据行
-                    if isinstance(val, (int, float)) and val == int(val):
-                        return f"{int(val)}"
-                    else:
-                        return f"{val:.2f}"  # 平均值行保留两位小数
+
+                # 整数列（数据行）显示为整数，平均值行保留两位小数
+                if col in int_cols:
+                    if isinstance(val, (int, float)):
+                        # 平均值行（第一行）保留两位小数
+                        if pd.isna(val):
+                            return ""
+                        elif val == int(val):
+                            return f"{int(val)}"
+                        else:
+                            return f"{val:.2f}"
                 # 其他数值列保留两位小数
-                elif col in [abs_col, diff_col] and not isinstance(val, str):
+                elif col in [abs_col, diff_col]:
                     return f"{val:.2f}"
-                return val
+
+                return str(val)
             except:
-                return val
+                return str(val)
 
 
-        # 应用格式化
-        for col in detail_cols:
-            styled_df = styled_df.format(lambda x, col=col: format_cell(x, col), subset=col)
+        # 生成带样式的HTML表格（固定表头和平均值行）
+        html = f"""
+        <style>
+        /* 容器样式：固定高度，可滚动 */
+        .fixed-table-container {{
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }}
 
-        st.dataframe(styled_df, use_container_width=True, height=400)
+        /* 表格样式 */
+        .fixed-table {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }}
+
+        /* 表头固定 */
+        .fixed-table thead th {{
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            text-align: left;
+            font-weight: bold;
+            z-index: 2;
+        }}
+
+        /* 平均值行固定（在表头下方） */
+        .fixed-table .avg-row {{
+            position: sticky;
+            top: 38px; /* 表头高度，根据实际调整 */
+            background-color: #fff3cd; /* 浅黄色突出显示 */
+            border: 1px solid #e0e0e0;
+            z-index: 1;
+        }}
+
+        /* 数据行样式 */
+        .fixed-table tbody td {{
+            border: 1px solid #e0e0e0;
+            padding: 8px;
+            text-align: left;
+        }}
+
+        /* 高亮大于平均值的单元格 */
+        .highlight {{
+            background-color: #ffcccc !important;
+        }}
+        </style>
+
+        <div class="fixed-table-container">
+            <table class="fixed-table">
+                <thead>
+                    <tr>
+                        {''.join([f'<th>{col}</th>' for col in detail_cols])}
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- 平均值行 -->
+                    <tr class="avg-row">
+                        {''.join([f'<td>{format_value(avg_row[col], col)}</td>' for col in detail_cols])}
+                    </tr>
+                    <!-- 数据行 -->
+        """
+
+        # 添加数据行并处理高亮
+        for idx, row in df_detail.iterrows():
+            html += "<tr>"
+            for col in detail_cols:
+                val = row[col]
+                formatted_val = format_value(val, col)
+
+                # 判断是否需要高亮（大于平均值）
+                highlight = ""
+                try:
+                    if col in [abs_col, diff_col] + int_cols:
+                        avg_val = avg_row[col]
+                        if avg_val != "-" and avg_val != "平均值" and pd.notna(val):
+                            val_num = float(val) if isinstance(val, (int, float)) else 0
+                            avg_num = float(avg_val) if isinstance(avg_val, (int, float)) else 0
+                            if val_num > avg_num:
+                                highlight = "highlight"
+                except:
+                    pass
+
+                html += f'<td class="{highlight}">{formatted_val}</td>'
+            html += "</tr>"
+
+        # 闭合HTML标签
+        html += """
+                </tbody>
+            </table>
+        </div>
+        """
+
+        # 渲染HTML表格
+        st.markdown(html, unsafe_allow_html=True)
+
     else:
         st.write("⚠️ 暂无明细数据")
 
