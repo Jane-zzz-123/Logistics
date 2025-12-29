@@ -256,6 +256,7 @@ if month_options and selected_month:
 
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
+    # ---------------------- ② 当月准时率与时效偏差 ----------------------
     st.markdown("### 准时率与时效偏差分布")
     col1, col2 = st.columns(2)
 
@@ -274,57 +275,78 @@ if month_options and selected_month:
         else:
             st.write("⚠️ 暂无准时率数据")
 
-    # 右：自动识别的时效偏差天数分布（替换分位数表格）
+    # 右：拆分为两个直方图（提前/准时 和 延期）
     with col2:
         if diff_col in df_current.columns and len(df_current) > 0:
-            # 提取并清洗数据（只保留整数天数，排除异常值）
+            # 提取并处理数据
             diff_data = df_current[diff_col].dropna()
-            # 转换为整数天数（四舍五入）
-            diff_data = diff_data.round().astype(int)
+            diff_data = diff_data.round().astype(int)  # 转换为整数天数
 
-            # 统计每个天数的出现次数
-            day_counts = diff_data.value_counts().sort_index()
+            # 分离提前/准时（>=0）和延期（<0）数据
+            early_data = diff_data[diff_data >= 0]  # 包含0天（准时）
+            delay_data = diff_data[diff_data < 0]  # 延期数据
 
-            # 分离提前（正数）和延迟（负数）区间
-            early_days = day_counts[day_counts.index >= 0]  # 包含0天（准时）
-            delay_days = day_counts[day_counts.index < 0]
+            # 创建两个子图的容器
+            from plotly.subplots import make_subplots
 
-            # 合并数据并保持排序（延迟在前，准时在中间，提前在后）
-            all_days = pd.concat([delay_days, early_days])
-
-            # 创建横向条形图
-            fig_hist = px.bar(
-                x=all_days.values,
-                y=all_days.index.map(lambda x: f"+{x}天" if x > 0 else f"{x}天" if x < 0 else "0天"),
-                orientation='h',
-                title=f"{selected_month} 时效偏差天数分布",
-                labels={'x': '订单数量', 'y': '偏差天数'},
-                color=all_days.index,
-                color_discrete_map={
-                    # 动态生成颜色映射：延迟（负数）用红色系，提前（正数）用绿色系，0用灰色
-                    **{day: f"rgba(255, {100 + abs(day) * 20}, {100 + abs(day) * 20}, 0.7)" for day in
-                       delay_days.index},
-                    0: "rgba(204, 204, 204, 0.7)",  # 0天（准时）
-                    **{day: f"rgba({100 + day * 20}, 255, {100 + day * 20}, 0.7)" for day in early_days.index if
-                       day > 0}
-                }
+            fig = make_subplots(
+                rows=2, cols=1,
+                subplot_titles=("提前/准时偏差分布", "延期偏差分布"),
+                vertical_spacing=0.2,
+                row_heights=[0.5, 0.5]
             )
 
-            # 优化布局
-            fig_hist.update_layout(
-                height=400,
-                yaxis=dict(autorange="reversed"),  # 反转Y轴，让延迟（负数）在下方
+            # 1. 提前/准时偏差直方图
+            if not early_data.empty:
+                early_counts = early_data.value_counts().sort_index()
+                early_labels = [f"+{x}天" if x > 0 else "0天" for x in early_counts.index]
+
+                fig.add_trace(
+                    go.Bar(
+                        x=early_labels,
+                        y=early_counts.values,
+                        marker_color=[
+                            f"rgba({100 + x * 20}, 255, {100 + x * 20}, 0.7)" if x > 0 else "rgba(204, 204, 204, 0.7)"
+                            for x in early_counts.index],
+                        text=early_counts.values,
+                        textposition='outside',
+                        name="提前/准时"
+                    ),
+                    row=1, col=1
+                )
+
+            # 2. 延期偏差直方图
+            if not delay_data.empty:
+                delay_counts = delay_data.value_counts().sort_index()
+                delay_labels = [f"{x}天" for x in delay_counts.index]
+
+                fig.add_trace(
+                    go.Bar(
+                        x=delay_labels,
+                        y=delay_counts.values,
+                        marker_color=[f"rgba(255, {100 + abs(x) * 20}, {100 + abs(x) * 20}, 0.7)" for x in
+                                      delay_counts.index],
+                        text=delay_counts.values,
+                        textposition='outside',
+                        name="延期"
+                    ),
+                    row=2, col=1
+                )
+
+            # 更新布局
+            fig.update_layout(
+                height=600,  # 增加高度以容纳两个子图
                 showlegend=False,
-                margin=dict(l=100)
+                margin=dict(l=50, r=50, t=50, b=50)
             )
 
-            # 在条形上显示数量
-            fig_hist.update_traces(
-                text=all_days.values,
-                textposition='outside'
-            )
+            # 设置坐标轴标签
+            fig.update_xaxes(title_text="偏差天数", row=1, col=1)
+            fig.update_xaxes(title_text="偏差天数", row=2, col=1)
+            fig.update_yaxes(title_text="订单数量", row=1, col=1)
+            fig.update_yaxes(title_text="订单数量", row=2, col=1)
 
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.write("⚠️ 暂无时效偏差数据")
 
