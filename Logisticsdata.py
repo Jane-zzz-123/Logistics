@@ -1261,8 +1261,7 @@ if month_options and selected_month:
             else:
                 st.write("⚠️ 请选择有效的月份范围")
 
-        # ====================== 右侧：联动折线图 ======================
-        # ====================== 右侧：联动折线图（修复版） ======================
+        # ====================== 右侧：联动折线图（最终修复版） ======================
         with col2:
             st.markdown("#### 红单趋势折线图")
 
@@ -1285,7 +1284,7 @@ if month_options and selected_month:
                 chart_data["年月数值"] = chart_data["到货年月"].apply(safe_month_to_num)
                 chart_data = chart_data.sort_values("年月数值")
 
-                # 3. 汇总模式折线图（修复核心）
+                # 3. 汇总模式折线图（修复 marker → markers）
                 if view_mode == "月份汇总（无状态）":
                     # 筛选有效数值列，排除非数值数据
                     valid_y_cols = []
@@ -1316,7 +1315,7 @@ if month_options and selected_month:
                                 y=valid_y_cols,
                                 title=f"{start_month} ~ {end_month} 红单核心指标趋势",
                                 labels={"value": "数值", "variable": "指标"},
-                                marker=True,
+                                markers=True,  # 关键修复：marker → markers
                                 # 增加数据校验：确保x轴有值
                                 category_orders={"到货年月": sorted(chart_data["到货年月"].unique())}
                             )
@@ -1352,7 +1351,7 @@ if month_options and selected_month:
                     else:
                         st.write("⚠️ 无有效数值数据生成折线图")
 
-                # 4. 明细模式折线图（修复核心）
+                # 4. 明细模式折线图（修复 marker → markers）
                 else:
                     # 确保提前/延期列有值
                     if "提前/延期" in chart_data.columns and "订单个数" in chart_data.columns:
@@ -1371,7 +1370,7 @@ if month_options and selected_month:
                                     color="提前/延期",
                                     title=f"{start_month} ~ {end_month} 各状态订单数趋势",
                                     color_discrete_map={"提前/准时": "green", "延期": "red"},
-                                    marker=True,
+                                    markers=True,  # 关键修复：marker → markers
                                     # 确保颜色映射有效
                                     category_orders={
                                         "到货年月": sorted(chart_data["到货年月"].unique()),
