@@ -247,13 +247,14 @@ if month_options and selected_month:
 
     # 差异判断
     if current_diff_avg > 0:
-        summary_text += "虽然有提前，但延迟更严重，整体还是延迟的！"
-    else:
         summary_text += "虽然有延迟，但延迟情况不严重，整体提前！"
+    else:
+        summary_text += "虽然有提前，但延迟更严重，整体还是延迟的！"
 
     st.markdown(f"> {summary_text}")
     st.divider()
 
+    # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     st.markdown("### 准时率与时效偏差分布")
     col1, col2 = st.columns(2)
@@ -273,22 +274,57 @@ if month_options and selected_month:
         else:
             st.write("⚠️ 暂无准时率数据")
 
-    # 右：时效偏差分位数表格
+    # 右：自动识别的时效偏差天数分布（替换分位数表格）
     with col2:
         if diff_col in df_current.columns and len(df_current) > 0:
-            diff_data = df_current[diff_col]
-            quantile_data = {
-                "分位数": ["10分位", "25分位", "中位数", "75分位", "90分位"],
-                "时效偏差值": [
-                    diff_data.quantile(0.1),
-                    diff_data.quantile(0.25),
-                    diff_data.median(),
-                    diff_data.quantile(0.75),
-                    diff_data.quantile(0.9)
-                ]
-            }
-            quantile_df = pd.DataFrame(quantile_data)
-            st.dataframe(quantile_df, use_container_width=True)
+            # 提取并清洗数据（只保留整数天数，排除异常值）
+            diff_data = df_current[diff_col].dropna()
+            # 转换为整数天数（四舍五入）
+            diff_data = diff_data.round().astype(int)
+
+            # 统计每个天数的出现次数
+            day_counts = diff_data.value_counts().sort_index()
+
+            # 分离提前（正数）和延迟（负数）区间
+            early_days = day_counts[day_counts.index >= 0]  # 包含0天（准时）
+            delay_days = day_counts[day_counts.index < 0]
+
+            # 合并数据并保持排序（延迟在前，准时在中间，提前在后）
+            all_days = pd.concat([delay_days, early_days])
+
+            # 创建横向条形图
+            fig_hist = px.bar(
+                x=all_days.values,
+                y=all_days.index.map(lambda x: f"+{x}天" if x > 0 else f"{x}天" if x < 0 else "0天"),
+                orientation='h',
+                title=f"{selected_month} 时效偏差天数分布",
+                labels={'x': '订单数量', 'y': '偏差天数'},
+                color=all_days.index,
+                color_discrete_map={
+                    # 动态生成颜色映射：延迟（负数）用红色系，提前（正数）用绿色系，0用灰色
+                    **{day: f"rgba(255, {100 + abs(day) * 20}, {100 + abs(day) * 20}, 0.7)" for day in
+                       delay_days.index},
+                    0: "rgba(204, 204, 204, 0.7)",  # 0天（准时）
+                    **{day: f"rgba({100 + day * 20}, 255, {100 + day * 20}, 0.7)" for day in early_days.index if
+                       day > 0}
+                }
+            )
+
+            # 优化布局
+            fig_hist.update_layout(
+                height=400,
+                yaxis=dict(autorange="reversed"),  # 反转Y轴，让延迟（负数）在下方
+                showlegend=False,
+                margin=dict(l=100)
+            )
+
+            # 在条形上显示数量
+            fig_hist.update_traces(
+                text=all_days.values,
+                textposition='outside'
+            )
+
+            st.plotly_chart(fig_hist, use_container_width=True)
         else:
             st.write("⚠️ 暂无时效偏差数据")
 
