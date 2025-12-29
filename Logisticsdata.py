@@ -170,12 +170,12 @@ if month_options and selected_month:
     delay_change_text = f"{'↑' if delay_change > 0 else '↓' if delay_change < 0 else '—'} {abs(delay_change)} (上月: {prev_delay})"
     delay_change_color = "red" if delay_change > 0 else "green" if delay_change < 0 else "gray"
 
-    # 4. 绝对值差值平均值
+    # 4. 绝对值差值平均值（将百分比改为差值）
     abs_col = "预计物流时效-实际物流时效差值(绝对值)"
     current_abs_avg = df_current[abs_col].mean() if abs_col in df_current.columns and len(df_current) > 0 else 0
     prev_abs_avg = df_prev[abs_col].mean() if not df_prev.empty and abs_col in df_prev.columns and len(
         df_prev) > 0 else 0
-    abs_change = current_abs_avg - prev_abs_avg
+    abs_change = current_abs_avg - prev_abs_avg  # 差值计算（替换百分比）
     abs_change_text = f"{'↑' if abs_change > 0 else '↓' if abs_change < 0 else '—'} {abs(abs_change):.2f} (上月: {prev_abs_avg:.2f})"
     abs_change_color = "red" if abs_change > 0 else "green" if abs_change < 0 else "gray"
 
@@ -205,7 +205,7 @@ if month_options and selected_month:
         <div style='background-color: #f0f8f0; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: green;'>提前/准时数</h5>
             <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_on_time}</p>
-            <p style='font-size: 14px; color: {on_time_change_color}; margin: 0;'>{on_time_change_text}</p>
+            <p style='font-size: 14px; color: {on_time_change_color}; margin: 0;'>{on_time_change_text}</p>  <!-- 新增 -->
         </div>
         """, unsafe_allow_html=True)
 
@@ -214,7 +214,7 @@ if month_options and selected_month:
         <div style='background-color: #fff0f0; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: red;'>延期数</h5>
             <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_delay}</p>
-            <p style='font-size: 14px; color: {delay_change_color}; margin: 0;'>{delay_change_text}</p>
+            <p style='font-size: 14px; color: {delay_change_color}; margin: 0;'>{delay_change_text}</p>  <!-- 新增 -->
         </div>
         """, unsafe_allow_html=True)
 
