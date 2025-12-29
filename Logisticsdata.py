@@ -1272,8 +1272,8 @@ if month_options and selected_month:
                 required_cols_base = ["到货年月"]  # 基础必选列
                 required_cols_extra = [
                     "准时率",
-                    "预计物流时效-实际物流时效差值(绝对值)",
-                    "预计物流时效-实际物流时效差值"
+                    "预计物流时效-实际物流时效差值(绝对值)_均值",
+                    "预计物流时效-实际物流时效差值_均值"
                 ]
 
                 # 过滤出trend_data中实际存在的列
@@ -1292,8 +1292,8 @@ if month_options and selected_month:
                     chart_data = trend_data[required_cols].copy().dropna(subset=["到货年月"])
 
                     # 定义列别名
-                    abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
-                    diff_col = "预计物流时效-实际物流时效差值"
+                    abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)_均值"
+                    diff_col = "预计物流时效-实际物流时效差值_均值"
 
 
                     # ========== 核心：将YYYY-MM转换为中文年月 ==========
