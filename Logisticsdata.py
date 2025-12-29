@@ -352,6 +352,7 @@ if month_options and selected_month:
     # ---------------------- ③ 当月红单明细表格 ----------------------
     # ---------------------- ③ 当月红单明细表格 ----------------------
     # ---------------------- ③ 当月红单明细表格 ----------------------
+    # ---------------------- ③ 当月红单明细表格 ----------------------
     st.markdown("### 红单明细（含平均值）")
 
     # 准备明细数据
@@ -419,84 +420,61 @@ if month_options and selected_month:
                 return str(val)
 
 
-        # === 核心修复：嵌套容器 + 绝对固定 ===
-        # 1. 生成表头HTML
-        header_html = "".join([f"<th>{col}</th>" for col in detail_cols])
-        # 2. 生成平均值行HTML
-        avg_html = "".join([f"<td>{format_value(avg_row[col], col)}</td>" for col in detail_cols])
-        # 3. 生成数据行HTML（带高亮）
-        data_rows = []
-        for idx, row in df_detail.iterrows():
-            row_html = []
-            for col in detail_cols:
-                val = row[col]
-                formatted_val = format_value(val, col)
-                # 高亮逻辑
-                highlight = ""
-                try:
-                    if col in [abs_col, diff_col] + int_cols:
-                        avg_val = avg_row[col]
-                        if avg_val not in ["-", "平均值"] and pd.notna(val):
-                            val_num = float(val) if isinstance(val, (int, float)) else 0
-                            avg_num = float(avg_val) if isinstance(avg_val, (int, float)) else 0
-                            if val_num > avg_num:
-                                highlight = "highlight"
-                except:
-                    pass
-                row_html.append(f'<td class="{highlight}">{formatted_val}</td>')
-            data_rows.append(f"<tr>{''.join(row_html)}</tr>")
-        data_html = "".join(data_rows)
-
-        # 完整HTML（关键：外层容器相对定位，固定行绝对定位）
-        final_html = f"""
+        # === 核心修复：统一列宽 + 同步滚动 + 固定行 ===
+        # 1. 生成列宽样式（按列数均分宽度）
+        col_width = 100 / len(detail_cols)
+        col_style = f"""
         <style>
-        /* 外层容器：相对定位 + 固定高度 + 隐藏溢出 */
-        .table-wrapper {{
-            position: relative;
+        /* 强制所有表格列宽统一 */
+        .fixed-table th, .fixed-table td {{
+            width: {col_width}%;
+            min-width: {col_width}%;
+            max-width: {col_width}%;
+            box-sizing: border-box;
+        }}
+        </style>
+        """
+
+        # 2. 生成完整的表格HTML（单表格+sticky固定，替代绝对定位）
+        html_content = f"""
+        {col_style}
+        <style>
+        /* 容器样式 */
+        .table-container {{
             height: 400px;
-            width: 100%;
             overflow-y: auto;
             border: 1px solid #e0e0e0;
             border-radius: 4px;
             margin: 10px 0;
         }}
 
-        /* 固定表头：绝对定位 + 顶部0 */
-        .fixed-header {{
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            background-color: #f8f9fa;
-            z-index: 10;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-
-        /* 固定平均值行：绝对定位 + 顶部等于表头高度 */
-        .fixed-avg {{
-            position: absolute;
-            top: 40px;  /* 表头高度，精准匹配 */
-            left: 0;
-            right: 0;
-            background-color: #fff3cd;
-            z-index: 9;
-            border-bottom: 1px solid #e0e0e0;
-        }}
-
-        /* 数据行容器：相对定位 + 顶部偏移（表头+平均值行高度） */
-        .data-container {{
-            position: relative;
-            top: 80px;  /* 表头(40px) + 平均值行(40px) */
-            width: 100%;
-        }}
-
-        /* 表格通用样式 */
-        .fixed-table {{
+        /* 核心：单表格 + sticky固定行 */
+        .data-table {{
             width: 100%;
             border-collapse: collapse;
-            table-layout: fixed;
+            table-layout: fixed; /* 强制列宽均分 */
         }}
-        .fixed-table th, .fixed-table td {{
+
+        /* 表头固定 */
+        .data-table thead th {{
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            font-weight: bold;
+            z-index: 2;
+        }}
+
+        /* 平均值行固定（紧跟表头） */
+        .avg-row td {{
+            position: sticky;
+            top: 38px; /* 表头高度，精准匹配 */
+            background-color: #fff3cd;
+            font-weight: 500;
+            z-index: 1;
+        }}
+
+        /* 通用单元格样式 */
+        .data-table th, .data-table td {{
             padding: 8px;
             text-align: left;
             border: 1px solid #e0e0e0;
@@ -504,40 +482,46 @@ if month_options and selected_month:
             overflow: hidden;
             text-overflow: ellipsis;
         }}
-        .fixed-table th {{
-            font-weight: bold;
-        }}
+
+        /* 高亮样式 */
         .highlight {{
             background-color: #ffcccc !important;
         }}
         </style>
 
-        <div class="table-wrapper">
-            <!-- 固定表头 -->
-            <div class="fixed-header">
-                <table class="fixed-table">
-                    <tr>{header_html}</tr>
-                </table>
-            </div>
-
-            <!-- 固定平均值行 -->
-            <div class="fixed-avg">
-                <table class="fixed-table">
-                    <tr>{avg_html}</tr>
-                </table>
-            </div>
-
-            <!-- 可滚动数据行 -->
-            <div class="data-container">
-                <table class="fixed-table">
-                    <tbody>{data_html}</tbody>
-                </table>
-            </div>
+        <div class="table-container">
+            <table class="data-table">
+                <!-- 表头 -->
+                <thead>
+                    <tr>
+                        {''.join([f'<th>{col}</th>' for col in detail_cols])}
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- 平均值行 -->
+                    <tr class="avg-row">
+                        {''.join([f'<td>{format_value(avg_row[col], col)}</td>' for col in detail_cols])}
+                    </tr>
+                    <!-- 数据行 -->
+                    {''.join([
+            '<tr>' + ''.join([
+                f'<td class={"highlight" if (
+                        col in (int_cols + [abs_col, diff_col])
+                        and avg_row[col] not in ["-", "平均值"]
+                        and pd.notna(row[col])
+                        and float(row[col]) > float(avg_row[col])
+                ) else ""}>{format_value(row[col], col)}</td>'
+                for col in detail_cols
+            ]) + '</tr>'
+            for _, row in df_detail.iterrows()
+        ])}
+                </tbody>
+            </table>
         </div>
         """
 
-        # 渲染最终HTML
-        st.markdown(final_html, unsafe_allow_html=True)
+        # 渲染修复后的表格
+        st.markdown(html_content, unsafe_allow_html=True)
 
     else:
         st.write("⚠️ 暂无明细数据")
