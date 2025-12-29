@@ -896,6 +896,13 @@ if month_options and selected_month:
     import base64
     from io import BytesIO
 
+    import streamlit as st
+    import pandas as pd
+    import numpy as np
+    import plotly.express as px
+    import base64
+    from io import BytesIO
+
     # ====================== 不同月份红单趋势分析（货代+仓库维度细分） ======================
     st.markdown("### 不同月份红单趋势分析（货代/仓库维度）")
 
@@ -935,7 +942,7 @@ if month_options and selected_month:
 
             col1, col2 = st.columns(2)
 
-            # ====================== 左侧：月份趋势分析表格（新增维度细分） ======================
+            # ====================== 左侧：月份趋势分析表格（重写聚合逻辑） ======================
             with col1:
                 # 1. 基础筛选控件
                 st.markdown("#### 分析条件设置")
@@ -1030,7 +1037,7 @@ if month_options and selected_month:
                         df_trend_filtered = df_trend_filtered[
                             df_trend_filtered[COL_WAREHOUSE].isin(dimension_filter)].copy()
 
-                    # 3. 数据聚合（核心修复：动态构建agg_dict，仅包含存在的列）
+                    # 3. 重写数据聚合逻辑（核心修复：分步聚合+手动命名）
                     trend_data = pd.DataFrame()
                     if len(df_trend_filtered) > 0:
                         # 定义分组列
@@ -1040,48 +1047,66 @@ if month_options and selected_month:
                         elif analysis_dimension == "仓库维度":
                             group_cols.insert(1, COL_WAREHOUSE)
 
-                        # 明细/汇总模式处理：动态构建agg_dict
-                        agg_dict = {}
-                        # 1. 订单个数（必选）
-                        if COL_FBA_NO in df_trend_filtered.columns:
-                            agg_dict[COL_FBA_NO] = ("订单个数", "count")
-                        else:
-                            # 备选：用行数计数
-                            agg_dict[COL_DELAY_STATUS] = ("订单个数", "count")
-
-                        # 2. 准时率（必选）
-                        agg_dict[COL_DELAY_STATUS] = ("准时率",
-                                                      lambda x: (x == "提前/准时").sum() / len(x) if len(x) > 0 else 0)
-
-                        # 3. 差值列（可选，仅当列存在时添加）
-                        if COL_ABS_DIFF in df_trend_filtered.columns:
-                            agg_dict[COL_ABS_DIFF] = (f"{COL_ABS_DIFF}_均值", "mean")
-                        if COL_DIFF in df_trend_filtered.columns:
-                            agg_dict[COL_DIFF] = (f"{COL_DIFF}_均值", "mean")
+                        # 明细模式需添加状态列
+                        if view_mode == "月份+准时状态（明细）":
+                            group_cols.append(COL_DELAY_STATUS)
 
                         try:
-                            # 明细/汇总模式聚合
-                            if view_mode == "月份汇总（无状态）":
-                                # 汇总模式：按维度+年月聚合
-                                trend_data = df_trend_filtered.groupby(group_cols).agg(**agg_dict).reset_index()
+                            # ========== 步骤1：计算订单个数 ==========
+                            if COL_FBA_NO in df_trend_filtered.columns:
+                                df_count = df_trend_filtered.groupby(group_cols)[COL_FBA_NO].count().reset_index()
+                                df_count.rename(columns={COL_FBA_NO: "订单个数"}, inplace=True)
                             else:
-                                # 明细模式：按维度+年月+状态聚合
-                                group_cols_detail = group_cols + [COL_DELAY_STATUS]
-                                trend_data = df_trend_filtered.groupby(group_cols_detail).agg(**agg_dict).reset_index()
+                                # 备选：按行数计数
+                                df_count = df_trend_filtered.groupby(group_cols).size().reset_index(name="订单个数")
 
-                            # 扁平化列名（修复元组列名问题）
-                            trend_data.columns = [col[0] if isinstance(col, tuple) else col for col in
-                                                  trend_data.columns]
+                            # ========== 步骤2：计算准时率 ==========
+                            # 先计算每组的准时订单数和总订单数
+                            df_delay = df_trend_filtered.copy()
+                            df_delay["是否准时"] = df_delay[COL_DELAY_STATUS] == "提前/准时"
+                            df_rate = df_delay.groupby(group_cols).agg({
+                                "是否准时": ["sum", "count"]
+                            }).reset_index()
+                            df_rate.columns = group_cols + ["准时订单数", "总订单数"]
+                            # 计算准时率（避免除零）
+                            df_rate["准时率"] = df_rate["准时订单数"] / df_rate["总订单数"].replace(0, 1)
+                            # 只保留分组列和准时率
+                            df_rate = df_rate[group_cols + ["准时率"]]
 
-                            # 排序
+                            # ========== 步骤3：计算差值列均值（仅当列存在时） ==========
+                            df_diff = pd.DataFrame()
+                            if COL_ABS_DIFF in df_trend_filtered.columns or COL_DIFF in df_trend_filtered.columns:
+                                agg_diff_dict = {}
+                                if COL_ABS_DIFF in df_trend_filtered.columns:
+                                    agg_diff_dict[COL_ABS_DIFF] = "mean"
+                                if COL_DIFF in df_trend_filtered.columns:
+                                    agg_diff_dict[COL_DIFF] = "mean"
+
+                                if agg_diff_dict:
+                                    df_diff = df_trend_filtered.groupby(group_cols).agg(agg_diff_dict).reset_index()
+                                    # 重命名差值列
+                                    if COL_ABS_DIFF in df_diff.columns:
+                                        df_diff.rename(columns={COL_ABS_DIFF: f"{COL_ABS_DIFF}_均值"}, inplace=True)
+                                    if COL_DIFF in df_diff.columns:
+                                        df_diff.rename(columns={COL_DIFF: f"{COL_DIFF}_均值"}, inplace=True)
+
+                            # ========== 步骤4：合并所有指标 ==========
+                            # 先合并个数和准时率
+                            trend_data = pd.merge(df_count, df_rate, on=group_cols, how="inner")
+                            # 再合并差值列（如果有）
+                            if not df_diff.empty:
+                                trend_data = pd.merge(trend_data, df_diff, on=group_cols, how="left")
+
+                            # ========== 步骤5：排序 ==========
                             trend_data["年月数值"] = trend_data[COL_DELIVERY_MONTH].apply(month_to_num)
-                            sort_cols = ["年月数值"] + group_cols[1:]
+                            sort_cols = ["年月数值"] + [col for col in group_cols if col != COL_DELIVERY_MONTH]
                             trend_data = trend_data.sort_values(sort_cols).drop("年月数值", axis=1)
+
                         except Exception as e:
                             st.error(f"数据聚合失败：{str(e)}")
                             st.write(f"分组列：{group_cols}")
-                            st.write(f"聚合字典：{agg_dict}")
-                            st.write(f"可用列：{df_trend_filtered.columns.tolist()}")
+                            st.write(f"过滤后数据列名：{df_trend_filtered.columns.tolist()}")
+                            st.write(f"订单个数数据：{df_count.head() if 'df_count' in locals() else '无'}")
                     else:
                         st.write("⚠️ 筛选后无数据")
 
@@ -1089,31 +1114,29 @@ if month_options and selected_month:
                     avg_row = {}
                     df_with_avg = pd.DataFrame()
                     if len(trend_data) > 0:
-                        avg_cols = ["订单个数", "准时率", f"{COL_ABS_DIFF}_均值", f"{COL_DIFF}_均值"]
-                        # 过滤出实际存在的均值列
-                        avg_cols = [col for col in avg_cols if col in trend_data.columns]
+                        # 定义需要计算均值的列
+                        avg_cols = ["订单个数", "准时率"]
+                        if f"{COL_ABS_DIFF}_均值" in trend_data.columns:
+                            avg_cols.append(f"{COL_ABS_DIFF}_均值")
+                        if f"{COL_DIFF}_均值" in trend_data.columns:
+                            avg_cols.append(f"{COL_DIFF}_均值")
 
                         # 构建平均值行
-                        for col in trend_data.columns:
-                            if col == COL_DELIVERY_MONTH:
-                                avg_row[col] = "筛选后平均值"
-                            elif col in [COL_FREIGHT, COL_WAREHOUSE]:
-                                avg_row[col] = "-"
-                            elif col == COL_DELAY_STATUS:
-                                avg_row[col] = "-"
-                            elif col in avg_cols:
-                                valid_vals = trend_data[col].dropna()
-                                if len(valid_vals) > 0:
-                                    if col == "订单个数":
-                                        avg_row[col] = round(valid_vals.mean(), 2)
-                                    elif col == "准时率":
-                                        avg_row[col] = round(valid_vals.mean(), 4)
-                                    else:
-                                        avg_row[col] = round(valid_vals.mean(), 2)
+                        avg_row = {col: "-" for col in trend_data.columns}
+                        avg_row[COL_DELIVERY_MONTH] = "筛选后平均值"
+
+                        # 计算各列均值
+                        for col in avg_cols:
+                            valid_vals = trend_data[col].dropna()
+                            if len(valid_vals) > 0:
+                                if col == "订单个数":
+                                    avg_row[col] = round(valid_vals.mean(), 2)
+                                elif col == "准时率":
+                                    avg_row[col] = round(valid_vals.mean(), 4)
                                 else:
-                                    avg_row[col] = 0
+                                    avg_row[col] = round(valid_vals.mean(), 2)
                             else:
-                                avg_row[col] = "-"
+                                avg_row[col] = 0
 
                         # 插入平均值行
                         df_with_avg = pd.concat([pd.DataFrame([avg_row]), trend_data], ignore_index=True)
@@ -1557,7 +1580,6 @@ if month_options and selected_month:
         st.write("⚠️ 无有效数据进行趋势分析")
 
     st.divider()
-
     # ===================== 三、数据源 =====================
     st.subheader("📋 数据源筛选")
 
