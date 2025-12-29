@@ -1261,20 +1261,28 @@ if month_options and selected_month:
             else:
                 st.write("⚠️ 请选择有效的月份范围")
 
-        # ====================== 右侧：联动折线图（最终修复版） ======================
+        # ====================== 右侧：定制化折线图（最终版） ======================
         with col2:
             st.markdown("#### 红单趋势折线图")
 
-            # 强化数据校验：检查所有必要条件
+            # 强化数据校验
             if 'trend_data' in locals() and isinstance(trend_data, pd.DataFrame) and len(
                     trend_data) > 0 and start_month and end_month:
-                # 1. 准备图表数据（排除空值，强制转换数值类型）
+                # 1. 准备图表数据（仅保留指定列）
                 chart_data = trend_data.copy().dropna()
 
+                # 定义需要显示的列
+                target_cols = [
+                    "准时率",
+                    "预计物流时效-实际物流时效差值(绝对值)",
+                    "预计物流时效-实际物流时效差值"
+                ]
+                abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
+                diff_col = "预计物流时效-实际物流时效差值"
 
-                # 2. 月份转换并排序（增加异常处理）
+
+                # 2. 月份转换并排序
                 def safe_month_to_num(month_str):
-                    """安全的月份转换函数"""
                     try:
                         return int(month_str.replace("-", ""))
                     except:
@@ -1284,54 +1292,132 @@ if month_options and selected_month:
                 chart_data["年月数值"] = chart_data["到货年月"].apply(safe_month_to_num)
                 chart_data = chart_data.sort_values("年月数值")
 
-                # 3. 汇总模式折线图（修复 marker → markers）
+                # 3. 汇总模式折线图（仅显示指定3列+数值标注）
                 if view_mode == "月份汇总（无状态）":
-                    # 筛选有效数值列，排除非数值数据
+                    # 初始化有效列列表
                     valid_y_cols = []
-                    if "订单个数" in chart_data.columns:
-                        # 强制转换为数值类型
-                        chart_data["订单个数"] = pd.to_numeric(chart_data["订单个数"], errors='coerce').fillna(0)
-                        if chart_data["订单个数"].sum() > 0:  # 确保有有效数据
-                            valid_y_cols.append("订单个数")
 
+                    # 处理准时率（百分比格式）
                     if "准时率" in chart_data.columns:
                         chart_data["准时率"] = pd.to_numeric(chart_data["准时率"], errors='coerce').fillna(0)
+                        # 转换为百分比（0-1 → 0-100）
+                        chart_data["准时率_显示"] = chart_data["准时率"] * 100
                         if chart_data["准时率"].sum() > 0:
                             valid_y_cols.append("准时率")
 
-                    abs_diff_mean_col = f"{abs_diff_col}_均值"
-                    if abs_diff_mean_col in chart_data.columns:
-                        chart_data[abs_diff_mean_col] = pd.to_numeric(chart_data[abs_diff_mean_col],
-                                                                      errors='coerce').fillna(0)
-                        if chart_data[abs_diff_mean_col].sum() > 0:
-                            valid_y_cols.append(abs_diff_mean_col)
+                    # 处理绝对值差值（保留2位小数）
+                    if abs_diff_col in chart_data.columns:
+                        chart_data[abs_diff_col] = pd.to_numeric(chart_data[abs_diff_col], errors='coerce').fillna(0)
+                        chart_data[abs_diff_col] = chart_data[abs_diff_col].round(2)
+                        if chart_data[abs_diff_col].sum() > 0:
+                            valid_y_cols.append(abs_diff_col)
 
-                    # 只有存在有效列时才生成图表
+                    # 处理时效差值（保留2位小数）
+                    if diff_col in chart_data.columns:
+                        chart_data[diff_col] = pd.to_numeric(chart_data[diff_col], errors='coerce').fillna(0)
+                        chart_data[diff_col] = chart_data[diff_col].round(2)
+                        if chart_data[diff_col].sum() > 0:
+                            valid_y_cols.append(diff_col)
+
+                    # 只保留指定的3列（过滤其他列）
+                    valid_y_cols = [col for col in valid_y_cols if col in target_cols]
+
                     if valid_y_cols:
                         try:
+                            # 创建折线图（仅显示指定列）
                             fig_trend = px.line(
                                 chart_data,
                                 x="到货年月",
                                 y=valid_y_cols,
                                 title=f"{start_month} ~ {end_month} 红单核心指标趋势",
                                 labels={"value": "数值", "variable": "指标"},
-                                markers=True,  # 关键修复：marker → markers
-                                # 增加数据校验：确保x轴有值
+                                markers=True,  # 显示折点标记
                                 category_orders={"到货年月": sorted(chart_data["到货年月"].unique())}
                             )
 
-                            # 添加平均值参考线（增加异常处理）
+                            # ========== 核心：添加折点数值标注 ==========
+                            for idx, row in chart_data.iterrows():
+                                # 标注准时率（百分比，保留1位小数）
+                                if "准时率" in valid_y_cols:
+                                    fig_trend.add_annotation(
+                                        x=row["到货年月"],
+                                        y=row["准时率"],
+                                        text=f"{row['准时率'] * 100:.1f}%",  # 百分比格式
+                                        showarrow=True,
+                                        arrowhead=1,
+                                        ax=0,
+                                        ay=-20,  # 标注位置（向上偏移）
+                                        font={"size": 8, "color": "blue"}
+                                    )
+
+                                # 标注绝对值差值（保留2位小数）
+                                if abs_diff_col in valid_y_cols:
+                                    fig_trend.add_annotation(
+                                        x=row["到货年月"],
+                                        y=row[abs_diff_col],
+                                        text=f"{row[abs_diff_col]:.2f}",
+                                        showarrow=True,
+                                        arrowhead=1,
+                                        ax=0,
+                                        ay=-30,
+                                        font={"size": 8, "color": "red"}
+                                    )
+
+                                # 标注时效差值（保留2位小数）
+                                if diff_col in valid_y_cols:
+                                    fig_trend.add_annotation(
+                                        x=row["到货年月"],
+                                        y=row[diff_col],
+                                        text=f"{row[diff_col]:.2f}",
+                                        showarrow=True,
+                                        arrowhead=1,
+                                        ax=0,
+                                        ay=-40,
+                                        font={"size": 8, "color": "green"}
+                                    )
+
+                            # 添加平均值参考线
                             if 'avg_row' in locals():
-                                for col in valid_y_cols:
+                                # 准时率平均值（百分比）
+                                if "准时率" in valid_y_cols:
                                     try:
-                                        avg_val = float(avg_row.get(col, 0))
+                                        avg_val = float(avg_row.get("准时率", 0))
                                         if avg_val != 0:
-                                            annotation_text = f"平均值: {avg_val:.2f}" if col != "准时率" else f"平均值: {avg_val:.2%}"
                                             fig_trend.add_hline(
                                                 y=avg_val,
                                                 line_dash="dash",
-                                                line_color="orange",
-                                                annotation_text=annotation_text,
+                                                line_color="blue",
+                                                annotation_text=f"准时率均值: {avg_val * 100:.1f}%",
+                                                annotation_position="right"
+                                            )
+                                    except:
+                                        pass
+
+                                # 绝对值差值平均值（2位小数）
+                                if abs_diff_col in valid_y_cols:
+                                    try:
+                                        avg_val = float(avg_row.get(abs_diff_col, 0))
+                                        if avg_val != 0:
+                                            fig_trend.add_hline(
+                                                y=avg_val,
+                                                line_dash="dash",
+                                                line_color="red",
+                                                annotation_text=f"绝对值差值均值: {avg_val:.2f}",
+                                                annotation_position="right"
+                                            )
+                                    except:
+                                        pass
+
+                                # 时效差值平均值（2位小数）
+                                if diff_col in valid_y_cols:
+                                    try:
+                                        avg_val = float(avg_row.get(diff_col, 0))
+                                        if avg_val != 0:
+                                            fig_trend.add_hline(
+                                                y=avg_val,
+                                                line_dash="dash",
+                                                line_color="green",
+                                                annotation_text=f"时效差值均值: {avg_val:.2f}",
                                                 annotation_position="right"
                                             )
                                     except:
@@ -1339,9 +1425,14 @@ if month_options and selected_month:
 
                             # 图表样式优化
                             fig_trend.update_layout(
-                                height=400,
+                                height=500,  # 增高图表，避免标注重叠
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                                hovermode="x unified"
+                                hovermode="x unified",
+                                # 调整y轴范围，避免标注超出图表
+                                yaxis=dict(
+                                    rangemode="tozero",
+                                    fixedrange=False
+                                )
                             )
 
                             # 显示图表
@@ -1349,68 +1440,11 @@ if month_options and selected_month:
                         except Exception as e:
                             st.error(f"图表生成失败：{str(e)}")
                     else:
-                        st.write("⚠️ 无有效数值数据生成折线图")
+                        st.write("⚠️ 无有效数据生成折线图（请检查准时率/时效差值列）")
 
-                # 4. 明细模式折线图（修复 marker → markers）
+                # 4. 明细模式（仅显示准时率相关，按状态区分）
                 else:
-                    # 确保提前/延期列有值
-                    if "提前/延期" in chart_data.columns and "订单个数" in chart_data.columns:
-                        # 强制转换数值类型
-                        chart_data["订单个数"] = pd.to_numeric(chart_data["订单个数"], errors='coerce').fillna(0)
-
-                        # 筛选有有效订单数的数据
-                        chart_data = chart_data[chart_data["订单个数"] > 0]
-
-                        if len(chart_data) > 0:
-                            try:
-                                fig_trend = px.line(
-                                    chart_data,
-                                    x="到货年月",
-                                    y="订单个数",
-                                    color="提前/延期",
-                                    title=f"{start_month} ~ {end_month} 各状态订单数趋势",
-                                    color_discrete_map={"提前/准时": "green", "延期": "red"},
-                                    markers=True,  # 关键修复：marker → markers
-                                    # 确保颜色映射有效
-                                    category_orders={
-                                        "到货年月": sorted(chart_data["到货年月"].unique()),
-                                        "提前/延期": ["提前/准时", "延期"]
-                                    }
-                                )
-
-                                # 按状态添加平均值参考线（增加异常处理）
-                                if 'avg_row' in locals():
-                                    for status in ["提前/准时", "延期"]:
-                                        try:
-                                            status_data = chart_data[chart_data["提前/延期"] == status]
-                                            if len(status_data) > 0:
-                                                status_avg = float(status_data["订单个数"].mean())
-                                                if status_avg > 0:
-                                                    fig_trend.add_hline(
-                                                        y=status_avg,
-                                                        line_dash="dash",
-                                                        line_color="green" if status == "提前/准时" else "red",
-                                                        annotation_text=f"{status}平均值: {status_avg:.0f}",
-                                                        annotation_position="right"
-                                                    )
-                                        except:
-                                            pass
-
-                                # 图表样式优化
-                                fig_trend.update_layout(
-                                    height=400,
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                                    hovermode="x unified"
-                                )
-
-                                # 显示图表
-                                st.plotly_chart(fig_trend, use_container_width=True)
-                            except Exception as e:
-                                st.error(f"图表生成失败：{str(e)}")
-                        else:
-                            st.write("⚠️ 无有效订单数据生成折线图")
-                    else:
-                        st.write("⚠️ 缺少「提前/延期」或「订单个数」列")
+                    st.write("⚠️ 明细模式下仅支持汇总视图显示指定指标，请切换为「月份汇总（无状态）」模式")
             else:
                 st.write("⚠️ 请先选择有效的筛选条件并确保有数据")
 
