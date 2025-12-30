@@ -1653,7 +1653,7 @@ if month_options and selected_month:
     # 执行筛选
     df_filtered = df_red[filter_conditions].copy()
 
-    # ---------------------- 核心逻辑：计算平均值+合并到表格首行 ----------------------
+    # ---------------------- 核心逻辑：计算平均值 ----------------------
     # 定义需要计算平均值的列
     avg_target_cols = [
         "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
@@ -1688,23 +1688,20 @@ if month_options and selected_month:
                 else:
                     avg_row[col] = 0.00
 
-    # 合并平均值行到数据表格首行
+    # 处理数据行
     if len(df_filtered) > 0:
-        # 筛选出需要显示的列
         df_display = df_filtered[display_cols].copy()
         # 转换数值列为数值型（用于后续比较）
         for col in avg_target_cols:
             if col in df_display.columns:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
-        # 插入平均值行到第一行
-        df_final = pd.concat([pd.DataFrame([avg_row]), df_display], ignore_index=True)
     else:
-        df_final = pd.DataFrame([avg_row])  # 无数据时仅显示平均值行
+        df_display = pd.DataFrame(columns=display_cols)  # 无数据时空DataFrame
 
-    # ---------------------- 生成带固定列宽+自动换行的HTML表格 ----------------------
+    # ---------------------- 生成固定平均值行+列宽+自动换行的表格 ----------------------
     st.markdown("### 原始数据（含筛选后平均值）")
 
-    # 定义列宽配置（可根据需求调整，单位：px/百分比）
+    # 定义列宽配置（可根据需求调整）
     col_widths = {
         "到货年月": "80px",
         "FBA号": "120px",
@@ -1726,108 +1723,109 @@ if month_options and selected_month:
     }
 
 
-    # 构建列样式（固定宽度+自动换行）
+    # 获取列样式字符串
     def get_col_style(col_name):
-        width = col_widths.get(col_name, "100px")  # 未配置的列默认100px
+        width = col_widths.get(col_name, "100px")
         return f"""
         width: {width};
         max-width: {width};
         min-width: {width};
-        word-wrap: break-word;  /* 自动换行 */
-        white-space: normal;    /* 允许换行 */
+        word-wrap: break-word;
+        white-space: normal;
         text-align: left;
-        vertical-align: top;    /* 内容顶部对齐 */
+        vertical-align: top;
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
         """
 
 
-    # 定义表格样式（核心：固定列宽+自动换行+表头固定）
+    # 核心样式：双层容器实现「表头+平均值行双固定」
     table_css = """
     <style>
-    /* 表格容器：仅纵向滚动，横向自适应 */
-    .data-table-container {
-        height: 450px;
-        overflow-y: auto;
-        overflow-x: hidden;  /* 关闭横向滚动 */
+    /* 外层容器：控制整体宽度 */
+    .table-outer-container {
+        width: 100%;
         border: 1px solid #dee2e6;
         margin: 10px 0;
     }
-    /* 主表格样式：宽度自适应，列固定宽度 */
-    .data-table {
-        width: 100%;
-        table-layout: fixed;  /* 固定表格布局，确保列宽生效 */
-        border-collapse: collapse;
-    }
-    /* 表头固定 + 固定列宽 + 自动换行 */
-    .data-table th {
+    /* 固定头部容器：表头+平均值行，永久固定 */
+    .table-fixed-header {
         position: sticky;
         top: 0;
+        background-color: white;
+        z-index: 100;
+    }
+    /* 表头样式 */
+    .table-header {
         background-color: #e9ecef;
         font-weight: bold;
-        border: 1px solid #dee2e6;
-        padding: 8px 12px;
-        z-index: 10;
-        word-wrap: break-word;
-        white-space: normal;
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
     }
     /* 平均值行样式 */
-    .avg-row {
-        background-color: #fff3cd; /* 浅黄色背景区分平均值 */
+    .table-avg-row {
+        background-color: #fff3cd;
         font-weight: bold;
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
     }
-    /* 平均值行单元格：固定列宽 + 自动换行 */
-    .avg-row td {
-        border: 1px solid #dee2e6;
-        padding: 8px 12px;
+    /* 数据滚动容器：仅数据行滚动，高度固定 */
+    .table-data-container {
+        height: 400px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+    /* 数据表格样式 */
+    .table-data {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+    }
+    /* 数据行样式 */
+    .table-data tr td {
         word-wrap: break-word;
         white-space: normal;
+        vertical-align: top;
     }
-    /* 数据行单元格：固定列宽 + 自动换行 */
-    .data-row td {
-        border: 1px solid #dee2e6;
-        padding: 8px 12px;
-        word-wrap: break-word;
-        white-space: normal;
-    }
-    /* 高于平均值的单元格样式 */
+    /* 高亮单元格 */
     .highlight-cell {
-        background-color: #ffebee; /* 浅红色 */
+        background-color: #ffebee !important;
     }
     </style>
     """
 
-    # 构建表头HTML（带固定列宽）
-    header_html = ""
+    # 1. 构建表头HTML
+    header_html = "<table class='table-header'><tr>"
+    for col in display_cols:
+        style = get_col_style(col).replace("padding: 8px 12px;", "").replace("border: 1px solid #dee2e6;", "")
+        header_html += f"<th style='{style}'>{col}</th>"
+    header_html += "</tr></table>"
+
+    # 2. 构建平均值行HTML
+    avg_html = "<table class='table-avg-row'><tr>"
     for col in display_cols:
         style = get_col_style(col)
-        header_html += f"<th style='{style}'>{col}</th>"
+        cell_val = avg_row[col]
+        if col in avg_target_cols and isinstance(cell_val, (int, float)):
+            cell_val = f"{cell_val:.2f}"
+        avg_html += f"<td style='{style}'>{cell_val}</td>"
+    avg_html += "</tr></table>"
 
-    # 构建表格行HTML
-    rows_html = ""
-    for idx, row in df_final.iterrows():
-        if idx == 0:
-            # 第一行：平均值行（带固定列宽）
-            row_html = "<tr class='avg-row'>"
-            for col in display_cols:
-                style = get_col_style(col)
-                cell_val = row[col]
-                # 数值格式化（保留2位小数）
-                if col in avg_target_cols and isinstance(cell_val, (int, float)):
-                    cell_val = f"{cell_val:.2f}"
-                row_html += f"<td style='{style}'>{cell_val}</td>"
-            row_html += "</tr>"
-        else:
-            # 数据行：判断是否高于平均值并高亮（带固定列宽）
-            row_html = "<tr class='data-row'>"
+    # 3. 构建数据行HTML
+    data_html = "<table class='table-data'><tbody>"
+    if len(df_display) > 0:
+        for idx, row in df_display.iterrows():
+            row_html = "<tr>"
             for col in display_cols:
                 style = get_col_style(col)
                 cell_val = row[col]
                 highlight_class = ""
 
-                # 仅对数值列判断是否高于平均值
+                # 判断是否高亮
                 if col in avg_target_cols:
-                    # 获取平均值（首行数据）
-                    avg_val = df_final.iloc[0][col]
-                    # 处理空值/非数值
+                    avg_val = avg_row[col]
                     if pd.notna(cell_val) and pd.notna(avg_val) and isinstance(avg_val, (int, float)):
                         try:
                             cell_num = float(cell_val)
@@ -1836,28 +1834,33 @@ if month_options and selected_month:
                         except:
                             pass
 
-                # 格式化单元格值（空值显示空字符串）
+                # 格式化显示值
                 display_val = "" if pd.isna(cell_val) else str(cell_val)
-                # 数值列格式化（保留2位小数）
                 if col in avg_target_cols and isinstance(cell_val, (int, float)):
                     display_val = f"{cell_val:.2f}"
 
                 row_html += f"<td style='{style}' class='{highlight_class}'>{display_val}</td>"
             row_html += "</tr>"
-        rows_html += row_html
+            data_html += row_html
+    else:
+        # 无数据时显示提示
+        empty_style = get_col_style(display_cols[0]) if display_cols else ""
+        data_html += f"<tr><td style='{empty_style}' colspan='{len(display_cols)}'>⚠️ 暂无符合筛选条件的数据</td></tr>"
+    data_html += "</tbody></table>"
 
-    # 拼接完整HTML
+    # 拼接完整HTML（核心：双层容器实现固定）
     final_table_html = f"""
     {table_css}
-    <div class='data-table-container'>
-        <table class='data-table'>
-            <thead>
-                <tr>{header_html}</tr>
-            </thead>
-            <tbody>
-                {rows_html}
-            </tbody>
-        </table>
+    <div class='table-outer-container'>
+        <!-- 固定头部：表头+平均值行 -->
+        <div class='table-fixed-header'>
+            {header_html}
+            {avg_html}
+        </div>
+        <!-- 数据滚动区域 -->
+        <div class='table-data-container'>
+            {data_html}
+        </div>
     </div>
     """
 
@@ -1868,4 +1871,4 @@ if month_options and selected_month:
     if len(df_filtered) > 0:
         st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_red)} 条")
     else:
-        st.caption("⚠️ 暂无符合筛选条件的业务数据（仅显示平均值行）")
+        st.caption("⚠️ 暂无符合筛选条件的业务数据")
