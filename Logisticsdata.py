@@ -1701,25 +1701,63 @@ if month_options and selected_month:
     else:
         df_final = pd.DataFrame([avg_row])  # 无数据时仅显示平均值行
 
-    # ---------------------- 生成带高亮的HTML表格（首行是平均值，表头固定） ----------------------
+    # ---------------------- 生成带固定列宽+自动换行的HTML表格 ----------------------
     st.markdown("### 原始数据（含筛选后平均值）")
 
-    # 定义表格样式（表头固定+平均值行样式+高亮样式）
+    # 定义列宽配置（可根据需求调整，单位：px/百分比）
+    col_widths = {
+        "到货年月": "80px",
+        "FBA号": "120px",
+        "店铺": "80px",
+        "仓库": "80px",
+        "货代": "80px",
+        "提前/延期": "80px",
+        "异常备注": "100px",
+        "发货-提取": "80px",
+        "提取-到港": "80px",
+        "到港-签收": "80px",
+        "签收-完成上架": "100px",
+        "发货-签收": "80px",
+        "发货-完成上架": "100px",
+        "签收-发货时间": "100px",
+        "上架完成-发货时间": "120px",
+        "预计物流时效-实际物流时效差值(绝对值)": "150px",
+        "预计物流时效-实际物流时效差值": "150px"
+    }
+
+
+    # 构建列样式（固定宽度+自动换行）
+    def get_col_style(col_name):
+        width = col_widths.get(col_name, "100px")  # 未配置的列默认100px
+        return f"""
+        width: {width};
+        max-width: {width};
+        min-width: {width};
+        word-wrap: break-word;  /* 自动换行 */
+        white-space: normal;    /* 允许换行 */
+        text-align: left;
+        vertical-align: top;    /* 内容顶部对齐 */
+        """
+
+
+    # 定义表格样式（核心：固定列宽+自动换行+表头固定）
     table_css = """
     <style>
-    /* 表格容器：固定高度+滚动 */
+    /* 表格容器：仅纵向滚动，横向自适应 */
     .data-table-container {
         height: 450px;
         overflow-y: auto;
+        overflow-x: hidden;  /* 关闭横向滚动 */
         border: 1px solid #dee2e6;
         margin: 10px 0;
     }
-    /* 主表格样式 */
+    /* 主表格样式：宽度自适应，列固定宽度 */
     .data-table {
         width: 100%;
+        table-layout: fixed;  /* 固定表格布局，确保列宽生效 */
         border-collapse: collapse;
     }
-    /* 表头固定 */
+    /* 表头固定 + 固定列宽 + 自动换行 */
     .data-table th {
         position: sticky;
         top: 0;
@@ -1728,21 +1766,27 @@ if month_options and selected_month:
         border: 1px solid #dee2e6;
         padding: 8px 12px;
         z-index: 10;
+        word-wrap: break-word;
+        white-space: normal;
     }
     /* 平均值行样式 */
     .avg-row {
         background-color: #fff3cd; /* 浅黄色背景区分平均值 */
         font-weight: bold;
     }
-    /* 平均值行单元格 */
+    /* 平均值行单元格：固定列宽 + 自动换行 */
     .avg-row td {
         border: 1px solid #dee2e6;
         padding: 8px 12px;
+        word-wrap: break-word;
+        white-space: normal;
     }
-    /* 数据行单元格 */
+    /* 数据行单元格：固定列宽 + 自动换行 */
     .data-row td {
         border: 1px solid #dee2e6;
         padding: 8px 12px;
+        word-wrap: break-word;
+        white-space: normal;
     }
     /* 高于平均值的单元格样式 */
     .highlight-cell {
@@ -1751,26 +1795,31 @@ if month_options and selected_month:
     </style>
     """
 
-    # 构建表头HTML
-    header_html = "".join([f"<th>{col}</th>" for col in display_cols])
+    # 构建表头HTML（带固定列宽）
+    header_html = ""
+    for col in display_cols:
+        style = get_col_style(col)
+        header_html += f"<th style='{style}'>{col}</th>"
 
     # 构建表格行HTML
     rows_html = ""
     for idx, row in df_final.iterrows():
         if idx == 0:
-            # 第一行：平均值行
+            # 第一行：平均值行（带固定列宽）
             row_html = "<tr class='avg-row'>"
             for col in display_cols:
+                style = get_col_style(col)
                 cell_val = row[col]
                 # 数值格式化（保留2位小数）
                 if col in avg_target_cols and isinstance(cell_val, (int, float)):
                     cell_val = f"{cell_val:.2f}"
-                row_html += f"<td>{cell_val}</td>"
+                row_html += f"<td style='{style}'>{cell_val}</td>"
             row_html += "</tr>"
         else:
-            # 数据行：判断是否高于平均值并高亮
+            # 数据行：判断是否高于平均值并高亮（带固定列宽）
             row_html = "<tr class='data-row'>"
             for col in display_cols:
+                style = get_col_style(col)
                 cell_val = row[col]
                 highlight_class = ""
 
@@ -1793,7 +1842,7 @@ if month_options and selected_month:
                 if col in avg_target_cols and isinstance(cell_val, (int, float)):
                     display_val = f"{cell_val:.2f}"
 
-                row_html += f"<td class='{highlight_class}'>{display_val}</td>"
+                row_html += f"<td style='{style}' class='{highlight_class}'>{display_val}</td>"
             row_html += "</tr>"
         rows_html += row_html
 
