@@ -875,34 +875,6 @@ if month_options and selected_month:
 
     st.divider()
 
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import plotly.express as px
-    import base64
-    from io import BytesIO
-
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import plotly.express as px
-    import base64
-    from io import BytesIO
-
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import plotly.express as px
-    import base64
-    from io import BytesIO
-
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import plotly.express as px
-    import base64
-    from io import BytesIO
-
     # ====================== 不同月份红单趋势分析（货代+仓库维度细分） ======================
     st.markdown("### 不同月份红单趋势分析（货代/仓库维度）")
 
@@ -942,7 +914,7 @@ if month_options and selected_month:
 
             col1, col2 = st.columns(2)
 
-            # ====================== 左侧：月份趋势分析表格（重写聚合逻辑） ======================
+            # ====================== 左侧：月份趋势分析表格（重写聚合逻辑+单选筛选） ======================
             with col1:
                 # 1. 基础筛选控件
                 st.markdown("#### 分析条件设置")
@@ -988,26 +960,32 @@ if month_options and selected_month:
                     key="trend_view_mode"
                 )
 
-                # 新增：维度筛选控件（货代/仓库）
-                dimension_filter = []
+                # 核心修改：货代/仓库改为「全部+单选」筛选
+                selected_dimension = None
                 if analysis_dimension == "货代维度":
                     all_freight = sorted(df_red[COL_FREIGHT].dropna().unique())
-                    dimension_filter = st.multiselect(
+                    # 插入「全部」选项到第一个位置
+                    freight_options = ["全部"] + all_freight
+                    selected_freight = st.selectbox(
                         "筛选货代",
-                        all_freight,
-                        default=all_freight,
+                        options=freight_options,
+                        index=0,  # 默认选中「全部」
                         key="trend_freight_filter"
                     )
+                    selected_dimension = selected_freight if selected_freight != "全部" else None
                 elif analysis_dimension == "仓库维度":
                     all_warehouse = sorted(df_red[COL_WAREHOUSE].dropna().unique())
-                    dimension_filter = st.multiselect(
+                    # 插入「全部」选项到第一个位置
+                    warehouse_options = ["全部"] + all_warehouse
+                    selected_warehouse = st.selectbox(
                         "筛选仓库",
-                        all_warehouse,
-                        default=all_warehouse,
+                        options=warehouse_options,
+                        index=0,  # 默认选中「全部」
                         key="trend_warehouse_filter"
                     )
+                    selected_dimension = selected_warehouse if selected_warehouse != "全部" else None
 
-                # 2. 数据过滤（新增维度筛选 + 列存在性校验）
+                # 2. 数据过滤（适配单选+全部筛选逻辑）
                 if start_month and end_month:
                     # 月份转换函数
                     def month_to_num(month_str):
@@ -1029,13 +1007,13 @@ if month_options and selected_month:
                     elif delay_filter == "仅延期":
                         df_trend_filtered = df_trend_filtered[df_trend_filtered[COL_DELAY_STATUS] == "延期"].copy()
 
-                    # 新增：维度筛选（货代/仓库）
-                    if analysis_dimension == "货代维度" and dimension_filter:
+                    # 适配单选筛选逻辑：仅当选择了具体货代/仓库时才过滤
+                    if analysis_dimension == "货代维度" and selected_dimension is not None:
                         df_trend_filtered = df_trend_filtered[
-                            df_trend_filtered[COL_FREIGHT].isin(dimension_filter)].copy()
-                    elif analysis_dimension == "仓库维度" and dimension_filter:
+                            df_trend_filtered[COL_FREIGHT] == selected_dimension].copy()
+                    elif analysis_dimension == "仓库维度" and selected_dimension is not None:
                         df_trend_filtered = df_trend_filtered[
-                            df_trend_filtered[COL_WAREHOUSE].isin(dimension_filter)].copy()
+                            df_trend_filtered[COL_WAREHOUSE] == selected_dimension].copy()
 
                     # 3. 重写数据聚合逻辑（核心修复：分步聚合+手动命名）
                     trend_data = pd.DataFrame()
@@ -1266,6 +1244,11 @@ if month_options and selected_month:
 
                         # 8. 生成HTML表格
                         st.markdown(f"#### 月份趋势分析（{analysis_dimension}）{start_month} ~ {end_month}")
+                        # 补充筛选条件显示
+                        if analysis_dimension == "货代维度" and selected_dimension:
+                            st.markdown(f"**当前筛选：{selected_dimension}**")
+                        elif analysis_dimension == "仓库维度" and selected_dimension:
+                            st.markdown(f"**当前筛选：{selected_dimension}**")
 
                         html_style = """
                         <style>
@@ -1345,7 +1328,9 @@ if month_options and selected_month:
                             return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{link_text}</a>'
 
 
-                        download_filename = f"{analysis_dimension}_月份红单趋势_{start_month}_{end_month}.xlsx"
+                        # 下载文件名补充筛选条件
+                        download_suffix = f"_{selected_dimension}" if selected_dimension else ""
+                        download_filename = f"{analysis_dimension}_月份红单趋势{download_suffix}_{start_month}_{end_month}.xlsx"
                         st.markdown(
                             generate_trend_download_link(df_with_avg, download_filename, "📥 下载趋势数据（含平均值）"),
                             unsafe_allow_html=True
@@ -1359,6 +1344,11 @@ if month_options and selected_month:
             # ====================== 右侧：定制化折线图（适配货代/仓库维度） ======================
             with col2:
                 st.markdown(f"#### 红单趋势折线图（{analysis_dimension}）")
+                # 补充筛选条件显示
+                if analysis_dimension == "货代维度" and selected_dimension:
+                    st.markdown(f"**当前筛选：{selected_dimension}**")
+                elif analysis_dimension == "仓库维度" and selected_dimension:
+                    st.markdown(f"**当前筛选：{selected_dimension}**")
 
                 # 强化数据校验
                 if 'trend_data' in locals() and isinstance(trend_data, pd.DataFrame) and len(
@@ -1578,6 +1568,8 @@ if month_options and selected_month:
                     st.write("⚠️ 请先选择有效的筛选条件并确保有数据")
     else:
         st.write("⚠️ 无有效数据进行趋势分析")
+
+    st.divider()
 
     st.divider()
     # ===================== 三、数据源 =====================
