@@ -1579,7 +1579,6 @@ if month_options and selected_month:
 
     # 1. 到货年月筛选器（单选+默认“全部”）
     with col1:
-        # 增加空值判断，避免无数据时报错
         month_unique = df_red["到货年月"].dropna().unique()
         month_options_filter = ["全部"] + sorted(month_unique, reverse=True) if len(month_unique) > 0 else ["全部"]
         selected_month_filter = st.selectbox(
@@ -1654,187 +1653,170 @@ if month_options and selected_month:
     # 执行筛选
     df_filtered = df_red[filter_conditions].copy()
 
-    # ---------------------- 计算平均值（筛选后） ----------------------
+    # ---------------------- 核心逻辑：计算平均值+合并到表格首行 ----------------------
     # 定义需要计算平均值的列
-    avg_columns = [
+    avg_target_cols = [
         "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
         "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
         "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
     ]
+
+    # 定义最终显示列（提前/延期插到货代右侧）
+    display_cols = [
+        "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",
+        "异常备注", "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
+        "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
+        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
+    ]
     # 过滤存在的列
-    avg_columns = [col for col in avg_columns if col in df_filtered.columns]
+    display_cols = [col for col in display_cols if col in df_filtered.columns]
 
-    # 计算平均值（保留2位小数）
-    avg_values = {}
-    if len(df_filtered) > 0 and avg_columns:
-        for col in avg_columns:
-            # 转换为数值型，排除非数值
-            numeric_vals = pd.to_numeric(df_filtered[col], errors='coerce').dropna()
-            if len(numeric_vals) > 0:
-                avg_values[col] = round(numeric_vals.mean(), 2)
-            else:
-                avg_values[col] = 0.00
-    else:
-        # 无数据时平均值为0
-        for col in avg_columns:
-            avg_values[col] = 0.00
+    # 初始化平均值行
+    avg_row = pd.Series(index=display_cols, dtype=object)
+    avg_row[:] = "-"  # 非数值列默认显示"-"
+    avg_row.name = "平均值"  # 首行名称
 
-    # ---------------------- 显示平均值（固定在表格上方） ----------------------
-    st.markdown("### 筛选后数据平均值")
-    # 构建平均值显示表格
-    if avg_values:
-        avg_display_data = {"指标": list(avg_values.keys()), "平均值（筛选后）": list(avg_values.values())}
-        avg_df = pd.DataFrame(avg_display_data)
-
-        # 自定义平均值表格样式（固定在顶部）
-        avg_html = f"""
-        <style>
-        .avg-container {{
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            background-color: white;
-            padding: 10px 0;
-            border-bottom: 1px solid #dee2e6;
-            margin-bottom: 10px;
-        }}
-        .avg-table {{
-            width: 100%;
-            border-collapse: collapse;
-            background-color: #f8f9fa;
-        }}
-        .avg-table th, .avg-table td {{
-            border: 1px solid #dee2e6;
-            padding: 8px 12px;
-            text-align: left;
-        }}
-        .avg-table th {{
-            background-color: #e9ecef;
-            font-weight: bold;
-        }}
-        </style>
-        <div class="avg-container">
-            <table class="avg-table">
-                <thead>
-                    <tr>
-                        <th>指标</th>
-                        <th>平均值（筛选后）</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join([f'<tr><td>{row["指标"]}</td><td>{row["平均值（筛选后）"]:.2f}</td></tr>' for _, row in avg_df.iterrows()])}
-                </tbody>
-            </table>
-        </div>
-        """
-        st.markdown(avg_html, unsafe_allow_html=True)
-    else:
-        st.write("⚠️ 暂无可计算平均值的列")
-
-    # ---------------------- 处理表格列顺序和高亮 ----------------------
-    st.markdown("### 原始数据（筛选后）")
+    # 计算并填充平均值（仅针对目标列）
     if len(df_filtered) > 0:
-        # 1. 定义基础显示列（包含重排逻辑：提前/延期插到货代右边）
-        base_cols = [
-            "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",  # 提前/延期插到货代右侧
-            "异常备注", "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
-            "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
-            "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
-        ]
-        # 过滤存在的列
-        display_cols = [col for col in base_cols if col in df_filtered.columns]
+        for col in avg_target_cols:
+            if col in display_cols:
+                # 转换为数值型，排除非数值
+                numeric_vals = pd.to_numeric(df_filtered[col], errors='coerce').dropna()
+                if len(numeric_vals) > 0:
+                    avg_val = round(numeric_vals.mean(), 2)
+                    avg_row[col] = avg_val
+                else:
+                    avg_row[col] = 0.00
 
-        # 2. 复制数据并转换为数值型（用于高亮判断）
+    # 合并平均值行到数据表格首行
+    if len(df_filtered) > 0:
+        # 筛选出需要显示的列
         df_display = df_filtered[display_cols].copy()
-
-        # 3. 预转换需要高亮的列为数值型
-        for col in avg_columns:
+        # 转换数值列为数值型（用于后续比较）
+        for col in avg_target_cols:
             if col in df_display.columns:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
+        # 插入平均值行到第一行
+        df_final = pd.concat([pd.DataFrame([avg_row]), df_display], ignore_index=True)
+    else:
+        df_final = pd.DataFrame([avg_row])  # 无数据时仅显示平均值行
 
-        # 4. 生成高亮的HTML表格（替代streamlit style，避免兼容性问题）
-        # 定义表格样式
-        table_style = """
-        <style>
-        .data-table-container {
-            height: 400px;
-            overflow-y: auto;
-            border: 1px solid #dee2e6;
-            margin-bottom: 10px;
-        }
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .data-table th {
-            position: sticky;
-            top: 0;
-            background-color: #f8f9fa;
-            font-weight: bold;
-            border: 1px solid #dee2e6;
-            padding: 8px 12px;
-            z-index: 10;
-        }
-        .data-table td {
-            border: 1px solid #dee2e6;
-            padding: 8px 12px;
-        }
-        .highlight-cell {
-            background-color: #ffebee; /* 浅红色 */
-        }
-        </style>
-        """
+    # ---------------------- 生成带高亮的HTML表格（首行是平均值，表头固定） ----------------------
+    st.markdown("### 原始数据（含筛选后平均值）")
 
-        # 构建表头
-        header_html = "".join([f"<th>{col}</th>" for col in display_cols])
+    # 定义表格样式（表头固定+平均值行样式+高亮样式）
+    table_css = """
+    <style>
+    /* 表格容器：固定高度+滚动 */
+    .data-table-container {
+        height: 450px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        margin: 10px 0;
+    }
+    /* 主表格样式 */
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    /* 表头固定 */
+    .data-table th {
+        position: sticky;
+        top: 0;
+        background-color: #e9ecef;
+        font-weight: bold;
+        border: 1px solid #dee2e6;
+        padding: 8px 12px;
+        z-index: 10;
+    }
+    /* 平均值行样式 */
+    .avg-row {
+        background-color: #fff3cd; /* 浅黄色背景区分平均值 */
+        font-weight: bold;
+    }
+    /* 平均值行单元格 */
+    .avg-row td {
+        border: 1px solid #dee2e6;
+        padding: 8px 12px;
+    }
+    /* 数据行单元格 */
+    .data-row td {
+        border: 1px solid #dee2e6;
+        padding: 8px 12px;
+    }
+    /* 高于平均值的单元格样式 */
+    .highlight-cell {
+        background-color: #ffebee; /* 浅红色 */
+    }
+    </style>
+    """
 
-        # 构建表格行（包含高亮逻辑）
-        rows_html = ""
-        for idx, row in df_display.iterrows():
-            row_html = "<tr>"
+    # 构建表头HTML
+    header_html = "".join([f"<th>{col}</th>" for col in display_cols])
+
+    # 构建表格行HTML
+    rows_html = ""
+    for idx, row in df_final.iterrows():
+        if idx == 0:
+            # 第一行：平均值行
+            row_html = "<tr class='avg-row'>"
             for col in display_cols:
                 cell_val = row[col]
-                # 处理空值
-                if pd.isna(cell_val):
-                    cell_val = ""
-                else:
-                    cell_val = str(cell_val)
-
-                # 判断是否需要高亮
-                highlight = ""
-                if col in avg_values:
-                    try:
-                        # 转换为数值比较
-                        val_num = float(row[col]) if pd.notna(row[col]) else 0
-                        avg_num = avg_values[col]
-                        if val_num > avg_num:
-                            highlight = 'class="highlight-cell"'
-                    except:
-                        pass
-
-                row_html += f"<td {highlight}>{cell_val}</td>"
+                # 数值格式化（保留2位小数）
+                if col in avg_target_cols and isinstance(cell_val, (int, float)):
+                    cell_val = f"{cell_val:.2f}"
+                row_html += f"<td>{cell_val}</td>"
             row_html += "</tr>"
-            rows_html += row_html
+        else:
+            # 数据行：判断是否高于平均值并高亮
+            row_html = "<tr class='data-row'>"
+            for col in display_cols:
+                cell_val = row[col]
+                highlight_class = ""
 
-        # 拼接完整表格HTML
-        table_html = f"""
-        {table_style}
-        <div class="data-table-container">
-            <table class="data-table">
-                <thead>
-                    <tr>{header_html}</tr>
-                </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
-            </table>
-        </div>
-        """
+                # 仅对数值列判断是否高于平均值
+                if col in avg_target_cols:
+                    # 获取平均值（首行数据）
+                    avg_val = df_final.iloc[0][col]
+                    # 处理空值/非数值
+                    if pd.notna(cell_val) and pd.notna(avg_val) and isinstance(avg_val, (int, float)):
+                        try:
+                            cell_num = float(cell_val)
+                            if cell_num > avg_val:
+                                highlight_class = "highlight-cell"
+                        except:
+                            pass
 
-        # 显示HTML表格（避免streamlit style兼容性问题）
-        st.markdown(table_html, unsafe_allow_html=True)
+                # 格式化单元格值（空值显示空字符串）
+                display_val = "" if pd.isna(cell_val) else str(cell_val)
+                # 数值列格式化（保留2位小数）
+                if col in avg_target_cols and isinstance(cell_val, (int, float)):
+                    display_val = f"{cell_val:.2f}"
 
-        # 数据量提示
+                row_html += f"<td class='{highlight_class}'>{display_val}</td>"
+            row_html += "</tr>"
+        rows_html += row_html
+
+    # 拼接完整HTML
+    final_table_html = f"""
+    {table_css}
+    <div class='data-table-container'>
+        <table class='data-table'>
+            <thead>
+                <tr>{header_html}</tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
+
+    # 显示表格
+    st.markdown(final_table_html, unsafe_allow_html=True)
+
+    # 数据量提示
+    if len(df_filtered) > 0:
         st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_red)} 条")
     else:
-        st.write("⚠️ 暂无符合筛选条件的数据")
+        st.caption("⚠️ 暂无符合筛选条件的业务数据（仅显示平均值行）")
