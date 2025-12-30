@@ -1631,241 +1631,185 @@ if month_options and selected_month:
         )
 
     # ---------------------- 应用筛选逻辑 ----------------------
-    # 初始化筛选条件（默认全部数据）
     filter_conditions = pd.Series([True] * len(df_red))
-
-    # 应用到货年月筛选
     if selected_month_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["到货年月"] == selected_month_filter)
-
-    # 应用仓库筛选
     if "仓库" in df_red.columns and selected_warehouse_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["仓库"] == selected_warehouse_filter)
-
-    # 应用货代筛选
     if "货代" in df_red.columns and selected_freight_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["货代"] == selected_freight_filter)
-
-    # 应用提前/延期筛选
     if "提前/延期" in df_red.columns and selected_status_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["提前/延期"] == selected_status_filter)
-
-    # 执行筛选
     df_filtered = df_red[filter_conditions].copy()
 
-    # ---------------------- 核心逻辑：计算平均值 ----------------------
-    # 定义需要计算平均值的列
+    # ---------------------- 计算平均值 ----------------------
     avg_target_cols = [
         "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
         "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
         "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
     ]
-
-    # 定义最终显示列（提前/延期插到货代右侧）
     display_cols = [
         "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",
         "异常备注", "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
         "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
         "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
     ]
-    # 过滤存在的列
     display_cols = [col for col in display_cols if col in df_filtered.columns]
 
-    # 初始化平均值行
-    avg_row = pd.Series(index=display_cols, dtype=object)
-    avg_row[:] = "-"  # 非数值列默认显示"-"
-    avg_row.name = "平均值"  # 首行名称
-
-    # 计算并填充平均值（仅针对目标列）
+    # 初始化平均值
+    avg_row = {col: "-" for col in display_cols}
     if len(df_filtered) > 0:
         for col in avg_target_cols:
             if col in display_cols:
-                # 转换为数值型，排除非数值
                 numeric_vals = pd.to_numeric(df_filtered[col], errors='coerce').dropna()
-                if len(numeric_vals) > 0:
-                    avg_val = round(numeric_vals.mean(), 2)
-                    avg_row[col] = avg_val
-                else:
-                    avg_row[col] = 0.00
+                avg_row[col] = round(numeric_vals.mean(), 2) if len(numeric_vals) > 0 else 0.00
 
     # 处理数据行
-    if len(df_filtered) > 0:
-        df_display = df_filtered[display_cols].copy()
-        # 转换数值列为数值型（用于后续比较）
-        for col in avg_target_cols:
-            if col in df_display.columns:
-                df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
-    else:
-        df_display = pd.DataFrame(columns=display_cols)  # 无数据时空DataFrame
+    df_display = df_filtered[display_cols].copy() if len(df_filtered) > 0 else pd.DataFrame(columns=display_cols)
+    for col in avg_target_cols:
+        if col in df_display.columns:
+            df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
 
-    # ---------------------- 生成固定平均值行+列宽+自动换行的表格 ----------------------
+    # ---------------------- 生成表格（修复样式语法） ----------------------
     st.markdown("### 原始数据（含筛选后平均值）")
 
-    # 定义列宽配置（可根据需求调整）
-    col_widths = {
-        "到货年月": "80px",
-        "FBA号": "120px",
-        "店铺": "80px",
-        "仓库": "80px",
-        "货代": "80px",
-        "提前/延期": "80px",
-        "异常备注": "100px",
-        "发货-提取": "80px",
-        "提取-到港": "80px",
-        "到港-签收": "80px",
-        "签收-完成上架": "100px",
-        "发货-签收": "80px",
-        "发货-完成上架": "100px",
-        "签收-发货时间": "100px",
-        "上架完成-发货时间": "120px",
-        "预计物流时效-实际物流时效差值(绝对值)": "150px",
-        "预计物流时效-实际物流时效差值": "150px"
+    # 列宽配置（简化为单行字符串，避免语法错误）
+    col_width_config = {
+        "到货年月": "80px", "FBA号": "120px", "店铺": "80px", "仓库": "80px",
+        "货代": "80px", "提前/延期": "80px", "异常备注": "100px", "发货-提取": "80px",
+        "提取-到港": "80px", "到港-签收": "80px", "签收-完成上架": "100px", "发货-签收": "80px",
+        "发货-完成上架": "100px", "签收-发货时间": "100px", "上架完成-发货时间": "120px",
+        "预计物流时效-实际物流时效差值(绝对值)": "150px", "预计物流时效-实际物流时效差值": "150px"
     }
 
-
-    # 获取列样式字符串
-    def get_col_style(col_name):
-        width = col_widths.get(col_name, "100px")
-        return f"""
-        width: {width};
-        max-width: {width};
-        min-width: {width};
-        word-wrap: break-word;
-        white-space: normal;
-        text-align: left;
-        vertical-align: top;
-        padding: 8px 12px;
-        border: 1px solid #dee2e6;
-        """
-
-
-    # 核心样式：双层容器实现「表头+平均值行双固定」
+    # 核心修复：CSS样式改为单行紧凑格式，避免换行导致的语法错误
     table_css = """
     <style>
-    /* 外层容器：控制整体宽度 */
-    .table-outer-container {
+    /* 全局表格样式重置 */
+    .table-outer {
         width: 100%;
         border: 1px solid #dee2e6;
         margin: 10px 0;
+        font-size: 14px;
     }
-    /* 固定头部容器：表头+平均值行，永久固定 */
-    .table-fixed-header {
+    /* 固定头部容器 */
+    .table-fixed {
         position: sticky;
         top: 0;
-        background-color: white;
-        z-index: 100;
+        background: white;
+        z-index: 99;
     }
     /* 表头样式 */
-    .table-header {
-        background-color: #e9ecef;
+    .table-header th {
+        width: var(--col-width);
+        max-width: var(--col-width);
+        min-width: var(--col-width);
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        background: #e9ecef;
         font-weight: bold;
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: collapse;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        vertical-align: top;
     }
     /* 平均值行样式 */
-    .table-avg-row {
-        background-color: #fff3cd;
+    .table-avg td {
+        width: var(--col-width);
+        max-width: var(--col-width);
+        min-width: var(--col-width);
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        background: #fff3cd;
         font-weight: bold;
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: collapse;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        vertical-align: top;
     }
-    /* 数据滚动容器：仅数据行滚动，高度固定 */
-    .table-data-container {
+    /* 数据滚动容器 */
+    .table-scroll {
         height: 400px;
         overflow-y: auto;
         overflow-x: hidden;
     }
-    /* 数据表格样式 */
-    .table-data {
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: collapse;
-    }
     /* 数据行样式 */
-    .table-data tr td {
-        word-wrap: break-word;
+    .table-data td {
+        width: var(--col-width);
+        max-width: var(--col-width);
+        min-width: var(--col-width);
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        text-align: left;
         white-space: normal;
+        word-wrap: break-word;
         vertical-align: top;
     }
     /* 高亮单元格 */
-    .highlight-cell {
+    .highlight {
         background-color: #ffebee !important;
+    }
+    /* 表格布局统一 */
+    .table-header, .table-avg, .table-data {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        border-spacing: 0;
     }
     </style>
     """
 
-    # 1. 构建表头HTML
+    # 构建表头（使用CSS变量传递列宽，避免内联样式换行错误）
     header_html = "<table class='table-header'><tr>"
     for col in display_cols:
-        style = get_col_style(col).replace("padding: 8px 12px;", "").replace("border: 1px solid #dee2e6;", "")
-        header_html += f"<th style='{style}'>{col}</th>"
+        width = col_width_config.get(col, "100px")
+        header_html += f"<th style='--col-width: {width}'>{col}</th>"
     header_html += "</tr></table>"
 
-    # 2. 构建平均值行HTML
-    avg_html = "<table class='table-avg-row'><tr>"
+    # 构建平均值行
+    avg_html = "<table class='table-avg'><tr>"
     for col in display_cols:
-        style = get_col_style(col)
-        cell_val = avg_row[col]
-        if col in avg_target_cols and isinstance(cell_val, (int, float)):
-            cell_val = f"{cell_val:.2f}"
-        avg_html += f"<td style='{style}'>{cell_val}</td>"
+        width = col_width_config.get(col, "100px")
+        val = avg_row[col]
+        if col in avg_target_cols and isinstance(val, (int, float)):
+            val = f"{val:.2f}"
+        avg_html += f"<td style='--col-width: {width}'>{val}</td>"
     avg_html += "</tr></table>"
 
-    # 3. 构建数据行HTML
+    # 构建数据行
     data_html = "<table class='table-data'><tbody>"
     if len(df_display) > 0:
-        for idx, row in df_display.iterrows():
-            row_html = "<tr>"
+        for _, row in df_display.iterrows():
+            data_html += "<tr>"
             for col in display_cols:
-                style = get_col_style(col)
-                cell_val = row[col]
-                highlight_class = ""
-
-                # 判断是否高亮
-                if col in avg_target_cols:
-                    avg_val = avg_row[col]
-                    if pd.notna(cell_val) and pd.notna(avg_val) and isinstance(avg_val, (int, float)):
-                        try:
-                            cell_num = float(cell_val)
-                            if cell_num > avg_val:
-                                highlight_class = "highlight-cell"
-                        except:
-                            pass
-
-                # 格式化显示值
-                display_val = "" if pd.isna(cell_val) else str(cell_val)
-                if col in avg_target_cols and isinstance(cell_val, (int, float)):
-                    display_val = f"{cell_val:.2f}"
-
-                row_html += f"<td style='{style}' class='{highlight_class}'>{display_val}</td>"
-            row_html += "</tr>"
-            data_html += row_html
+                width = col_width_config.get(col, "100px")
+                val = row[col]
+                highlight = "highlight" if (
+                            col in avg_target_cols and pd.notna(val) and pd.notna(avg_row[col]) and isinstance(
+                        avg_row[col], (int, float)) and float(val) > avg_row[col]) else ""
+                display_val = f"{val:.2f}" if (col in avg_target_cols and isinstance(val, (int, float))) else (
+                    "" if pd.isna(val) else str(val))
+                data_html += f"<td style='--col-width: {width}' class='{highlight}'>{display_val}</td>"
+            data_html += "</tr>"
     else:
-        # 无数据时显示提示
-        empty_style = get_col_style(display_cols[0]) if display_cols else ""
-        data_html += f"<tr><td style='{empty_style}' colspan='{len(display_cols)}'>⚠️ 暂无符合筛选条件的数据</td></tr>"
+        data_html += f"<tr><td colspan='{len(display_cols)}' style='text-align: center; padding: 20px;'>⚠️ 暂无符合筛选条件的数据</td></tr>"
     data_html += "</tbody></table>"
 
-    # 拼接完整HTML（核心：双层容器实现固定）
-    final_table_html = f"""
+    # 拼接最终HTML（核心：使用CSS变量传递列宽，避免内联样式换行）
+    final_html = f"""
     {table_css}
-    <div class='table-outer-container'>
-        <!-- 固定头部：表头+平均值行 -->
-        <div class='table-fixed-header'>
+    <div class='table-outer'>
+        <div class='table-fixed'>
             {header_html}
             {avg_html}
         </div>
-        <!-- 数据滚动区域 -->
-        <div class='table-data-container'>
+        <div class='table-scroll'>
             {data_html}
         </div>
     </div>
     """
 
-    # 显示表格
-    st.markdown(final_table_html, unsafe_allow_html=True)
+    st.markdown(final_html, unsafe_allow_html=True)
 
     # 数据量提示
     if len(df_filtered) > 0:
