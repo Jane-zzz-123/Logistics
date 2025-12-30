@@ -1579,8 +1579,9 @@ if month_options and selected_month:
 
     # 1. 到货年月筛选器（单选+默认“全部”）
     with col1:
-        month_options_filter = ["全部"] + sorted(df_red["到货年月"].unique(), reverse=True) if len(
-            df_red["到货年月"].unique()) > 0 else ["全部"]
+        # 增加空值判断，避免无数据时报错
+        month_unique = df_red["到货年月"].dropna().unique()
+        month_options_filter = ["全部"] + sorted(month_unique, reverse=True) if len(month_unique) > 0 else ["全部"]
         selected_month_filter = st.selectbox(
             "到货年月",
             options=month_options_filter,
@@ -1590,8 +1591,11 @@ if month_options and selected_month:
 
     # 2. 仓库筛选器（单选+默认“全部”）
     with col2:
-        warehouse_options_filter = ["全部"] + list(df_red["仓库"].unique()) if "仓库" in df_red.columns and len(
-            df_red["仓库"].unique()) > 0 else ["全部"]
+        warehouse_options_filter = ["全部"]
+        if "仓库" in df_red.columns:
+            warehouse_unique = df_red["仓库"].dropna().unique()
+            if len(warehouse_unique) > 0:
+                warehouse_options_filter += list(warehouse_unique)
         selected_warehouse_filter = st.selectbox(
             "仓库",
             options=warehouse_options_filter,
@@ -1601,8 +1605,11 @@ if month_options and selected_month:
 
     # 3. 货代筛选器（单选+默认“全部”）
     with col3:
-        freight_options_filter = ["全部"] + list(df_red["货代"].unique()) if "货代" in df_red.columns and len(
-            df_red["货代"].unique()) > 0 else ["全部"]
+        freight_options_filter = ["全部"]
+        if "货代" in df_red.columns:
+            freight_unique = df_red["货代"].dropna().unique()
+            if len(freight_unique) > 0:
+                freight_options_filter += list(freight_unique)
         selected_freight_filter = st.selectbox(
             "货代",
             options=freight_options_filter,
@@ -1612,8 +1619,11 @@ if month_options and selected_month:
 
     # 4. 提前/延期筛选器（单选+默认“全部”）
     with col4:
-        status_options_filter = ["全部"] + list(df_red["提前/延期"].unique()) if "提前/延期" in df_red.columns and len(
-            df_red["提前/延期"].unique()) > 0 else ["全部"]
+        status_options_filter = ["全部"]
+        if "提前/延期" in df_red.columns:
+            status_unique = df_red["提前/延期"].dropna().unique()
+            if len(status_unique) > 0:
+                status_options_filter += list(status_unique)
         selected_status_filter = st.selectbox(
             "提前/延期",
             options=status_options_filter,
@@ -1626,19 +1636,19 @@ if month_options and selected_month:
     filter_conditions = pd.Series([True] * len(df_red))
 
     # 应用到货年月筛选
-    if selected_month_filter != "全部":
+    if selected_month_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["到货年月"] == selected_month_filter)
 
     # 应用仓库筛选
-    if "仓库" in df_red.columns and selected_warehouse_filter != "全部":
+    if "仓库" in df_red.columns and selected_warehouse_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["仓库"] == selected_warehouse_filter)
 
     # 应用货代筛选
-    if "货代" in df_red.columns and selected_freight_filter != "全部":
+    if "货代" in df_red.columns and selected_freight_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["货代"] == selected_freight_filter)
 
     # 应用提前/延期筛选
-    if "提前/延期" in df_red.columns and selected_status_filter != "全部":
+    if "提前/延期" in df_red.columns and selected_status_filter != "全部" and len(df_red) > 0:
         filter_conditions = filter_conditions & (df_red["提前/延期"] == selected_status_filter)
 
     # 执行筛选
@@ -1672,44 +1682,54 @@ if month_options and selected_month:
     # ---------------------- 显示平均值（固定在表格上方） ----------------------
     st.markdown("### 筛选后数据平均值")
     # 构建平均值显示表格
-    avg_display_data = {"指标": list(avg_values.keys()), "平均值（筛选后）": list(avg_values.values())}
-    avg_df = pd.DataFrame(avg_display_data)
+    if avg_values:
+        avg_display_data = {"指标": list(avg_values.keys()), "平均值（筛选后）": list(avg_values.values())}
+        avg_df = pd.DataFrame(avg_display_data)
 
-    # 自定义平均值表格样式
-    avg_html = f"""
-    <style>
-    .avg-table {{
-        width: 100%;
-        border-collapse: collapse;
-        margin: 10px 0;
-        background-color: #f8f9fa;
-        position: sticky;
-        top: 0;
-        z-index: 100;
-    }}
-    .avg-table th, .avg-table td {{
-        border: 1px solid #dee2e6;
-        padding: 8px 12px;
-        text-align: left;
-    }}
-    .avg-table th {{
-        background-color: #e9ecef;
-        font-weight: bold;
-    }}
-    </style>
-    <table class="avg-table">
-        <thead>
-            <tr>
-                <th>指标</th>
-                <th>平均值（筛选后）</th>
-            </tr>
-        </thead>
-        <tbody>
-            {''.join([f'<tr><td>{row["指标"]}</td><td>{row["平均值（筛选后）"]:.2f}</td></tr>' for _, row in avg_df.iterrows()])}
-        </tbody>
-    </table>
-    """
-    st.markdown(avg_html, unsafe_allow_html=True)
+        # 自定义平均值表格样式（固定在顶部）
+        avg_html = f"""
+        <style>
+        .avg-container {{
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            background-color: white;
+            padding: 10px 0;
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 10px;
+        }}
+        .avg-table {{
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #f8f9fa;
+        }}
+        .avg-table th, .avg-table td {{
+            border: 1px solid #dee2e6;
+            padding: 8px 12px;
+            text-align: left;
+        }}
+        .avg-table th {{
+            background-color: #e9ecef;
+            font-weight: bold;
+        }}
+        </style>
+        <div class="avg-container">
+            <table class="avg-table">
+                <thead>
+                    <tr>
+                        <th>指标</th>
+                        <th>平均值（筛选后）</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join([f'<tr><td>{row["指标"]}</td><td>{row["平均值（筛选后）"]:.2f}</td></tr>' for _, row in avg_df.iterrows()])}
+                </tbody>
+            </table>
+        </div>
+        """
+        st.markdown(avg_html, unsafe_allow_html=True)
+    else:
+        st.write("⚠️ 暂无可计算平均值的列")
 
     # ---------------------- 处理表格列顺序和高亮 ----------------------
     st.markdown("### 原始数据（筛选后）")
@@ -1726,57 +1746,95 @@ if month_options and selected_month:
 
         # 2. 复制数据并转换为数值型（用于高亮判断）
         df_display = df_filtered[display_cols].copy()
-        # 转换平均值列为数值型
+
+        # 3. 预转换需要高亮的列为数值型
         for col in avg_columns:
             if col in df_display.columns:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
 
+        # 4. 生成高亮的HTML表格（替代streamlit style，避免兼容性问题）
+        # 定义表格样式
+        table_style = """
+        <style>
+        .data-table-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            margin-bottom: 10px;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th {
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            font-weight: bold;
+            border: 1px solid #dee2e6;
+            padding: 8px 12px;
+            z-index: 10;
+        }
+        .data-table td {
+            border: 1px solid #dee2e6;
+            padding: 8px 12px;
+        }
+        .highlight-cell {
+            background-color: #ffebee; /* 浅红色 */
+        }
+        </style>
+        """
 
-        # 3. 定义高亮函数（比平均值大则标浅红色）
-        def highlight_cell(val, col):
-            if col not in avg_values:
-                return ""
-            # 跳过空值
-            if pd.isna(val):
-                return ""
-            # 转换为数值
-            try:
-                val_num = float(val)
-                avg_num = avg_values[col]
-                if val_num > avg_num:
-                    return "background-color: #ffebee;"  # 浅红色
-            except:
-                pass
-            return ""
+        # 构建表头
+        header_html = "".join([f"<th>{col}</th>" for col in display_cols])
 
+        # 构建表格行（包含高亮逻辑）
+        rows_html = ""
+        for idx, row in df_display.iterrows():
+            row_html = "<tr>"
+            for col in display_cols:
+                cell_val = row[col]
+                # 处理空值
+                if pd.isna(cell_val):
+                    cell_val = ""
+                else:
+                    cell_val = str(cell_val)
 
-        # 4. 应用高亮样式
-        styled_df = df_display.style.apply(
-            lambda row: [highlight_cell(row[col], col) for col in df_display.columns],
-            axis=1
-        )
+                # 判断是否需要高亮
+                highlight = ""
+                if col in avg_values:
+                    try:
+                        # 转换为数值比较
+                        val_num = float(row[col]) if pd.notna(row[col]) else 0
+                        avg_num = avg_values[col]
+                        if val_num > avg_num:
+                            highlight = 'class="highlight-cell"'
+                    except:
+                        pass
 
-        # 5. 显示表格（固定表头+高亮）
-        st.dataframe(
-            styled_df,
-            use_container_width=True,
-            height=400,
-            # 固定表头配置
-            config={
-                'columnResizing': True,
-                'displayHeader': True,
-                'headerStyle': {
-                    'position': 'sticky',
-                    'top': '0px',
-                    'backgroundColor': '#f8f9fa',
-                    'fontWeight': 'bold'
-                }
-            }
-        )
+                row_html += f"<td {highlight}>{cell_val}</td>"
+            row_html += "</tr>"
+            rows_html += row_html
+
+        # 拼接完整表格HTML
+        table_html = f"""
+        {table_style}
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>{header_html}</tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+        </div>
+        """
+
+        # 显示HTML表格（避免streamlit style兼容性问题）
+        st.markdown(table_html, unsafe_allow_html=True)
 
         # 数据量提示
         st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_red)} 条")
     else:
         st.write("⚠️ 暂无符合筛选条件的数据")
-else:
-    st.write("⚠️ 请先确保数据源中有有效的到货年月数据")
