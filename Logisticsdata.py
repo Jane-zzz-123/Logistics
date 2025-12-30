@@ -1571,7 +1571,6 @@ if month_options and selected_month:
 
     st.divider()
 
-    st.divider()
     # ===================== 三、数据源 =====================
     st.subheader("📋 数据源筛选")
 
@@ -1580,7 +1579,8 @@ if month_options and selected_month:
 
     # 1. 到货年月筛选器（单选+默认“全部”）
     with col1:
-        month_options_filter = ["全部"] + sorted(df_red["到货年月"].unique(), reverse=True)
+        month_options_filter = ["全部"] + sorted(df_red["到货年月"].unique(), reverse=True) if len(
+            df_red["到货年月"].unique()) > 0 else ["全部"]
         selected_month_filter = st.selectbox(
             "到货年月",
             options=month_options_filter,
@@ -1590,7 +1590,8 @@ if month_options and selected_month:
 
     # 2. 仓库筛选器（单选+默认“全部”）
     with col2:
-        warehouse_options_filter = ["全部"] + list(df_red["仓库"].unique()) if "仓库" in df_red.columns else ["全部"]
+        warehouse_options_filter = ["全部"] + list(df_red["仓库"].unique()) if "仓库" in df_red.columns and len(
+            df_red["仓库"].unique()) > 0 else ["全部"]
         selected_warehouse_filter = st.selectbox(
             "仓库",
             options=warehouse_options_filter,
@@ -1600,7 +1601,8 @@ if month_options and selected_month:
 
     # 3. 货代筛选器（单选+默认“全部”）
     with col3:
-        freight_options_filter = ["全部"] + list(df_red["货代"].unique()) if "货代" in df_red.columns else ["全部"]
+        freight_options_filter = ["全部"] + list(df_red["货代"].unique()) if "货代" in df_red.columns and len(
+            df_red["货代"].unique()) > 0 else ["全部"]
         selected_freight_filter = st.selectbox(
             "货代",
             options=freight_options_filter,
@@ -1610,8 +1612,8 @@ if month_options and selected_month:
 
     # 4. 提前/延期筛选器（单选+默认“全部”）
     with col4:
-        status_options_filter = ["全部"] + list(df_red["提前/延期"].unique()) if "提前/延期" in df_red.columns else [
-            "全部"]
+        status_options_filter = ["全部"] + list(df_red["提前/延期"].unique()) if "提前/延期" in df_red.columns and len(
+            df_red["提前/延期"].unique()) > 0 else ["全部"]
         selected_status_filter = st.selectbox(
             "提前/延期",
             options=status_options_filter,
@@ -1642,25 +1644,136 @@ if month_options and selected_month:
     # 执行筛选
     df_filtered = df_red[filter_conditions].copy()
 
-    # ---------------------- 显示筛选后数据 ----------------------
+    # ---------------------- 计算平均值（筛选后） ----------------------
+    # 定义需要计算平均值的列
+    avg_columns = [
+        "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
+        "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
+        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
+    ]
+    # 过滤存在的列
+    avg_columns = [col for col in avg_columns if col in df_filtered.columns]
+
+    # 计算平均值（保留2位小数）
+    avg_values = {}
+    if len(df_filtered) > 0 and avg_columns:
+        for col in avg_columns:
+            # 转换为数值型，排除非数值
+            numeric_vals = pd.to_numeric(df_filtered[col], errors='coerce').dropna()
+            if len(numeric_vals) > 0:
+                avg_values[col] = round(numeric_vals.mean(), 2)
+            else:
+                avg_values[col] = 0.00
+    else:
+        # 无数据时平均值为0
+        for col in avg_columns:
+            avg_values[col] = 0.00
+
+    # ---------------------- 显示平均值（固定在表格上方） ----------------------
+    st.markdown("### 筛选后数据平均值")
+    # 构建平均值显示表格
+    avg_display_data = {"指标": list(avg_values.keys()), "平均值（筛选后）": list(avg_values.values())}
+    avg_df = pd.DataFrame(avg_display_data)
+
+    # 自定义平均值表格样式
+    avg_html = f"""
+    <style>
+    .avg-table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+        background-color: #f8f9fa;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }}
+    .avg-table th, .avg-table td {{
+        border: 1px solid #dee2e6;
+        padding: 8px 12px;
+        text-align: left;
+    }}
+    .avg-table th {{
+        background-color: #e9ecef;
+        font-weight: bold;
+    }}
+    </style>
+    <table class="avg-table">
+        <thead>
+            <tr>
+                <th>指标</th>
+                <th>平均值（筛选后）</th>
+            </tr>
+        </thead>
+        <tbody>
+            {''.join([f'<tr><td>{row["指标"]}</td><td>{row["平均值（筛选后）"]:.2f}</td></tr>' for _, row in avg_df.iterrows()])}
+        </tbody>
+    </table>
+    """
+    st.markdown(avg_html, unsafe_allow_html=True)
+
+    # ---------------------- 处理表格列顺序和高亮 ----------------------
     st.markdown("### 原始数据（筛选后）")
     if len(df_filtered) > 0:
-        # 定义要显示的列
-        display_cols = [
-            "到货年月", "FBA号", "店铺", "仓库", "货代", "异常备注",
-            "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
+        # 1. 定义基础显示列（包含重排逻辑：提前/延期插到货代右边）
+        base_cols = [
+            "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",  # 提前/延期插到货代右侧
+            "异常备注", "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
             "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
-            "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值",
-            "提前/延期"
+            "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
         ]
         # 过滤存在的列
-        display_cols = [col for col in display_cols if col in df_filtered.columns]
+        display_cols = [col for col in base_cols if col in df_filtered.columns]
 
-        st.dataframe(
-            df_filtered[display_cols],
-            use_container_width=True,
-            height=400
+        # 2. 复制数据并转换为数值型（用于高亮判断）
+        df_display = df_filtered[display_cols].copy()
+        # 转换平均值列为数值型
+        for col in avg_columns:
+            if col in df_display.columns:
+                df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
+
+
+        # 3. 定义高亮函数（比平均值大则标浅红色）
+        def highlight_cell(val, col):
+            if col not in avg_values:
+                return ""
+            # 跳过空值
+            if pd.isna(val):
+                return ""
+            # 转换为数值
+            try:
+                val_num = float(val)
+                avg_num = avg_values[col]
+                if val_num > avg_num:
+                    return "background-color: #ffebee;"  # 浅红色
+            except:
+                pass
+            return ""
+
+
+        # 4. 应用高亮样式
+        styled_df = df_display.style.apply(
+            lambda row: [highlight_cell(row[col], col) for col in df_display.columns],
+            axis=1
         )
+
+        # 5. 显示表格（固定表头+高亮）
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            height=400,
+            # 固定表头配置
+            config={
+                'columnResizing': True,
+                'displayHeader': True,
+                'headerStyle': {
+                    'position': 'sticky',
+                    'top': '0px',
+                    'backgroundColor': '#f8f9fa',
+                    'fontWeight': 'bold'
+                }
+            }
+        )
+
         # 数据量提示
         st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_red)} 条")
     else:
