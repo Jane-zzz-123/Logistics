@@ -23,7 +23,7 @@ def load_data():
     """读取空派数据并预处理"""
     # 读取指定sheet
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
-    df_air = pd.read_excel(url, sheet_name="上架完成-空派")
+    df_air = pd.read_excel(url, sheet_name="上架完成-空运")
 
     # 指定需要分析的列
     target_cols = [
