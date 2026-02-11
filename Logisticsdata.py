@@ -626,12 +626,12 @@ if month_options and selected_month:
         # 重命名货代列，方便后续使用
         freight_stats.rename(columns={COLUMN_MAPPING["货代列名"]: "货代"}, inplace=True)
 
-        # 计算衍生指标（核心）
-        freight_stats["准时率(%)"] = round(freight_stats["提前准时订单数"] / freight_stats["总订单数"] * 100, 1)
-        freight_stats["订单量占比(%)"] = round(freight_stats["总订单数"] / len(df_freight_valid) * 100, 1)
-        freight_stats["延期率(%)"] = 100 - freight_stats["准时率(%)"]
+        # 计算衍生指标（核心）- 统一保留2位小数
+        freight_stats["准时率(%)"] = round(freight_stats["提前准时订单数"] / freight_stats["总订单数"] * 100, 2)
+        freight_stats["订单量占比(%)"] = round(freight_stats["总订单数"] / len(df_freight_valid) * 100, 2)
+        freight_stats["延期率(%)"] = round(100 - freight_stats["准时率(%)"], 2)
 
-        # ===== 2. 计算上月货代准时率（环比分析）=====
+        # ===== 2. 计算上月货代准时率（调整为“准时率差值”）=====
         prev_freight_valid = df_prev[
             df_prev[COLUMN_MAPPING["货代列名"]].notna() &
             (df_prev[COLUMN_MAPPING["货代列名"]] != "")
@@ -644,15 +644,15 @@ if month_options and selected_month:
             ).reset_index()
             prev_freight_stats.rename(columns={COLUMN_MAPPING["货代列名"]: "货代"}, inplace=True)
             prev_freight_stats["上月准时率(%)"] = round(
-                prev_freight_stats["上月提前准时订单数"] / prev_freight_stats["上月总订单数"] * 100, 1)
+                prev_freight_stats["上月提前准时订单数"] / prev_freight_stats["上月总订单数"] * 100, 2)
             # 合并本月&上月数据
             freight_stats = pd.merge(freight_stats, prev_freight_stats[["货代", "上月准时率(%)"]], on="货代",
                                      how="left")
-            freight_stats["准时率环比变化(百分点)"] = round(
-                freight_stats["准时率(%)"] - freight_stats["上月准时率(%)"].fillna(0), 1)
+            freight_stats["准时率差值(%)"] = round(
+                freight_stats["准时率(%)"] - freight_stats["上月准时率(%)"].fillna(0), 2)
         else:
-            freight_stats["上月准时率(%)"] = 0.0
-            freight_stats["准时率环比变化(百分点)"] = 0.0
+            freight_stats["上月准时率(%)"] = None  # 无数据时显示空
+            freight_stats["准时率差值(%)"] = None
 
         # ===== 3. 可视化展示（双轴图 + 所有货代迷你卡片）=====
         col1, col2 = st.columns([2, 1])
@@ -668,7 +668,9 @@ if month_options and selected_month:
                 name="订单量占比(%)",
                 yaxis="y1",
                 marker_color="#4299e1",
-                opacity=0.8
+                opacity=0.8,
+                text=freight_stats["订单量占比(%)"].apply(lambda x: f"{x:.2f}%"),  # 显示2位小数
+                textposition="auto"
             ))
             # 准时率-折线图
             fig.add_trace(go.Scatter(
@@ -677,9 +679,11 @@ if month_options and selected_month:
                 name="准时率(%)",
                 yaxis="y2",
                 marker_color="#e53e3e",
-                mode="lines+markers",
+                mode="lines+markers+text",
                 line=dict(width=3),
-                marker=dict(size=8)
+                marker=dict(size=8),
+                text=freight_stats["准时率(%)"].apply(lambda x: f"{x:.2f}%"),  # 显示2位小数
+                textposition="top center"
             ))
             # 图表样式配置
             fig.update_layout(
@@ -710,17 +714,24 @@ if month_options and selected_month:
                     card_bg = "#fff0f0"
                     rate_color = "#c62828"
                     tag = "异常"
-                # 环比变化样式
-                change_val = row["准时率环比变化(百分点)"]
-                if change_val > 0:
-                    change_text = f"↑{change_val:.1f}p"
-                    change_color = "#2e7d32"
-                elif change_val < 0:
-                    change_text = f"↓{abs(change_val):.1f}p"
-                    change_color = "#c62828"
+                # 准时率差值样式
+                diff_val = row["准时率差值(%)"]
+                if pd.notna(diff_val):
+                    if diff_val > 0:
+                        diff_text = f"↑{diff_val:.2f}%"
+                        diff_color = "#2e7d32"
+                    elif diff_val < 0:
+                        diff_text = f"↓{abs(diff_val):.2f}%"
+                        diff_color = "#c62828"
+                    else:
+                        diff_text = "—"
+                        diff_color = "#757575"
+                    # 上月准时率显示（无数据时隐藏）
+                    prev_rate_text = f"（上月{row['上月准时率(%)']:.2f}%）" if pd.notna(row["上月准时率(%)"]) else ""
                 else:
-                    change_text = "—"
-                    change_color = "#757575"
+                    diff_text = "—"
+                    diff_color = "#757575"
+                    prev_rate_text = ""
                 # 生成货代迷你卡片
                 st.markdown(f"""
                 <div style='background-color: {card_bg}; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid {rate_color};'>
@@ -729,10 +740,10 @@ if month_options and selected_month:
                         <span style='font-size: 12px; padding: 2px 6px; border-radius: 12px; background: {rate_color}; color: white;'>{tag}</span>
                     </div>
                     <p style='margin: 6px 0 0; font-size: 14px;'>
-                        准时率：<span style='color: {rate_color}; font-weight: bold; font-size: 18px;'>{row['准时率(%)']}%</span>
+                        准时率：<span style='color: {rate_color}; font-weight: bold; font-size: 18px;'>{row['准时率(%)']:.2f}%</span>
                     </p>
-                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>订单：{row['总订单数']}单（{row['订单量占比(%)']}%）</p>
-                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>环比：<span style='color: {change_color}; font-weight: bold;'>{change_text}</span>（上月{row['上月准时率(%)']:.1f}%）</p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>订单：{row['总订单数']}单（{row['订单量占比(%)']:.2f}%）</p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>差值：<span style='color: {diff_color}; font-weight: bold;'>{diff_text}</span> {prev_rate_text}</p>
                     <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>最大延期：{abs(row['最大延期天数'])}天</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -741,30 +752,33 @@ if month_options and selected_month:
         st.markdown("#### 货代详细时效指标表")
         display_cols = [
             "货代", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数", "延期率(%)",
-            "准时率(%)", "上月准时率(%)", "准时率环比变化(百分点)",
+            "准时率(%)", "上月准时率(%)", "准时率差值(%)",
             "时效差值均值", "最大提前天数", "最大延期天数"
         ]
         freight_display = freight_stats[display_cols].copy()
         # 数值格式化
-        freight_display["时效差值均值"] = round(freight_display["时效差值均值"], 2)
+        freight_display["时效差值均值"] = round(freight_display["时效差值均值"], 2)  # 保留2位小数
         freight_display["最大延期天数"] = freight_display["最大延期天数"].apply(
             lambda x: f"{abs(x)}天" if x < 0 else "0天")
         freight_display["最大提前天数"] = freight_display["最大提前天数"].apply(lambda x: f"{x}天" if x > 0 else "0天")
+        # 百分比列统一显示为“00.00%”格式
+        for col in ["订单量占比(%)", "延期率(%)", "准时率(%)", "上月准时率(%)", "准时率差值(%)"]:
+            freight_display[col] = freight_display[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "")
 
 
-        # 表格高亮规则：环比下降标红 | 延期率>20%标红 | 准时率<80%标红
+        # 表格高亮规则：差值为负标红 | 延期率>20%标红 | 准时率<80%标红
         def highlight_freight(row):
             styles = [""] * len(row)
-            # 准时率环比下降
-            if row["准时率环比变化(百分点)"] < 0:
+            # 准时率差值为负
+            if row["准时率差值(%)"] and float(row["准时率差值(%)"].replace("%", "")) < 0:
                 styles[display_cols.index(
-                    "准时率环比变化(百分点)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+                    "准时率差值(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             # 延期率>20%
-            if row["延期率(%)"] > 20:
+            if row["延期率(%)"] and float(row["延期率(%)"].replace("%", "")) > 20:
                 styles[
                     display_cols.index("延期率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             # 准时率<80%
-            if row["准时率(%)"] < 80:
+            if row["准时率(%)"] and float(row["准时率(%)"].replace("%", "")) < 80:
                 styles[
                     display_cols.index("准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             return styles
@@ -779,7 +793,9 @@ if month_options and selected_month:
         )
 
         # ===== 5. 数据下载功能 =====
-        csv_data = freight_stats.to_csv(index=False, encoding="utf-8-sig")
+        # 下载数据保留原始数值（非格式化）
+        download_data = freight_stats.copy()
+        csv_data = download_data.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
             label="📥 下载货代分析完整数据",
             data=csv_data,
