@@ -803,7 +803,53 @@ if month_options and selected_month:
             mime="text/csv",
             key="freight_data_download"
         )
+    # ===== 6. 货代当月表现总结文字（含优质/异常评级） =====
+    st.markdown("### 货代当月表现总结")
 
+    summary_paragraphs = []
+    for _, row in freight_stats.iterrows():
+        # 基础信息提取
+        freight_name = row["货代"]
+        order_count = row["总订单数"]
+        order_ratio = row["订单量占比(%)"]
+        on_time_rate = row["准时率(%)"]
+        max_delay = abs(row["最大延期天数"])
+
+        # 1. 评级判断（和迷你卡片一致的逻辑）
+        if on_time_rate >= 90:
+            level_tag = "【优质】"
+            level_desc = "准时率表现优秀"
+        elif on_time_rate >= 80:
+            level_tag = "【合格】"
+            level_desc = "准时率表现达标"
+        else:
+            level_tag = "【异常】"
+            level_desc = "准时率表现不达标，需重点关注"
+
+        # 2. 准时率差值描述
+        diff_val = row["准时率差值(%)"]
+        if pd.notna(diff_val):
+            if diff_val > 0:
+                diff_desc = f"较上月提升{diff_val:.2f}个百分点"
+            elif diff_val < 0:
+                diff_desc = f"较上月下降{abs(diff_val):.2f}个百分点"
+            else:
+                diff_desc = "与上月持平"
+        else:
+            diff_desc = "无上月数据对比"
+
+        # 3. 延期情况描述
+        if max_delay == 0:
+            delay_desc = "全程无延期订单"
+        else:
+            delay_desc = f"最大延期天数为{max_delay}天"
+
+        # 4. 生成完整总结（融合评级+所有维度）
+        summary = f"- **{freight_name} {level_tag}**：本月承接{order_count}单（占总订单量{order_ratio:.2f}%），{level_desc}，准时率为{on_time_rate:.2f}%，{diff_desc}，{delay_desc}。"
+        summary_paragraphs.append(summary)
+
+    # 展示总结文字
+    st.markdown("\n".join(summary_paragraphs))
     # ---------------------- ⑤ 当月仓库准时情况 ----------------------
     # ---------------------- 仓库准时情况分析 ----------------------
     st.markdown("### 仓库准时情况分析")
