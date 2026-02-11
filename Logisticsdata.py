@@ -1500,7 +1500,7 @@ if month_options and selected_month:
                 FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]: "货代"
             }, inplace=True)
 
-            # 计算准时率
+            # 计算准时率（修复列名：确保列名是「准时率(%)」，无多余空格）
             freight_month_stats["准时率(%)"] = round(
                 freight_month_stats["提前准时订单数"] / freight_month_stats["总订单数"] * 100, 2
             )
@@ -1603,25 +1603,23 @@ if month_options and selected_month:
                     hide_index=True
                 )
 
-                # ===== 6. 货代归类结果汇总表 =====
+                # ===== 6. 货代归类结果汇总表（修复KeyError核心点）=====
                 st.markdown("### 货代归类结果汇总（所选时间范围）")
 
-                # 按货代+归类汇总
+                # 按货代+归类汇总（列名无空格，和前面保持一致）
                 freight_category_summary = df_freight_filtered.groupby(["货代", "货代归类"]).agg(
                     涉及月份数=("到货年月", "nunique"),
                     累计订单数=("总订单数", "sum"),
-                    平均准时率=("准时率( %)", "mean")
+                    平均准时率=("准时率(%)", "mean")  # 修复：去掉列名中的多余空格
                 ).reset_index()
 
-                # 重命名列
-                freight_category_summary.rename(columns={
-                    "准时率(%)": "平均准时率(%)"
-                }, inplace=True)
-                freight_category_summary["平均准时率(%)"] = round(freight_category_summary["平均准时率(%)"], 2)
+                # 格式化平均准时率（保留2位小数）
+                freight_category_summary["平均准时率"] = round(freight_category_summary["平均准时率"], 2)
+                # 重命名列（可选：添加%符号，更直观）
+                freight_category_summary.rename(columns={"平均准时率": "平均准时率(%)"}, inplace=True)
+
 
                 # 汇总表样式
-
-
                 def highlight_summary_category(row):
                     styles = [""] * len(row)
                     # 获取归类颜色
@@ -1631,8 +1629,8 @@ if month_options and selected_month:
                         color = "#ff9800"
                     else:
                         color = "#c62828"
-                    styles[freight_category_summary.columns.get_loc(
-                        "货代归类")] = f"background-color: {color}; color: white; font-weight: bold;"
+                    cate_col_idx = freight_category_summary.columns.get_loc("货代归类")
+                    styles[cate_col_idx] = f"background-color: {color}; color: white; font-weight: bold;"
                     return styles
 
 
@@ -1660,77 +1658,80 @@ if month_options and selected_month:
                     df_freight_filtered["货代"] == selected_freight
                     ].sort_values("年月排序", ascending=True).reset_index(drop=True)
 
-                # 计算该货代的平均准时率（用于虚线）
-                avg_freight_rate = df_freight_trend["准时率(%)"].mean()
+                if len(df_freight_trend) == 0:
+                    st.warning(f"所选时间范围内无{selected_freight}的相关数据")
+                else:
+                    # 计算该货代的平均准时率（用于虚线）
+                    avg_freight_rate = df_freight_trend["准时率(%)"].mean()
 
-                # 绘制双轴趋势图
-                import plotly.graph_objects as go
+                    # 绘制双轴趋势图
+                    import plotly.graph_objects as go
 
-                fig_freight = go.Figure()
+                    fig_freight = go.Figure()
 
-                # 左轴：柱状图（总订单数、提前准时订单数、延期订单数）
-                fig_freight.add_trace(go.Bar(
-                    x=df_freight_trend["中文月份"],
-                    y=df_freight_trend["总订单数"],
-                    name="总订单数",
-                    yaxis="y1",
-                    marker_color="#4299e1",
-                    opacity=0.8
-                ))
-                fig_freight.add_trace(go.Bar(
-                    x=df_freight_trend["中文月份"],
-                    y=df_freight_trend["提前准时订单数"],
-                    name="提前/准时订单数",
-                    yaxis="y1",
-                    marker_color="#48bb78",
-                    opacity=0.8
-                ))
-                fig_freight.add_trace(go.Bar(
-                    x=df_freight_trend["中文月份"],
-                    y=df_freight_trend["延期订单数"],
-                    name="延期订单数",
-                    yaxis="y1",
-                    marker_color="#e53e3e",
-                    opacity=0.8
-                ))
+                    # 左轴：柱状图（总订单数、提前准时订单数、延期订单数）
+                    fig_freight.add_trace(go.Bar(
+                        x=df_freight_trend["中文月份"],
+                        y=df_freight_trend["总订单数"],
+                        name="总订单数",
+                        yaxis="y1",
+                        marker_color="#4299e1",
+                        opacity=0.8
+                    ))
+                    fig_freight.add_trace(go.Bar(
+                        x=df_freight_trend["中文月份"],
+                        y=df_freight_trend["提前准时订单数"],
+                        name="提前/准时订单数",
+                        yaxis="y1",
+                        marker_color="#48bb78",
+                        opacity=0.8
+                    ))
+                    fig_freight.add_trace(go.Bar(
+                        x=df_freight_trend["中文月份"],
+                        y=df_freight_trend["延期订单数"],
+                        name="延期订单数",
+                        yaxis="y1",
+                        marker_color="#e53e3e",
+                        opacity=0.8
+                    ))
 
-                # 右轴：折线图（准时率）
-                fig_freight.add_trace(go.Scatter(
-                    x=df_freight_trend["中文月份"],
-                    y=df_freight_trend["准时率(%)"],
-                    name="准时率(%)",
-                    yaxis="y2",
-                    marker_color="#9f7aea",
-                    mode="lines+markers+text",
-                    line=dict(width=3),
-                    marker=dict(size=8),
-                    text=df_freight_trend["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
-                    textposition="top center"
-                ))
+                    # 右轴：折线图（准时率）
+                    fig_freight.add_trace(go.Scatter(
+                        x=df_freight_trend["中文月份"],
+                        y=df_freight_trend["准时率(%)"],
+                        name="准时率(%)",
+                        yaxis="y2",
+                        marker_color="#9f7aea",
+                        mode="lines+markers+text",
+                        line=dict(width=3),
+                        marker=dict(size=8),
+                        text=df_freight_trend["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
+                        textposition="top center"
+                    ))
 
-                # 平均准时率红色虚线
-                fig_freight.add_trace(go.Scatter(
-                    x=df_freight_trend["中文月份"],
-                    y=[avg_freight_rate] * len(df_freight_trend),
-                    name=f"平均准时率: {avg_freight_rate:.2f}%",
-                    yaxis="y2",
-                    mode="lines",
-                    line=dict(color="#ff0000", dash="dash", width=2),
-                    hoverinfo="name+y"
-                ))
+                    # 平均准时率红色虚线
+                    fig_freight.add_trace(go.Scatter(
+                        x=df_freight_trend["中文月份"],
+                        y=[avg_freight_rate] * len(df_freight_trend),
+                        name=f"平均准时率: {avg_freight_rate:.2f}%",
+                        yaxis="y2",
+                        mode="lines",
+                        line=dict(color="#ff0000", dash="dash", width=2),
+                        hoverinfo="name+y"
+                    ))
 
-                # 图表配置
-                fig_freight.update_layout(
-                    title=f"{selected_freight} - 月度订单数&准时率趋势",
-                    yaxis=dict(title="订单数", side="left", range=[0, max(df_freight_trend["总订单数"]) * 1.2]),
-                    yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
-                    xaxis=dict(title="到货年月", tickangle=45),
-                    legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
-                    height=450,
-                    plot_bgcolor="#ffffff",
-                    barmode="group"
-                )
-                st.plotly_chart(fig_freight, use_container_width=True)
+                    # 图表配置
+                    fig_freight.update_layout(
+                        title=f"{selected_freight} - 月度订单数&准时率趋势",
+                        yaxis=dict(title="订单数", side="left", range=[0, max(df_freight_trend["总订单数"]) * 1.2]),
+                        yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
+                        xaxis=dict(title="到货年月", tickangle=45),
+                        legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
+                        height=450,
+                        plot_bgcolor="#ffffff",
+                        barmode="group"
+                    )
+                    st.plotly_chart(fig_freight, use_container_width=True)
 
                 # ===== 8. 货代月度分析总结文字 =====
                 st.markdown("### 货代月度表现总结")
@@ -1739,32 +1740,34 @@ if month_options and selected_month:
                 summary_text = []
                 # 1. 整体汇总
                 total_months = df_freight_filtered["中文月份"].nunique()
+                total_freights = df_freight_filtered["货代"].nunique()
                 total_orders = df_freight_filtered["总订单数"].sum()
                 avg_overall_rate = df_freight_filtered["准时率(%)"].mean()
                 summary_text.append(
-                    f"所选时间范围共涵盖{total_months}个月份，涉及{len(unique_freights)}个货代，累计订单数{total_orders}单，整体平均准时率{avg_overall_rate:.2f}%。")
+                    f"所选时间范围共涵盖{total_months}个月份，涉及{total_freights}个货代，累计订单数{total_orders}单，整体平均准时率{avg_overall_rate:.2f}%。")
 
                 # 2. 各归类货代统计
                 category_count = df_freight_filtered.groupby("货代归类")["货代"].nunique()
                 for cate in ["优质", "合格", "异常"]:
                     if cate in category_count:
                         count = category_count[cate]
-                        summary_text.append(
-                            f"- **{cate}货代**：共{count}个，主要表现为准时率{'≥90%' if cate == '优质' else '≥80%且<90%' if cate == '合格' else '<80%'}。")
+                        rate_desc = "≥90%" if cate == "优质" else "≥80%且<90%" if cate == "合格" else "<80%"
+                        summary_text.append(f"- **{cate}货代**：共{count}个，主要表现为准时率{rate_desc}。")
 
                 # 3. 重点货代点评
                 # 找到订单数最多的货代
                 top_freight = df_freight_filtered.groupby("货代")["总订单数"].sum().idxmax()
-                top_freight_rate = df_freight_filtered[df_freight_filtered["货代"] == top_freight]["准时率(%)"].mean()
-                top_freight_cate = get_freight_category(top_freight_rate)[0]
+                top_freight_data = df_freight_filtered[df_freight_filtered["货代"] == top_freight]
+                top_freight_avg_rate = top_freight_data["准时率(%)"].mean()
+                top_freight_cate = get_freight_category(top_freight_avg_rate)[0]
                 summary_text.append(
-                    f"- **核心货代{top_freight}**：累计订单数最多，平均准时率{top_freight_rate:.2f}%，归类为{top_freight_cate}。")
+                    f"- **核心货代{top_freight}**：累计订单数最多（{top_freight_data['总订单数'].sum()}单），平均准时率{top_freight_avg_rate:.2f}%，归类为{top_freight_cate}。")
 
                 # 4. 异常货代提醒
                 abnormal_freights = df_freight_filtered[df_freight_filtered["货代归类"] == "异常"]["货代"].unique()
                 if len(abnormal_freights) > 0:
                     summary_text.append(
-                        f"- **异常提醒**：{','.join(abnormal_freights)}等货代准时率低于80%，需重点关注并优化。")
+                        f"- **异常提醒**：{','.join(abnormal_freights)}等货代存在准时率低于80%的情况，需重点关注并推动时效优化。")
 
                 # 展示总结
                 st.markdown("\n".join(summary_text))
