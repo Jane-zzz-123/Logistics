@@ -748,28 +748,25 @@ if month_options and selected_month:
                 </div>
                 """, unsafe_allow_html=True)
 
-        # ===== 4. 货代详细时效指标表（带上月差值对比+样式优化）=====
+        # ===== 4. 货代详细时效指标表（带上月差值对比+兼容Streamlit样式）=====
         st.markdown("#### 货代详细时效指标表")
 
-        # ---------------------- 新增：计算上月货代订单类指标 ----------------------
-        prev_order_stats = pd.DataFrame()  # 初始化上月订单统计
+        # ---------------------- 计算上月货代订单类指标 ----------------------
+        prev_order_stats = pd.DataFrame()
         if len(prev_freight_valid) > 0:
-            # 计算上月货代的总订单数、提前准时订单数、延期订单数
             prev_order_stats = prev_freight_valid.groupby(COLUMN_MAPPING["货代列名"]).agg(
                 上月总订单数=(COLUMN_MAPPING["货代列名"], "count"),
                 上月提前准时订单数=(COLUMN_MAPPING["货代提前延期列名"], lambda x: len(x[x == "提前/准时"])),
                 上月延期订单数=(COLUMN_MAPPING["货代提前延期列名"], lambda x: len(x[x == "延期"]))
             ).reset_index()
             prev_order_stats.rename(columns={COLUMN_MAPPING["货代列名"]: "货代"}, inplace=True)
-            # 合并上月订单数据到本月统计
             freight_stats = pd.merge(freight_stats, prev_order_stats, on="货代", how="left")
         else:
-            # 无上月数据时，填充空值
             freight_stats["上月总订单数"] = None
             freight_stats["上月提前准时订单数"] = None
             freight_stats["上月延期订单数"] = None
 
-        # ---------------------- 格式化订单数列（补充差值+上月值+样式） ----------------------
+        # ---------------------- 格式化订单数列（纯文本兼容版） ----------------------
         display_cols = [
             "货代", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数", "延期率(%)",
             "准时率(%)", "上月准时率(%)", "准时率差值(%)",
@@ -778,48 +775,41 @@ if month_options and selected_month:
         freight_display = freight_stats[display_cols].copy()
 
 
-        # 1. 自定义格式化函数（带HTML样式：上月信息字号小+灰色）
-        def format_order_col(row, col_name, prev_col_name):
+        # 自定义格式化函数（纯文本，用[]包裹上月信息，视觉区分）
+        def format_order_col(current_val, prev_val):
             """
-            格式化订单数列：
-            - 本月数：默认样式（大字号）
-            - 上月信息：小字号（80%）+ 灰色（#666）
-            格式：本月数 <span style='font-size:80%; color:#666;'>（差值 上个月XX）</span>
+            纯文本格式化：本月数 [差值 上月数]
+            - 上月信息用[]包裹，视觉上弱化
+            - 差值带正负号，无上月数据时只显示本月数
             """
-            current_val = row[col_name]
-            prev_val = row[prev_col_name]
-
             if pd.notna(prev_val):
                 diff = current_val - prev_val
-                # 差值符号处理（+/-）
                 diff_sign = "+" if diff > 0 else "" if diff == 0 else "-"
                 diff_abs = abs(diff)
-                # 上月信息用小字号+灰色显示
-                prev_info = f"<span style='font-size:80%; color:#666;'>（{diff_sign}{diff_abs} 上个月{prev_val}）</span>"
-                return f"{current_val} {prev_info}"
+                # 用[]包裹上月信息，通过空格/符号实现视觉层次
+                return f"{current_val}  [{diff_sign}{diff_abs} 上月{prev_val}]"
             else:
-                # 无上月数据时，只显示本月数
                 return f"{current_val}"
 
 
-        # 应用格式化到订单类列（启用HTML）
+        # 应用格式化（直接操作freight_stats的原始数值）
         freight_display["总订单数"] = freight_stats.apply(
-            lambda x: format_order_col(x, "总订单数", "上月总订单数"), axis=1
+            lambda x: format_order_col(x["总订单数"], x["上月总订单数"]), axis=1
         )
         freight_display["提前准时订单数"] = freight_stats.apply(
-            lambda x: format_order_col(x, "提前准时订单数", "上月提前准时订单数"), axis=1
+            lambda x: format_order_col(x["提前准时订单数"], x["上月提前准时订单数"]), axis=1
         )
         freight_display["延期订单数"] = freight_stats.apply(
-            lambda x: format_order_col(x, "延期订单数", "上月延期订单数"), axis=1
+            lambda x: format_order_col(x["延期订单数"], x["上月延期订单数"]), axis=1
         )
 
-        # 2. 其他数值格式化
-        freight_display["时效差值均值"] = round(freight_display["时效差值均值"], 2)  # 保留2位小数
+        # 其他数值格式化
+        freight_display["时效差值均值"] = round(freight_display["时效差值均值"], 2)
         freight_display["最大延期天数"] = freight_display["最大延期天数"].apply(
             lambda x: f"{abs(x)}天" if x < 0 else "0天")
         freight_display["最大提前天数"] = freight_display["最大提前天数"].apply(lambda x: f"{x}天" if x > 0 else "0天")
 
-        # 3. 百分比列统一显示为“00.00%”格式
+        # 百分比列格式化
         for col in ["订单量占比(%)", "延期率(%)", "准时率(%)", "上月准时率(%)", "准时率差值(%)"]:
             freight_display[col] = freight_display[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "")
 
@@ -828,27 +818,27 @@ if month_options and selected_month:
         def highlight_freight(row):
             styles = [""] * len(row)
             # 准时率差值为负标红
-            if row["准时率差值(%)"] and float(row["准时率差值(%)"].replace("%", "")) < 0:
+            if row["准时率差值(%)"] and isinstance(row["准时率差值(%)"], str) and float(
+                    row["准时率差值(%)"].replace("%", "")) < 0:
                 styles[display_cols.index(
                     "准时率差值(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             # 延期率>20%标红
-            if row["延期率(%)"] and float(row["延期率(%)"].replace("%", "")) > 20:
+            if row["延期率(%)"] and isinstance(row["延期率(%)"], str) and float(row["延期率(%)"].replace("%", "")) > 20:
                 styles[
                     display_cols.index("延期率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             # 准时率<80%标红
-            if row["准时率(%)"] and float(row["准时率(%)"].replace("%", "")) < 80:
+            if row["准时率(%)"] and isinstance(row["准时率(%)"], str) and float(row["准时率(%)"].replace("%", "")) < 80:
                 styles[
                     display_cols.index("准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             return styles
 
 
-        # 应用样式并展示表格（关键：unsafe_allow_html=True 启用HTML样式）
+        # ---------------------- 展示表格（移除unsafe_allow_html，兼容Streamlit） ----------------------
         styled_table = freight_display.style.apply(highlight_freight, axis=1)
         st.dataframe(
             styled_table,
             use_container_width=True,
-            hide_index=True,
-            unsafe_allow_html=True  # 启用HTML渲染
+            hide_index=True  # 移除unsafe_allow_html参数，避免TypeError
         )
 
         # ===== 5. 数据下载功能 =====
