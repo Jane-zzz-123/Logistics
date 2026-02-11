@@ -1256,8 +1256,8 @@ if month_options and selected_month:
     monthly_stats["总订单数环比变化"] = monthly_stats["总订单数"].diff(-1)  # 倒序diff（最新月-上月）
     monthly_stats["准时率环比变化(百分点)"] = monthly_stats["准时率(%)"].diff(-1)
     # 填充最后一行（最旧月份）的环比为0
-    monthly_stats[["总订单数环比变化", "准时率环比变化(百分点)"]] = monthly_stats[
-        ["总订单数环比变化", "准时率环比变化(百分点)"].fillna(0)]
+    monthly_stats["总订单数环比变化"] = monthly_stats["总订单数环比变化"].fillna(0)
+    monthly_stats["准时率环比变化(百分点)"] = monthly_stats["准时率环比变化(百分点)"].fillna(0)
 
     if len(monthly_stats) == 0:
         st.warning("暂无跨月份数据可分析")
