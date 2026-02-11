@@ -748,7 +748,7 @@ if month_options and selected_month:
                 </div>
                 """, unsafe_allow_html=True)
 
-        # ===== 4. 货代详细时效指标表（带上月差值对比）=====
+        # ===== 4. 货代详细时效指标表（带上月差值对比+样式优化）=====
         st.markdown("#### 货代详细时效指标表")
 
         # ---------------------- 新增：计算上月货代订单类指标 ----------------------
@@ -769,7 +769,7 @@ if month_options and selected_month:
             freight_stats["上月提前准时订单数"] = None
             freight_stats["上月延期订单数"] = None
 
-        # ---------------------- 格式化订单数列（补充差值+上月值） ----------------------
+        # ---------------------- 格式化订单数列（补充差值+上月值+样式） ----------------------
         display_cols = [
             "货代", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数", "延期率(%)",
             "准时率(%)", "上月准时率(%)", "准时率差值(%)",
@@ -778,9 +778,14 @@ if month_options and selected_month:
         freight_display = freight_stats[display_cols].copy()
 
 
-        # 1. 格式化总订单数（本月数（与上月差值 上个月XX））
+        # 1. 自定义格式化函数（带HTML样式：上月信息字号小+灰色）
         def format_order_col(row, col_name, prev_col_name):
-            """格式化订单数列：补充差值和上月值"""
+            """
+            格式化订单数列：
+            - 本月数：默认样式（大字号）
+            - 上月信息：小字号（80%）+ 灰色（#666）
+            格式：本月数 <span style='font-size:80%; color:#666;'>（差值 上个月XX）</span>
+            """
             current_val = row[col_name]
             prev_val = row[prev_col_name]
 
@@ -789,21 +794,23 @@ if month_options and selected_month:
                 # 差值符号处理（+/-）
                 diff_sign = "+" if diff > 0 else "" if diff == 0 else "-"
                 diff_abs = abs(diff)
-                return f"{current_val}（{diff_sign}{diff_abs} 上个月{prev_val}）"
+                # 上月信息用小字号+灰色显示
+                prev_info = f"<span style='font-size:80%; color:#666;'>（{diff_sign}{diff_abs} 上个月{prev_val}）</span>"
+                return f"{current_val} {prev_info}"
             else:
                 # 无上月数据时，只显示本月数
                 return f"{current_val}"
 
 
-        # 应用格式化到订单类列
-        freight_display["总订单数"] = freight_display.apply(
-            lambda x: format_order_col(freight_stats.loc[x.name], "总订单数", "上月总订单数"), axis=1
+        # 应用格式化到订单类列（启用HTML）
+        freight_display["总订单数"] = freight_stats.apply(
+            lambda x: format_order_col(x, "总订单数", "上月总订单数"), axis=1
         )
-        freight_display["提前准时订单数"] = freight_display.apply(
-            lambda x: format_order_col(freight_stats.loc[x.name], "提前准时订单数", "上月提前准时订单数"), axis=1
+        freight_display["提前准时订单数"] = freight_stats.apply(
+            lambda x: format_order_col(x, "提前准时订单数", "上月提前准时订单数"), axis=1
         )
-        freight_display["延期订单数"] = freight_display.apply(
-            lambda x: format_order_col(freight_stats.loc[x.name], "延期订单数", "上月延期订单数"), axis=1
+        freight_display["延期订单数"] = freight_stats.apply(
+            lambda x: format_order_col(x, "延期订单数", "上月延期订单数"), axis=1
         )
 
         # 2. 其他数值格式化
@@ -835,12 +842,13 @@ if month_options and selected_month:
             return styles
 
 
-        # 应用样式并展示表格
+        # 应用样式并展示表格（关键：unsafe_allow_html=True 启用HTML样式）
         styled_table = freight_display.style.apply(highlight_freight, axis=1)
         st.dataframe(
             styled_table,
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            unsafe_allow_html=True  # 启用HTML渲染
         )
 
         # ===== 5. 数据下载功能 =====
