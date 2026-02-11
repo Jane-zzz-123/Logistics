@@ -803,7 +803,7 @@ if month_options and selected_month:
             mime="text/csv",
             key="freight_data_download"
         )
-    # ===== 6. 货代当月表现总结文字（含优质/异常评级） =====
+    # ===== 6. 货代当月表现总结文字（修复无上月数据+评级颜色） =====
     st.markdown("### 货代当月表现总结")
 
     summary_paragraphs = []
@@ -814,28 +814,32 @@ if month_options and selected_month:
         order_ratio = row["订单量占比(%)"]
         on_time_rate = row["准时率(%)"]
         max_delay = abs(row["最大延期天数"])
+        prev_rate = row["上月准时率(%)"]  # 上月准时率（用于判断是否有数据）
+        diff_val = row["准时率差值(%)"]
 
-        # 1. 评级判断（和迷你卡片一致的逻辑）
+        # 1. 评级判断+颜色（和迷你卡片一致）
         if on_time_rate >= 90:
             level_tag = "【优质】"
+            level_color = "#2e7d32"  # 绿色
             level_desc = "准时率表现优秀"
         elif on_time_rate >= 80:
             level_tag = "【合格】"
+            level_color = "#ff9800"  # 橙色
             level_desc = "准时率表现达标"
         else:
             level_tag = "【异常】"
+            level_color = "#c62828"  # 红色
             level_desc = "准时率表现不达标，需重点关注"
 
-        # 2. 准时率差值描述
-        diff_val = row["准时率差值(%)"]
-        if pd.notna(diff_val):
+        # 2. 准时率差值描述（修复无上月数据的bug）
+        if pd.notna(prev_rate):  # 有上月数据才显示对比
             if diff_val > 0:
                 diff_desc = f"较上月提升{diff_val:.2f}个百分点"
             elif diff_val < 0:
                 diff_desc = f"较上月下降{abs(diff_val):.2f}个百分点"
             else:
                 diff_desc = "与上月持平"
-        else:
+        else:  # 无上月数据时不显示对比
             diff_desc = "无上月数据对比"
 
         # 3. 延期情况描述
@@ -844,9 +848,15 @@ if month_options and selected_month:
         else:
             delay_desc = f"最大延期天数为{max_delay}天"
 
-        # 4. 生成完整总结（融合评级+所有维度）
-        summary = f"- **{freight_name} {level_tag}**：本月承接{order_count}单（占总订单量{order_ratio:.2f}%），{level_desc}，准时率为{on_time_rate:.2f}%，{diff_desc}，{delay_desc}。"
+        # 4. 生成带颜色的总结（用HTML标签实现颜色）
+        summary = f"""
+        - <span style='font-weight: bold;'>{freight_name} <span style='color: {level_color};'>{level_tag}</span></span>：
+          本月承接{order_count}单（占总订单量{order_ratio:.2f}%），{level_desc}，准时率为{on_time_rate:.2f}%，{diff_desc}，{delay_desc}。
+        """
         summary_paragraphs.append(summary)
+
+    # 展示总结文字（启用unsafe_allow_html以显示颜色）
+    st.markdown("\n".join(summary_paragraphs), unsafe_allow_html=True)
 
     # 展示总结文字
     st.markdown("\n".join(summary_paragraphs))
