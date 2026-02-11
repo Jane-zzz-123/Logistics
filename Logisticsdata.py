@@ -586,42 +586,66 @@ if month_options and selected_month:
     st.divider()
 
     # ---------------------- ④ 当月货代准时情况 ----------------------
-    # ---------------------- ② 货代准时情况分析（优化版） ----------------------
+    # ---------------------- 货代准时情况分析（独立版：发货-签收环节，无仓库关联） ----------------------
     st.markdown("### 货代准时情况分析（发货-签收环节）")
 
+    # ========== 列名映射字典（根据你的实际列名修改！）==========
+    COLUMN_MAPPING = {
+        "货代列名": "货代",  # 改成你数据中实际的货代列名
+        "货代提前延期列名": "提前/延期（货代）",  # 改成你实际的货代提前/延期列名
+        "货代时效差值列名": "预计物流时效-实际物流时效差值（货代）"  # 改成你实际的货代时效差值列名
+    }
+
     # 筛选有效数据（仅保留有货代信息的行）
-    df_freight_valid = df_current[df_current["货代"].notna() & (df_current["货代"] != "")].copy()
+    df_freight_valid = df_current[
+        df_current[COLUMN_MAPPING["货代列名"]].notna() &
+        (df_current[COLUMN_MAPPING["货代列名"]] != "")
+        ].copy()
+
     if len(df_freight_valid) == 0:
         st.warning(f"{selected_month}月暂无货代相关数据")
     else:
-        # ===== 1. 基础数据计算（基于货代专属列）=====
-        # 按货代分组统计核心指标
-        freight_stats = df_freight_valid.groupby("货代").agg(
-            总订单数=("货代", "count"),
-            提前准时订单数=("提前/延期（货代）", lambda x: len(x[x == "提前/准时"])),
-            延期订单数=("提前/延期（货代）", lambda x: len(x[x == "延期"])),
-            时效差值均值=("预计物流时效-实际物流时效差值（货代）", "mean"),
-            时效差值中位数=("预计物流时效-实际物流时效差值（货代）", "median"),
-            最大延期天数=("预计物流时效-实际物流时效差值（货代）", lambda x: min(x.min(), 0)),  # 仅取延期的最大值（负数）
-            最大提前天数=("预计物流时效-实际物流时效差值（货代）", lambda x: max(x.max(), 0))  # 仅取提前的最大值（正数）
+        # ===== 列名校验：避免KeyError =====
+        required_cols = [COLUMN_MAPPING["货代列名"], COLUMN_MAPPING["货代提前延期列名"],
+                         COLUMN_MAPPING["货代时效差值列名"]]
+        missing_cols = [col for col in required_cols if col not in df_freight_valid.columns]
+        if missing_cols:
+            st.error(f"缺少货代分析必要列：{missing_cols}，请检查列名是否正确！")
+            st.stop()
+
+        # ===== 1. 货代核心指标计算 =====
+        freight_stats = df_freight_valid.groupby(COLUMN_MAPPING["货代列名"]).agg(
+            总订单数=(COLUMN_MAPPING["货代列名"], "count"),
+            提前准时订单数=(COLUMN_MAPPING["货代提前延期列名"], lambda x: len(x[x == "提前/准时"])),
+            延期订单数=(COLUMN_MAPPING["货代提前延期列名"], lambda x: len(x[x == "延期"])),
+            时效差值均值=(COLUMN_MAPPING["货代时效差值列名"], "mean"),
+            最大延期天数=(COLUMN_MAPPING["货代时效差值列名"], lambda x: min(x.min(), 0)),  # 仅取延期负数
+            最大提前天数=(COLUMN_MAPPING["货代时效差值列名"], lambda x: max(x.max(), 0))  # 仅取提前正数
         ).reset_index()
 
-        # 计算核心衍生指标
+        # 重命名货代列，方便后续使用
+        freight_stats.rename(columns={COLUMN_MAPPING["货代列名"]: "货代"}, inplace=True)
+
+        # 计算衍生指标（核心）
         freight_stats["准时率(%)"] = round(freight_stats["提前准时订单数"] / freight_stats["总订单数"] * 100, 1)
         freight_stats["订单量占比(%)"] = round(freight_stats["总订单数"] / len(df_freight_valid) * 100, 1)
         freight_stats["延期率(%)"] = 100 - freight_stats["准时率(%)"]
 
-        # 计算上月货代准时率（用于环比）
+        # ===== 2. 计算上月货代准时率（环比分析）=====
         prev_freight_valid = df_prev[
-            df_prev["货代"].notna() & (df_prev["货代"] != "")].copy() if not df_prev.empty else pd.DataFrame()
+            df_prev[COLUMN_MAPPING["货代列名"]].notna() &
+            (df_prev[COLUMN_MAPPING["货代列名"]] != "")
+            ].copy() if not df_prev.empty else pd.DataFrame()
+
         if len(prev_freight_valid) > 0:
-            prev_freight_stats = prev_freight_valid.groupby("货代").agg(
-                上月总订单数=("货代", "count"),
-                上月提前准时订单数=("提前/延期（货代）", lambda x: len(x[x == "提前/准时"]))
+            prev_freight_stats = prev_freight_valid.groupby(COLUMN_MAPPING["货代列名"]).agg(
+                上月提前准时订单数=(COLUMN_MAPPING["货代提前延期列名"], lambda x: len(x[x == "提前/准时"])),
+                上月总订单数=(COLUMN_MAPPING["货代列名"], "count")
             ).reset_index()
+            prev_freight_stats.rename(columns={COLUMN_MAPPING["货代列名"]: "货代"}, inplace=True)
             prev_freight_stats["上月准时率(%)"] = round(
                 prev_freight_stats["上月提前准时订单数"] / prev_freight_stats["上月总订单数"] * 100, 1)
-            # 合并本月和上月数据
+            # 合并本月&上月数据
             freight_stats = pd.merge(freight_stats, prev_freight_stats[["货代", "上月准时率(%)"]], on="货代",
                                      how="left")
             freight_stats["准时率环比变化(百分点)"] = round(
@@ -630,22 +654,23 @@ if month_options and selected_month:
             freight_stats["上月准时率(%)"] = 0.0
             freight_stats["准时率环比变化(百分点)"] = 0.0
 
-        # ===== 2. 可视化展示（分模块）=====
-        # 2.1 货代订单量占比 + 准时率 双轴图（核心视图）
+        # ===== 3. 可视化展示（双轴图 + 所有货代迷你卡片）=====
         col1, col2 = st.columns([2, 1])
+        # 3.1 左：货代订单量占比 + 准时率 双轴图（核心趋势）
         with col1:
             import plotly.graph_objects as go
 
             fig = go.Figure()
-            # 订单量占比（柱状图）
+            # 订单量占比-柱状图
             fig.add_trace(go.Bar(
                 x=freight_stats["货代"],
                 y=freight_stats["订单量占比(%)"],
                 name="订单量占比(%)",
                 yaxis="y1",
-                marker_color="#4299e1"
+                marker_color="#4299e1",
+                opacity=0.8
             ))
-            # 准时率（折线图）
+            # 准时率-折线图
             fig.add_trace(go.Scatter(
                 x=freight_stats["货代"],
                 y=freight_stats["准时率(%)"],
@@ -653,96 +678,114 @@ if month_options and selected_month:
                 yaxis="y2",
                 marker_color="#e53e3e",
                 mode="lines+markers",
-                line=dict(width=3)
+                line=dict(width=3),
+                marker=dict(size=8)
             ))
-            # 配置双轴
+            # 图表样式配置
             fig.update_layout(
-                title=f"{selected_month}货代订单量占比 & 准时率",
-                yaxis=dict(title="订单量占比(%)", side="left", range=[0, 100]),
-                yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
-                xaxis=dict(title="货代"),
-                legend=dict(x=0.02, y=0.98),
-                height=400
+                title=f"{selected_month} 货代订单量占比 & 准时率对比",
+                yaxis=dict(title="订单量占比(%)", side="left", range=[0, 100], color="#4299e1"),
+                yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100], color="#e53e3e"),
+                xaxis=dict(title="货代名称", tickangle=0),
+                legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
+                height=400,
+                plot_bgcolor="#ffffff"
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # 2.2 货代延期TOP3（快速定位问题货代）
+        # 3.2 右：所有货代核心表现迷你卡片（适配3-4个货代，颜色分级）
         with col2:
-            delay_top3 = freight_stats.sort_values("延期订单数", ascending=False).head(3)
-            st.markdown("#### 货代延期TOP3")
-            if len(delay_top3) > 0:
-                for idx, row in delay_top3.iterrows():
-                    st.markdown(f"""
-                    <div style='background-color: #fff5f5; padding: 8px; border-radius: 4px; margin-bottom: 8px;'>
-                        <p style='margin: 0; font-weight: bold; color: #c53030;'>{row['货代']}</p>
-                        <p style='margin: 0; font-size: 12px;'>延期单：{row['延期订单数']}单 | 延期率：{row['延期率(%)']}%</p>
+            st.markdown("#### 货代核心表现")
+            for _, row in freight_stats.iterrows():
+                # 准时率颜色分级：优质≥90% | 合格80-90% | 异常<80%
+                if row["准时率(%)"] >= 90:
+                    card_bg = "#f0f8f0"
+                    rate_color = "#2e7d32"
+                    tag = "优质"
+                elif row["准时率(%)"] >= 80:
+                    card_bg = "#fff8e1"
+                    rate_color = "#ff9800"
+                    tag = "合格"
+                else:
+                    card_bg = "#fff0f0"
+                    rate_color = "#c62828"
+                    tag = "异常"
+                # 环比变化样式
+                change_val = row["准时率环比变化(百分点)"]
+                if change_val > 0:
+                    change_text = f"↑{change_val:.1f}p"
+                    change_color = "#2e7d32"
+                elif change_val < 0:
+                    change_text = f"↓{abs(change_val):.1f}p"
+                    change_color = "#c62828"
+                else:
+                    change_text = "—"
+                    change_color = "#757575"
+                # 生成货代迷你卡片
+                st.markdown(f"""
+                <div style='background-color: {card_bg}; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid {rate_color};'>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <p style='margin: 0; font-weight: bold; font-size: 16px;'>{row['货代']}</p>
+                        <span style='font-size: 12px; padding: 2px 6px; border-radius: 12px; background: {rate_color}; color: white;'>{tag}</span>
                     </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("暂无延期订单")
+                    <p style='margin: 6px 0 0; font-size: 14px;'>
+                        准时率：<span style='color: {rate_color}; font-weight: bold; font-size: 18px;'>{row['准时率(%)']}%</span>
+                    </p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>订单：{row['总订单数']}单（{row['订单量占比(%)']}%）</p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>环比：<span style='color: {change_color}; font-weight: bold;'>{change_text}</span>（上月{row['上月准时率(%)']:.1f}%）</p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>最大延期：{abs(row['最大延期天数'])}天</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-        # 2.3 货代详细指标表（可下载）
-        st.markdown("#### 货代详细时效指标")
-        # 筛选展示列（突出核心维度）
+        # ===== 4. 货代详细时效指标表（带高亮，可下载）=====
+        st.markdown("#### 货代详细时效指标表")
         display_cols = [
-            "货代", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数",
+            "货代", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数", "延期率(%)",
             "准时率(%)", "上月准时率(%)", "准时率环比变化(百分点)",
             "时效差值均值", "最大提前天数", "最大延期天数"
         ]
         freight_display = freight_stats[display_cols].copy()
-        # 格式化数值
+        # 数值格式化
         freight_display["时效差值均值"] = round(freight_display["时效差值均值"], 2)
         freight_display["最大延期天数"] = freight_display["最大延期天数"].apply(
             lambda x: f"{abs(x)}天" if x < 0 else "0天")
         freight_display["最大提前天数"] = freight_display["最大提前天数"].apply(lambda x: f"{x}天" if x > 0 else "0天")
 
 
-        # 表格高亮（环比下降标红，延期率>20%标红）
+        # 表格高亮规则：环比下降标红 | 延期率>20%标红 | 准时率<80%标红
         def highlight_freight(row):
             styles = [""] * len(row)
-            # 准时率环比下降（红色）
+            # 准时率环比下降
             if row["准时率环比变化(百分点)"] < 0:
-                styles[display_cols.index("准时率环比变化(百分点)")] = "background-color: #fff5f5; color: #c53030;"
-            # 延期率>20%（浅红背景）
+                styles[display_cols.index(
+                    "准时率环比变化(百分点)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+            # 延期率>20%
             if row["延期率(%)"] > 20:
-                styles[display_cols.index("延期率(%)")] = "background-color: #fff5f5;"
+                styles[
+                    display_cols.index("延期率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+            # 准时率<80%
+            if row["准时率(%)"] < 80:
+                styles[
+                    display_cols.index("准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
             return styles
 
 
+        # 应用样式并展示表格
+        styled_table = freight_display.style.apply(highlight_freight, axis=1)
         st.dataframe(
-            freight_display.style.apply(highlight_freight, axis=1),
+            styled_table,
             use_container_width=True,
             hide_index=True
         )
 
-        # 2.4 货代分仓库表现（排除仓库因素干扰）
-        st.markdown("#### 货代分仓库准时率（排除仓库影响）")
-        if "仓库" in df_freight_valid.columns:
-            warehouse_freight = df_freight_valid.groupby(["货代", "仓库"]).agg(
-                仓库订单数=("货代", "count"),
-                仓库准时订单数=("提前/延期（货代）", lambda x: len(x[x == "提前/准时"]))
-            ).reset_index()
-            warehouse_freight["仓库准时率(%)"] = round(
-                warehouse_freight["仓库准时订单数"] / warehouse_freight["仓库订单数"] * 100, 1)
-            # 可视化：热力图（货代×仓库 → 准时率）
-            fig_heat = px.imshow(
-                warehouse_freight.pivot(index="货代", columns="仓库", values="仓库准时率(%)"),
-                title="货代×仓库 准时率热力图",
-                color_continuous_scale=["#ffcccc", "#ffffff", "#ccffcc"],
-                labels=dict(x="仓库", y="货代", color="准时率(%)"),
-                text_auto=True
-            )
-            st.plotly_chart(fig_heat, use_container_width=True)
-        else:
-            st.info("数据中无「仓库」列，无法展示分仓库表现")
-
-        # 2.5 数据下载
+        # ===== 5. 数据下载功能 =====
         csv_data = freight_stats.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
-            label="下载货代分析数据",
+            label="📥 下载货代分析完整数据",
             data=csv_data,
-            file_name=f"{selected_month}_货代准时率分析.csv",
-            mime="text/csv"
+            file_name=f"{selected_month}_货代准时率分析数据.csv",
+            mime="text/csv",
+            key="freight_data_download"
         )
 
     # ---------------------- ⑤ 当月仓库准时情况 ----------------------
