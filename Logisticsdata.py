@@ -1901,7 +1901,7 @@ if month_options and selected_month:
 
     # ========== 补充1：生成「年月排序」列（与货代一致） ==========
     # 假设你的原始日期列是「到货日期」（和货代一致），先转换为年月格式
-    if "到货日期" in warehouse_month_stats.columns:
+    if "到货年月" in warehouse_month_stats.columns:
         # 转换为datetime格式
         warehouse_month_stats["到货日期"] = pd.to_datetime(warehouse_month_stats["到货日期"], errors='coerce')
         # 生成「到货年月」（如202509）
@@ -1909,7 +1909,7 @@ if month_options and selected_month:
         # 生成「年月排序」（用于排序，直接用到货年月即可）
         warehouse_month_stats["年月排序"] = warehouse_month_stats["到货年月"]
     else:
-        st.error("缺少核心列「到货日期」，无法生成年月相关列！")
+        st.error("缺少核心列「到货年月」，无法生成年月相关列！")
 
 
     # ========== 补充2：生成「中文月份」列（与货代一致） ==========
