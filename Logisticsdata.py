@@ -1836,64 +1836,6 @@ if month_options and selected_month:
                     st.markdown(
                         f">- **异常提醒**：{','.join(abnormal_freights)}等货代加权平均准时率低于80%，且满足样本量要求，需重点关注并推动时效优化。")
 
-                # ---------------------- 新增：健康度仪表盘（替代无意义的快照） ----------------------
-                st.markdown("---")
-                st.markdown("### 分层次分析")
-
-                # 1. 最近一个月健康度仪表盘（仅筛选范围内的数据）
-                if latest_month != "无数据":
-                    latest_data = df_freight_filtered[df_freight_filtered["中文月份"] == latest_month].copy()
-                    # 计算本月核心KPI
-                    latest_total_orders = latest_data["总订单数"].sum()
-                    latest_avg_rate = round((latest_data["提前准时订单数"].sum() / latest_total_orders) * 100,
-                                            2) if latest_total_orders > 0 else 0
-                    latest_freight_count = latest_data["货代"].nunique()
-
-                    # 计算上月数据（仅筛选范围内）
-                    prev_month = ""
-                    prev_total_orders = 0
-                    prev_avg_rate = 0
-                    prev_freight_count = 0
-                    if len(valid_months) >= 2:
-                        prev_month = valid_months[-2]
-                        prev_data = df_freight_filtered[df_freight_filtered["中文月份"] == prev_month].copy()
-                        prev_total_orders = prev_data["总订单数"].sum()
-                        prev_avg_rate = round((prev_data["提前准时订单数"].sum() / prev_total_orders) * 100,
-                                              2) if prev_total_orders > 0 else 0
-                        prev_freight_count = prev_data["货代"].nunique()
-
-                    # 显示仪表盘
-                    st.markdown(f"#### 1. 最近一个月（{latest_month}）健康度仪表盘")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        delta_orders = latest_total_orders - prev_total_orders
-                        st.metric("总订单数", f"{latest_total_orders}单", f"{delta_orders:+}单 vs {prev_month}")
-                    with col2:
-                        delta_rate = latest_avg_rate - prev_avg_rate
-                        st.metric("整体准时率", f"{latest_avg_rate}%", f"{delta_rate:+}pct vs {prev_month}")
-                    with col3:
-                        delta_freight = latest_freight_count - prev_freight_count
-                        st.metric("参与货代数", f"{latest_freight_count}个", f"{delta_freight:+}个 vs {prev_month}")
-
-                    # 本月评级分布
-                    st.markdown("##### 本月货代评级分布")
-                    latest_category_dist = latest_data.groupby("货代归类").agg({
-                        "总订单数": "sum",
-                        "货代": "nunique"
-                    }).reset_index()
-                    latest_category_dist.columns = ["货代归类", "总订单数", "货代数量"]
-                    st.dataframe(latest_category_dist, hide_index=True, use_container_width=True)
-
-                    # 本月异常货代提醒
-                    latest_abnormal = latest_data[latest_data["货代归类"] == "异常"]["货代"].unique()
-                    if len(latest_abnormal) > 0:
-                        st.markdown(f"##### ⚠️ 本月异常货代（{latest_month}）")
-                        st.markdown(
-                            f"以下货代在{latest_month}的准时率低于80%，需重点关注：**{', '.join(latest_abnormal)}**")
-                    else:
-                        st.markdown(f"##### ✅ 本月无异常货代（{latest_month}）")
-
-                # 2. 各货代详细表现（使用综合评级）
                 st.markdown("#### 2. 各货代详细表现（综合评级）")
                 for _, row in df_comprehensive.iterrows():
                     freight = row["货代"]
