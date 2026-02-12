@@ -1578,7 +1578,8 @@ if month_options and selected_month:
                     "中文月份", "货代", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)", "货代归类"
                 ]
                 df_freight_display = df_freight_filtered[display_cols].copy()
-
+                # 新增：将准时率列格式化为带%的字符串
+                df_freight_display["准时率(%)"] = df_freight_display["准时率(%)"].apply(lambda x: f"{x:.2f}%")
 
                 # 表格样式：归类列按颜色标记
                 def highlight_freight_category(row):
