@@ -1456,6 +1456,7 @@ if month_options and selected_month:
 
                 summary += f" 所选时间范围平均准时率为：{avg_on_time_rate:.2f}%。"
                 st.markdown(f"> {summary}")
+
     # ---------------------- 货代不同月份趋势分析 ----------------------
     st.markdown("## 🚢 货代不同月份趋势分析")
     st.divider()
@@ -1578,8 +1579,6 @@ if month_options and selected_month:
                     "中文月份", "货代", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)", "货代归类"
                 ]
                 df_freight_display = df_freight_filtered[display_cols].copy()
-                # 新增：将准时率列格式化为带%的字符串
-                df_freight_display["准时率(%)"] = df_freight_display["准时率(%)"].apply(lambda x: f"{x:.2f}%")
 
                 # 表格样式：归类列按颜色标记
                 def highlight_freight_category(row):
@@ -1594,10 +1593,14 @@ if month_options and selected_month:
                         styles[display_cols.index(
                             "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
                     return styles
-
-
-                # 应用样式并展示表格
+                # 3. 核心修复：格式化准时率为2位小数（去掉多余0）
                 styled_freight_table = df_freight_display.style.apply(highlight_freight_category, axis=1)
+                # 关键：强制格式化准时率为2位小数，自动去除末尾无意义的0
+                styled_freight_table = styled_freight_table.format({
+                    "准时率(%)": lambda x:
+                    # 先保留2位小数，再去掉末尾的0和小数点（如果需要）
+                    f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
+                })
                 st.dataframe(
                     styled_freight_table,
                     use_container_width=True,
