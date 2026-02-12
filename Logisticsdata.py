@@ -1465,7 +1465,7 @@ if month_options and selected_month:
     FREIGHT_MONTH_COLUMN_MAPPING = {
         "货代列名": "货代",  # 替换为你实际的货代列名
         "到货年月列名": "到货年月",  # 替换为你实际的到货年月列名
-        "提前延期列名": "提前/延期"  # 替换为你实际的提前/延期列名
+        "提前延期列名": "提前/延期（货代）"  # 替换为你实际的提前/延期列名
     }
     required_cols = [
         FREIGHT_MONTH_COLUMN_MAPPING["货代列名"],
