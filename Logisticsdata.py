@@ -1745,6 +1745,14 @@ if month_options and selected_month:
                 st.markdown(
                     f"> **整体汇总**：所选时间范围共涵盖{total_months}个月份，涉及{total_freights}个货代，累计订单数{total_orders}单，整体平均准时率{avg_overall_rate}%。")
 
+                # --- 核心优化1：先修复最新月份取值逻辑（关键！避免显示2026年2月） ---
+                # 对筛选后的数据按年月排序（正序）
+                df_filtered_sorted = df_freight_filtered.sort_values("年月排序", ascending=True)
+                # 提取筛选范围内的所有有效月份
+                valid_months = df_filtered_sorted["中文月份"].unique()
+                # 确定筛选范围内的最新月份（避免取到筛选外的月份）
+                latest_month = valid_months[-1] if len(valid_months) > 0 else "无数据"
+
 
                 # --- 核心优化：计算综合评分和评级 ---
                 def calculate_comprehensive_score(freight_data):
@@ -1777,7 +1785,15 @@ if month_options and selected_month:
                 # --- 为每个货代计算综合评级 ---
                 comprehensive_summary = []
                 for freight in df_freight_filtered["货代"].unique():
-                    freight_data = df_freight_filtered[df_freight_filtered["货代"] == freight]
+                    freight_data = df_freight_filtered[df_freight_filtered["货代"] == freight].copy()
+                    # 修复：避免货代只有1条数据时iloc[0]报错
+                    if len(freight_data) > 0:
+                        # 按年月降序排序，取最新月份的表现
+                        freight_data_sorted = freight_data.sort_values("年月排序", ascending=False)
+                        latest_perf = freight_data_sorted.iloc[0]["货代归类"]
+                    else:
+                        latest_perf = "无数据"
+
                     rating, avg_rate, total_ord, total_mth = calculate_comprehensive_score(freight_data)
                     comprehensive_summary.append({
                         "货代": freight,
@@ -1785,7 +1801,7 @@ if month_options and selected_month:
                         "加权平均准时率": round(avg_rate, 2),
                         "累计订单数": total_ord,
                         "出现月份数": total_mth,
-                        "最新月份表现": freight_data.sort_values("年月排序", ascending=False).iloc[0]["货代归类"]
+                        "最新月份表现": latest_perf
                     })
 
                 df_comprehensive = pd.DataFrame(comprehensive_summary)
@@ -1820,8 +1836,65 @@ if month_options and selected_month:
                     st.markdown(
                         f">- **异常提醒**：{','.join(abnormal_freights)}等货代加权平均准时率低于80%，且满足样本量要求，需重点关注并推动时效优化。")
 
+                # ---------------------- 新增：健康度仪表盘（替代无意义的快照） ----------------------
+                st.markdown("---")
+                st.markdown("### 分层次分析")
+
+                # 1. 最近一个月健康度仪表盘（仅筛选范围内的数据）
+                if latest_month != "无数据":
+                    latest_data = df_freight_filtered[df_freight_filtered["中文月份"] == latest_month].copy()
+                    # 计算本月核心KPI
+                    latest_total_orders = latest_data["总订单数"].sum()
+                    latest_avg_rate = round((latest_data["提前准时订单数"].sum() / latest_total_orders) * 100,
+                                            2) if latest_total_orders > 0 else 0
+                    latest_freight_count = latest_data["货代"].nunique()
+
+                    # 计算上月数据（仅筛选范围内）
+                    prev_month = ""
+                    prev_total_orders = 0
+                    prev_avg_rate = 0
+                    prev_freight_count = 0
+                    if len(valid_months) >= 2:
+                        prev_month = valid_months[-2]
+                        prev_data = df_freight_filtered[df_freight_filtered["中文月份"] == prev_month].copy()
+                        prev_total_orders = prev_data["总订单数"].sum()
+                        prev_avg_rate = round((prev_data["提前准时订单数"].sum() / prev_total_orders) * 100,
+                                              2) if prev_total_orders > 0 else 0
+                        prev_freight_count = prev_data["货代"].nunique()
+
+                    # 显示仪表盘
+                    st.markdown(f"#### 1. 最近一个月（{latest_month}）健康度仪表盘")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        delta_orders = latest_total_orders - prev_total_orders
+                        st.metric("总订单数", f"{latest_total_orders}单", f"{delta_orders:+}单 vs {prev_month}")
+                    with col2:
+                        delta_rate = latest_avg_rate - prev_avg_rate
+                        st.metric("整体准时率", f"{latest_avg_rate}%", f"{delta_rate:+}pct vs {prev_month}")
+                    with col3:
+                        delta_freight = latest_freight_count - prev_freight_count
+                        st.metric("参与货代数", f"{latest_freight_count}个", f"{delta_freight:+}个 vs {prev_month}")
+
+                    # 本月评级分布
+                    st.markdown("##### 本月货代评级分布")
+                    latest_category_dist = latest_data.groupby("货代归类").agg({
+                        "总订单数": "sum",
+                        "货代": "nunique"
+                    }).reset_index()
+                    latest_category_dist.columns = ["货代归类", "总订单数", "货代数量"]
+                    st.dataframe(latest_category_dist, hide_index=True, use_container_width=True)
+
+                    # 本月异常货代提醒
+                    latest_abnormal = latest_data[latest_data["货代归类"] == "异常"]["货代"].unique()
+                    if len(latest_abnormal) > 0:
+                        st.markdown(f"##### ⚠️ 本月异常货代（{latest_month}）")
+                        st.markdown(
+                            f"以下货代在{latest_month}的准时率低于80%，需重点关注：**{', '.join(latest_abnormal)}**")
+                    else:
+                        st.markdown(f"##### ✅ 本月无异常货代（{latest_month}）")
+
                 # 2. 各货代详细表现（使用综合评级）
-                st.markdown("#### 各货代详细表现（综合评级）")
+                st.markdown("#### 2. 各货代详细表现（综合评级）")
                 for _, row in df_comprehensive.iterrows():
                     freight = row["货代"]
                     rating = row["综合评级"]
@@ -1830,6 +1903,7 @@ if month_options and selected_month:
                     total_mth = row["出现月份数"]
                     latest_perf = row["最新月份表现"]
 
+                    # 归类样式和描述
                     if rating == "优质":
                         color = "#2e7d32"
                         desc = "综合表现优秀，长期稳定可靠。"
@@ -1843,6 +1917,7 @@ if month_options and selected_month:
                         color = "#718096"
                         desc = f"样本不足（订单{total_ord}单/月份{total_mth}个），建议持续观察。"
 
+                    # 生成货代卡片（修复HTML渲染问题）
                     st.markdown(f"""
                     <div style='border:1px solid #e2e8f0; border-radius:6px; padding:15px; margin:10px 0; border-left:4px solid {color};'>
                       <strong style='font-size:16px; color:#1a202c;'>{freight}</strong>
