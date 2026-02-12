@@ -1892,6 +1892,291 @@ if month_options and selected_month:
                     mime="text/csv",
                     key="freight_summary_download"
                 )
+    # ===== 仓库月度表现分析（适配列名：提前/延期（仓库）） =====
+    st.markdown("---")
+    st.markdown("## 仓库月度表现分析")
+
+    # ---------------------- 第一步：数据准备（适配列名） ----------------------
+    # 假设原始数据列名：提前/延期（仓库）、总订单数、仓库、到货年月等
+    warehouse_month_stats = df_red.copy()
+
+    # 1. 检查核心列是否存在（适配你的列名）
+    required_cols = [
+        "到货年月", "中文月份", "年月排序", "仓库", "总订单数", "提前/延期（仓库）"
+    ]
+    if not all(col in warehouse_month_stats.columns for col in required_cols):
+        missing_cols = [col for col in required_cols if col not in warehouse_month_stats.columns]
+        st.warning(f"仓库分析所需列缺失：{', '.join(missing_cols)}，请检查数据列名！")
+    else:
+        # 2. 时间筛选（复用货代的start_ym/end_ym）
+        df_warehouse_filtered = warehouse_month_stats[
+            (warehouse_month_stats["到货年月"] >= start_ym) &
+            (warehouse_month_stats["到货年月"] <= end_ym)
+            ].copy()
+
+
+        # 3. 从「提前/延期（仓库）」列拆分出提前准时订单数、延期订单数
+        # 假设「提前/延期（仓库）」列格式为："提前X单/准时Y单/延期Z单" 或直接是延期数，需根据你的实际格式调整
+        # 👇 请根据「提前/延期（仓库）」的实际格式修改以下拆分逻辑 👇
+        def split_advance_delay(row):
+            """拆分提前/延期（仓库）列，计算提前准时订单数和延期订单数"""
+            advance_delay_str = str(row["提前/延期（仓库）"])
+            total_orders = row["总订单数"]
+
+            # 示例1：如果列值是"延期5单" → 延期订单数=5，提前准时=总订单-5
+            if "延期" in advance_delay_str:
+                delay_orders = int(''.join([c for c in advance_delay_str if c.isdigit()]))
+                advance_on_time_orders = total_orders - delay_orders
+            # 示例2：如果列值是"提前2单/准时10单/延期3单" → 拆分求和
+            elif "/" in advance_delay_str:
+                parts = advance_delay_str.split("/")
+                advance_on_time_orders = 0
+                delay_orders = 0
+                for part in parts:
+                    if "提前" in part or "准时" in part:
+                        advance_on_time_orders += int(''.join([c for c in part if c.isdigit()]))
+                    elif "延期" in part:
+                        delay_orders += int(''.join([c for c in part if c.isdigit()]))
+            # 示例3：如果列值直接是延期订单数（数字）
+            elif advance_delay_str.isdigit():
+                delay_orders = int(advance_delay_str)
+                advance_on_time_orders = total_orders - delay_orders
+            else:
+                # 兜底：无法解析时默认无延期
+                advance_on_time_orders = total_orders
+                delay_orders = 0
+
+            return pd.Series([advance_on_time_orders, delay_orders])
+
+
+        # 拆分出提前准时订单数、延期订单数
+        df_warehouse_filtered[["提前准时订单数", "延期订单数"]] = df_warehouse_filtered.apply(
+            split_advance_delay, axis=1
+        )
+
+        # 4. 计算仓库准时率（保留2位小数，去掉多余0）
+        df_warehouse_filtered["准时率(%)"] = round(
+            df_warehouse_filtered["提前准时订单数"] / df_warehouse_filtered["总订单数"] * 100, 2
+        )
+
+
+        # 5. 仓库归类（复用货代逻辑）
+        def categorize_warehouse(row):
+            rate = row["准时率(%)"]
+            if rate >= 90:
+                return "优质"
+            elif rate >= 80:
+                return "合格"
+            else:
+                return "异常"
+
+
+        df_warehouse_filtered["仓库归类"] = df_warehouse_filtered.apply(categorize_warehouse, axis=1)
+
+        # ---------------------- 第二步：仓库整体汇总 & 综合评级（无列名修改） ----------------------
+        st.markdown("### 仓库月度表现总结（综合版）")
+
+        total_months = df_warehouse_filtered["中文月份"].nunique()
+        total_warehouses = df_warehouse_filtered["仓库"].nunique()
+        total_orders = df_warehouse_filtered["总订单数"].sum()
+        avg_overall_rate = round(df_warehouse_filtered["准时率(%)"].mean(), 2)
+
+        st.markdown(
+            f"> **整体汇总**：所选时间范围共涵盖{total_months}个月份，涉及{total_warehouses}个仓库，累计订单数{total_orders}单，整体平均准时率{avg_overall_rate}%。")
+
+
+        # 仓库综合评分函数（无列名修改）
+        def calculate_warehouse_comprehensive_score(warehouse_data):
+            total_orders = warehouse_data["总订单数"].sum()
+            total_months = len(warehouse_data)
+            weighted_avg_rate = (warehouse_data["准时率(%)"] * warehouse_data[
+                "总订单数"]).sum() / total_orders if total_orders > 0 else 0
+
+            MIN_ORDERS = 10
+            MIN_MONTHS = 2
+
+            if total_orders < MIN_ORDERS or total_months < MIN_MONTHS:
+                return "样本不足", weighted_avg_rate, total_orders, total_months
+            elif weighted_avg_rate >= 90:
+                return "优质", weighted_avg_rate, total_orders, total_months
+            elif weighted_avg_rate >= 80:
+                return "合格", weighted_avg_rate, total_orders, total_months
+            else:
+                return "异常", weighted_avg_rate, total_orders, total_months
+
+
+        # 为每个仓库计算综合评级
+        warehouse_summary = []
+        for warehouse in df_warehouse_filtered["仓库"].unique():
+            warehouse_data = df_warehouse_filtered[df_warehouse_filtered["仓库"] == warehouse].copy()
+            if len(warehouse_data) > 0:
+                warehouse_data_sorted = warehouse_data.sort_values("年月排序", ascending=False)
+                latest_perf = warehouse_data_sorted.iloc[0]["仓库归类"]
+            else:
+                latest_perf = "无数据"
+
+            rating, avg_rate, total_ord, total_mth = calculate_warehouse_comprehensive_score(warehouse_data)
+            warehouse_summary.append({
+                "仓库": warehouse,
+                "综合评级": rating,
+                "加权平均准时率": round(avg_rate, 2),
+                "累计订单数": total_ord,
+                "出现月份数": total_mth,
+                "最新月份表现": latest_perf
+            })
+
+        df_warehouse_comprehensive = pd.DataFrame(warehouse_summary)
+
+        # 按综合评级统计
+        category_count = df_warehouse_comprehensive["综合评级"].value_counts()
+        cate_summary = []
+        if "优质" in category_count:
+            cate_summary.append(f"- **优质仓库**：共{category_count['优质']}个，主要表现为加权平均准时率≥90%。")
+        if "合格" in category_count:
+            cate_summary.append(f"- **合格仓库**：共{category_count['合格']}个，主要表现为加权平均准时率≥80%且<90%。")
+        if "异常" in category_count:
+            cate_summary.append(f"- **异常仓库**：共{category_count['异常']}个，主要表现为加权平均准时率<80%。")
+        if "样本不足" in category_count:
+            cate_summary.append(f"- **样本不足仓库**：共{category_count['样本不足']}个，因订单量或出现频次过低，暂不评级。")
+
+        st.markdown("\n".join(cate_summary))
+
+        # 核心仓库点评
+        valid_warehouses = df_warehouse_comprehensive[df_warehouse_comprehensive["综合评级"] != "样本不足"]
+        if not valid_warehouses.empty:
+            top_warehouse = valid_warehouses.sort_values("累计订单数", ascending=False).iloc[0]
+            st.markdown(
+                f">- **核心仓库{top_warehouse['仓库']}**：累计订单数最多（{top_warehouse['累计订单数']}单），加权平均准时率{top_warehouse['加权平均准时率']}%，综合评级为{top_warehouse['综合评级']}。")
+
+        # 异常仓库提醒
+        abnormal_warehouses = df_warehouse_comprehensive[df_warehouse_comprehensive["综合评级"] == "异常"][
+            "仓库"].tolist()
+        if abnormal_warehouses:
+            st.markdown(
+                f">- **异常提醒**：{','.join(abnormal_warehouses)}等仓库加权平均准时率低于80%，且满足样本量要求，需重点关注并推动时效优化。")
+
+        # ---------------------- 第三步：仓库健康度仪表盘（无列名修改） ----------------------
+        df_filtered_sorted = df_warehouse_filtered.sort_values("年月排序", ascending=True)
+        valid_months = df_filtered_sorted["中文月份"].unique()
+        latest_month = valid_months[-1] if len(valid_months) > 0 else "无数据"
+
+        st.markdown("---")
+        st.markdown("### 仓库分层次分析")
+
+        if latest_month != "无数据":
+            latest_data = df_warehouse_filtered[df_warehouse_filtered["中文月份"] == latest_month].copy()
+            latest_total_orders = latest_data["总订单数"].sum()
+            latest_avg_rate = round((latest_data["提前准时订单数"].sum() / latest_total_orders) * 100,
+                                    2) if latest_total_orders > 0 else 0
+            latest_warehouse_count = latest_data["仓库"].nunique()
+
+            prev_month = ""
+            prev_total_orders = 0
+            prev_avg_rate = 0
+            prev_warehouse_count = 0
+            if len(valid_months) >= 2:
+                prev_month = valid_months[-2]
+                prev_data = df_warehouse_filtered[df_warehouse_filtered["中文月份"] == prev_month].copy()
+                prev_total_orders = prev_data["总订单数"].sum()
+                prev_avg_rate = round((prev_data["提前准时订单数"].sum() / prev_total_orders) * 100,
+                                      2) if prev_total_orders > 0 else 0
+                prev_warehouse_count = prev_data["仓库"].nunique()
+
+            # 显示仪表盘
+            st.markdown(f"#### 1. 最近一个月（{latest_month}）健康度仪表盘")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                delta_orders = latest_total_orders - prev_total_orders
+                st.metric("总订单数", f"{latest_total_orders}单", f"{delta_orders:+}单 vs {prev_month}")
+            with col2:
+                delta_rate = latest_avg_rate - prev_avg_rate
+                st.metric("整体准时率", f"{latest_avg_rate}%", f"{delta_rate:+}pct vs {prev_month}")
+            with col3:
+                delta_warehouse = latest_warehouse_count - prev_warehouse_count
+                st.metric("参与仓库数", f"{latest_warehouse_count}个", f"{delta_warehouse:+}个 vs {prev_month}")
+
+            # 本月仓库评级分布
+            st.markdown("##### 本月仓库评级分布")
+            latest_category_dist = latest_data.groupby("仓库归类").agg({
+                "总订单数": "sum",
+                "仓库": "nunique"
+            }).reset_index()
+            latest_category_dist.columns = ["仓库归类", "总订单数", "仓库数量"]
+            st.dataframe(latest_category_dist, hide_index=True, use_container_width=True)
+
+            # 本月异常仓库提醒
+            latest_abnormal = latest_data[latest_data["仓库归类"] == "异常"]["仓库"].unique()
+            if len(latest_abnormal) > 0:
+                st.markdown(f"##### ⚠️ 本月异常仓库（{latest_month}）")
+                st.markdown(f"以下仓库在{latest_month}的准时率低于80%，需重点关注：**{', '.join(latest_abnormal)}**")
+            else:
+                st.markdown(f"##### ✅ 本月无异常仓库（{latest_month}）")
+
+        # ---------------------- 第四步：仓库详细表现卡片（无列名修改） ----------------------
+        st.markdown("#### 2. 各仓库详细表现（综合评级）")
+        for _, row in df_warehouse_comprehensive.iterrows():
+            warehouse = row["仓库"]
+            rating = row["综合评级"]
+            avg_rate = row["加权平均准时率"]
+            total_ord = row["累计订单数"]
+            total_mth = row["出现月份数"]
+            latest_perf = row["最新月份表现"]
+
+            if rating == "优质":
+                color = "#2e7d32"
+                desc = "综合表现优秀，长期稳定可靠。"
+            elif rating == "合格":
+                color = "#ff9800"
+                desc = "综合表现达标，仍有优化空间。"
+            elif rating == "异常":
+                color = "#c62828"
+                desc = "综合表现不佳，存在较大风险。"
+            else:
+                color = "#718096"
+                desc = f"样本不足（订单{total_ord}单/月份{total_mth}个），建议持续观察。"
+
+            st.markdown(f"""
+            <div style='border:1px solid #e2e8f0; border-radius:6px; padding:15px; margin:10px 0; border-left:4px solid {color};'>
+              <strong style='font-size:16px; color:#1a202c;'>{warehouse}</strong>
+              <p style='margin:5px 0; color:{color};'>{rating} | {desc}</p>
+              <p style='margin:2px 0; font-size:14px; color:#4a5568;'>📊 加权平均准时率：{avg_rate}% | 📦 累计订单：{total_ord}单 | 📅 出现月份：{total_mth}个月</p>
+              <p style='margin:2px 0; font-size:14px; color:#4a5568;'>🔍 最新月份（{latest_month}）表现：{latest_perf}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ---------------------- 第五步：仓库明细表格（适配列名） ----------------------
+        st.markdown("---")
+        st.markdown("### 仓库明细数据")
+        # 展示列：包含原始的「提前/延期（仓库）」列
+        display_cols = ["中文月份", "仓库", "总订单数", "提前/延期（仓库）", "提前准时订单数", "延期订单数", "准时率(%)",
+                        "仓库归类"]
+        df_warehouse_display = df_warehouse_filtered[display_cols].copy()
+
+
+        # 高亮函数
+        def highlight_warehouse_category(row):
+            if row["仓库归类"] == "优质":
+                return ['background-color: #e8f5e9'] * len(row)
+            elif row["仓库归类"] == "合格":
+                return ['background-color: #fff3e0'] * len(row)
+            elif row["仓库归类"] == "异常":
+                return ['background-color: #ffebee'] * len(row)
+            else:
+                return [''] * len(row)
+
+
+        # 格式化准时率
+        styled_warehouse_table = df_warehouse_display.style.apply(highlight_warehouse_category, axis=1)
+        styled_warehouse_table = styled_warehouse_table.format({
+            "准时率(%)": lambda x: f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
+        })
+
+        # 展示表格
+        st.dataframe(
+            styled_warehouse_table,
+            use_container_width=True,
+            hide_index=True
+        )
 
     # ===================== 三、数据源 =====================
     st.subheader("📋 数据源筛选")
