@@ -1893,12 +1893,12 @@ if month_options and selected_month:
                     key="freight_summary_download"
                 )
     # ===== 仓库分析：1. 数据预处理 & 列名校验（复用货代映射规范） =====
-    # 仓库列名映射（和货代结构完全一致，仅替换维度字段）
+    # 仓库列名映射（修复日期列名映射错误）
     WAREHOUSE_MONTH_COLUMN_MAPPING = {
         "仓库列名": "仓库",  # 替换为你实际的仓库列名
         "到货年月列名": "到货年月",  # 替换为你实际的到货年月列名（和货代一致）
         "提前延期列名": "提前/延期（仓库）",  # 仓库的提前/延期列名
-        "日期列名": "到货年月",  # 用于生成年月排序/中文月份的原始日期列
+        "日期列名": "到货年月",  # 若没有单独的日期列，继续用到货年月（已修复转换逻辑）
         "订单号列名": "FBA号"  # 用于统计总订单数（和货代一样用FBA号）
     }
 
@@ -1911,7 +1911,7 @@ if month_options and selected_month:
         WAREHOUSE_MONTH_COLUMN_MAPPING["订单号列名"]
     ]
 
-    # ===== 2. 仓库数据预处理（含列名校验+缺失列生成） =====
+    # ===== 2. 仓库数据预处理（含列名校验+缺失列生成+全容错修复） =====
     st.markdown("---")
     st.markdown("## 仓库月度表现分析")
 
@@ -1930,29 +1930,54 @@ if month_options and selected_month:
         date_col = WAREHOUSE_MONTH_COLUMN_MAPPING["日期列名"]
         order_id_col = WAREHOUSE_MONTH_COLUMN_MAPPING["订单号列名"]
 
-        # 第三步：生成缺失的核心列（和货代逻辑一致）
-        # 1. 生成「年月排序」列
-        warehouse_month_stats["到货日期"] = pd.to_datetime(warehouse_month_stats[date_col], errors='coerce')
-        warehouse_month_stats["年月排序"] = warehouse_month_stats[arrival_ym_col].astype(int)  # 直接用到货年月作为排序值
 
-
-        # 2. 生成「中文月份」列
-        def get_chinese_month(ym):
+        # 第三步：生成缺失的核心列（全容错修复）
+        # 1. 生成「年月排序」列（修复astype(int)报错问题）
+        def clean_arrival_ym(ym):
+            """清洗到货年月值，确保能安全转为整数"""
             if pd.isna(ym):
+                return 0  # 空值默认赋值0
+            # 处理字符串格式（如"202509"、"2025-09"、"2025年09月"）
+            if isinstance(ym, str):
+                ym_clean = ''.join([c for c in ym if c.isdigit()])  # 只保留数字
+                return int(ym_clean) if ym_clean else 0
+            # 处理小数格式（如202509.0）
+            if isinstance(ym, float):
+                return int(ym) if ym.is_integer() else 0
+            # 本身是整数则直接返回
+            return int(ym)
+
+
+        # 先清洗再赋值，避免转换报错
+        warehouse_month_stats["年月排序"] = warehouse_month_stats[arrival_ym_col].apply(clean_arrival_ym)
+
+
+        # 移除无效的到货日期转换（因为date_col实际是到货年月，不是日期格式）
+        # 注释掉这行：warehouse_month_stats["到货日期"] = pd.to_datetime(warehouse_month_stats[date_col], errors='coerce')
+
+        # 2. 生成「中文月份」列（适配清洗后的年月排序）
+        def get_chinese_month(ym):
+            if ym == 0 or pd.isna(ym):
                 return "未知月份"
-            year = str(ym)[:4]
-            month = str(ym)[4:]
+            ym_str = str(ym).zfill(6)  # 补零到6位（如20259→202509，0→000000）
+            year = ym_str[:4]
+            month = ym_str[4:]
+            if month == "00" or month == "0":
+                return f"{year}年未知月"
             return f"{year}年{int(month)}月"
 
 
-        warehouse_month_stats["中文月份"] = warehouse_month_stats[arrival_ym_col].apply(get_chinese_month)
+        warehouse_month_stats["中文月份"] = warehouse_month_stats["年月排序"].apply(get_chinese_month)
 
         # 3. 生成「总订单数」列（和货代一样按FBA号去重统计）
+        # 增加容错：避免分组后合并丢失数据
         order_count = warehouse_month_stats.groupby([warehouse_col, arrival_ym_col])[
             order_id_col].nunique().reset_index()
         order_count.columns = [warehouse_col, arrival_ym_col, "总订单数"]
         warehouse_month_stats = pd.merge(warehouse_month_stats, order_count, on=[warehouse_col, arrival_ym_col],
                                          how="left")
+        # 填充总订单数空值为0
+        warehouse_month_stats["总订单数"] = warehouse_month_stats["总订单数"].fillna(0)
 
 
         # 4. 拆分「提前/延期（仓库）」列，生成提前准时/延期订单数
@@ -1987,10 +2012,13 @@ if month_options and selected_month:
         warehouse_month_stats[["提前准时订单数", "延期订单数"]] = warehouse_month_stats.apply(split_advance_delay,
                                                                                               axis=1)
 
-        # 第四步：时间筛选（复用货代的start_ym/end_ym）
+        # 第四步：时间筛选（复用货代的start_ym/end_ym，适配清洗后的年月排序）
+        # 先将start_ym/end_ym转为整数，避免类型不匹配
+        start_ym_int = clean_arrival_ym(start_ym)
+        end_ym_int = clean_arrival_ym(end_ym)
         df_warehouse_filtered = warehouse_month_stats[
-            (warehouse_month_stats[arrival_ym_col] >= start_ym) &
-            (warehouse_month_stats[arrival_ym_col] <= end_ym)
+            (warehouse_month_stats["年月排序"] >= start_ym_int) &
+            (warehouse_month_stats["年月排序"] <= end_ym_int)
             ].copy()
 
         # 第五步：计算准时率 + 仓库归类（和货代逻辑一致）
@@ -2012,7 +2040,7 @@ if month_options and selected_month:
 
         df_warehouse_filtered["仓库归类"] = df_warehouse_filtered.apply(categorize_warehouse, axis=1)
 
-        # ---------------------- 后续分析逻辑（和之前一致，仅替换列名变量） ----------------------
+        # ---------------------- 后续分析逻辑（无需修改，仅保留） ----------------------
         # 整体汇总
         st.markdown("### 仓库月度表现总结（综合版）")
         total_months = df_warehouse_filtered["中文月份"].nunique()
