@@ -252,23 +252,61 @@ if month_options and selected_month:
             <p style='font-size: 14px; color: {on_time_rate_change_color}; margin: 0;'>{on_time_rate_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
-    # 生成总结文字
-    summary_text = f"""
-    {selected_month.replace('-', '年')}月物流时效情况：本月的FBA单有：{current_fba}单，与上个月对比{'增加' if fba_change > 0 else '减少' if fba_change < 0 else '持平'} {abs(fba_change)}单，
-    其中提前/准时单有：{current_on_time}单，与上个月对比{'增加' if on_time_change > 0 else '减少' if on_time_change < 0 else '持平'} {abs(on_time_change)}单，
-    延期单有：{current_delay}单，与上个月对比{'增加' if delay_change > 0 else '减少' if delay_change < 0 else '持平'} {abs(delay_change)}单，
-    预计物流时效-实际物流时效差异（绝对值）为：{current_abs_avg:.2f}，与上个月对比{'增加' if abs_change > 0 else '减少' if abs_change < 0 else '持平'} {abs(abs_change):.2f}，
-    预计物流时效-实际物流时效差异为：{current_diff_avg:.2f}，与上个月对比{'增加' if diff_change > 0 else '减少' if diff_change < 0 else '持平'} {abs(diff_change):.2f}。
+    # 计算辅助指标（业务视角）
+    total_orders = current_fba
+    on_time_rate = (current_on_time / total_orders * 100) if total_orders > 0 else 0  # 准时率
+    delay_rate = (current_delay / total_orders * 100) if total_orders > 0 else 0  # 延期率
+    prev_on_time_rate = (prev_on_time / prev_fba * 100) if prev_fba > 0 else 0  # 上月准时率
+    on_time_rate_change = on_time_rate - prev_on_time_rate  # 准时率变化
+
+    # 核心结论（先给定性判断）
+    if on_time_rate >= 90:
+        core_conclusion = f"{selected_month}空派物流整体表现优秀，准时率达{on_time_rate:.1f}%，远高于行业基准"
+    elif on_time_rate >= 80:
+        core_conclusion = f"{selected_month}空派物流表现良好，准时率{on_time_rate:.1f}%，整体可控"
+    elif on_time_rate >= 70:
+        core_conclusion = f"{selected_month}空派物流表现一般，准时率{on_time_rate:.1f}%，需关注延期问题"
+    else:
+        core_conclusion = f"{selected_month}空派物流表现较差，准时率仅{on_time_rate:.1f}%，延期风险显著"
+
+    # 关键数据支撑（精简+业务化）
+    data_support = f"""
+    本月共处理FBA订单{current_fba}单（环比{'+' if fba_change > 0 else ''}{fba_change}单）：
+    ✅ 提前/准时单{current_on_time}单（准时率{on_time_rate:.1f}%，环比{'↑' if on_time_rate_change > 0 else '↓'}{abs(on_time_rate_change):.1f}个百分点）；
+    ❌ 延期单{current_delay}单（延期率{delay_rate:.1f}%）；
+    📊 实际物流时效与预计的偏差均值为{current_diff_avg:.2f}天（绝对值均值{current_abs_avg:.2f}天），环比{'扩大' if abs_change > 0 else '收窄'}{abs(abs_change):.2f}天。
     """
 
-    # 差异判断
-    if current_diff_avg > 0:
-        summary_text += "虽然有延迟，但延迟情况不严重，整体提前！"
-    else:
-        summary_text += "虽然有提前，但延迟更严重，整体还是延迟的！"
+    # 风险/亮点提示（针对性分析）
+    tips = ""
+    # 1. 准时率大幅波动提示
+    if abs(on_time_rate_change) >= 5:
+        if on_time_rate_change > 0:
+            tips += f"💡 亮点：本月准时率环比提升{on_time_rate_change:.1f}个百分点，物流效率显著改善；"
+        else:
+            tips += f"⚠️ 风险：本月准时率环比下降{abs(on_time_rate_change):.1f}个百分点，需排查延期原因；"
+    # 2. 延期单占比过高提示
+    if delay_rate >= 30:
+        tips += f"⚠️ 风险：延期单占比超30%，建议优先核查高频延期的货代/仓库；"
+    # 3. 时效偏差扩大提示
+    if abs_change >= 2:
+        tips += f"⚠️ 风险：时效偏差绝对值环比扩大{abs_change:.2f}天，预计时效的准确性需优化；"
+    # 4. 无明显风险的正向提示
+    if not tips:
+        tips = "💡 本月物流时效无显著异常，各维度表现稳定。"
 
-    st.markdown(f"> {summary_text}")
-    st.divider()
+    # 整合最终总结
+    summary_text = f"""
+    ### {selected_month}空派物流核心分析
+    {core_conclusion}
+
+    {data_support}
+
+    {tips}
+    """
+
+    # 渲染总结（用markdown美化）
+    st.markdown(summary_text)
 
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
     # ---------------------- ② 当月准时率与时效偏差 ----------------------
