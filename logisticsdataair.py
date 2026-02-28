@@ -142,9 +142,6 @@ if month_options and selected_month:
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
 
-    # ---------------------- ① 核心指标卡片 ----------------------
-    st.markdown("### 核心指标")
-
     # 计算核心指标
     # 1. FBA单数
     current_fba = len(df_current)
@@ -187,9 +184,20 @@ if month_options and selected_month:
     diff_change = current_diff_avg - prev_diff_avg
     diff_change_text = f"{'↑' if diff_change > 0 else '↓' if diff_change < 0 else '—'} {abs(diff_change):.2f} (上月: {prev_diff_avg:.2f})"
     diff_change_color = "red" if diff_change > 0 else "green" if diff_change < 0 else "gray"
+    # ========== 新增：6. 准时率（核心修改1） ==========
+    # 当月准时率（提前/准时数 ÷ 总FBA数 × 100%）
+    current_on_time_rate = (current_on_time / current_fba * 100) if current_fba > 0 else 0.0
+    # 上月准时率
+    prev_on_time_rate = (prev_on_time / prev_fba * 100) if prev_fba > 0 else 0.0
+    # 准时率环比变化（百分点）
+    on_time_rate_change = current_on_time_rate - prev_on_time_rate
+    # 准时率变化文本（和其他指标样式统一）
+    on_time_rate_change_text = f"{'↑' if on_time_rate_change > 0 else '↓' if on_time_rate_change < 0 else '—'} {abs(on_time_rate_change):.1f}% (上月: {prev_on_time_rate:.1f}%)"
+    # 准时率变化颜色（红升绿降）
+    on_time_rate_change_color = "red" if on_time_rate_change > 0 else "green" if on_time_rate_change < 0 else "gray"
 
-    # 显示卡片（一行五列）- 改用HTML自定义样式
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # 显示卡片（一行六列）- 改用HTML自定义样式（核心修改2：从5列改为6列）
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
         st.markdown(f"""
@@ -235,7 +243,15 @@ if month_options and selected_month:
             <p style='font-size: 14px; color: {diff_change_color}; margin: 0;'>{diff_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
-
+    # ========== 新增：第6列 准时率卡片（核心修改3） ==========
+    with col6:
+        st.markdown(f"""
+        <div style='background-color: #e8f4f8; padding: 15px; border-radius: 8px; text-align: center;'>
+            <h5 style='margin: 0; color: #2196f3;'>准时率</h5>
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_on_time_rate:.1f}%</p>
+            <p style='font-size: 14px; color: {on_time_rate_change_color}; margin: 0;'>{on_time_rate_change_text}</p>
+        </div>
+        """, unsafe_allow_html=True)
     # 生成总结文字
     summary_text = f"""
     {selected_month.replace('-', '年')}月物流时效情况：本月的FBA单有：{current_fba}单，与上个月对比{'增加' if fba_change > 0 else '减少' if fba_change < 0 else '持平'} {abs(fba_change)}单，
