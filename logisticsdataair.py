@@ -135,6 +135,24 @@ def get_prev_month(month_str):
 
 # ===================== 一、当月的情况 =====================
 st.subheader("🔍 当月空派分析")
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# 先补充缺失的工具函数（原代码依赖但未展示）
+def get_prev_month(month_str):
+    """计算上月（格式：YYYY-MM），处理边界情况"""
+    try:
+        year, month = map(int, month_str.split('-'))
+        if month == 1:
+            return f"{year-1}-12"
+        else:
+            return f"{year}-{month-1:02d}"
+    except:
+        return ""
+
+# ===================== 一、当月的情况 =====================
+st.subheader("🔍 当月空派分析")
 
 # 假设df_air是已加载的空派数据（请确保实际代码中已定义）
 # 这里补充示例数据初始化（实际使用时替换为你的数据加载逻辑）
