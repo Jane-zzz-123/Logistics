@@ -121,29 +121,54 @@ def highlight_change(val):
 # ---------------------- 主页面构建 ----------------------
 st.title("📦 空派分析看板区域")
 st.divider()
+# 先补充缺失的工具函数（原代码依赖但未展示）
+def get_prev_month(month_str):
+    """计算上月（格式：YYYY-MM），处理边界情况"""
+    try:
+        year, month = map(int, month_str.split('-'))
+        if month == 1:
+            return f"{year-1}-12"
+        else:
+            return f"{year}-{month-1:02d}"
+    except:
+        return ""
 
 # ===================== 一、当月的情况 =====================
 st.subheader("🔍 当月空派分析")
 
+# 假设df_air是已加载的空派数据（请确保实际代码中已定义）
+# 这里补充示例数据初始化（实际使用时替换为你的数据加载逻辑）
+if 'df_air' not in st.session_state:
+    # 示例空数据，实际替换为你的数据加载（如pd.read_excel）
+    df_air = pd.DataFrame({
+        "到货年月": [],
+        "FBA号": [],
+        "提前/延期": [],
+        "预计物流时效-实际物流时效差值(绝对值)": [],
+        "预计物流时效-实际物流时效差值": []
+    })
+else:
+    df_air = st.session_state.df_air
+
 # 时间筛选器（到货年月，最新的在最上方）
 month_options = sorted(df_air["到货年月"].unique(), reverse=True) if len(df_air["到货年月"].unique()) > 0 else []
-selected_month = st.selectbox(
-    "选择到货年月",
-    options=month_options,
-    index=0 if month_options else None,
-    key="month_selector_current"
-) if month_options else st.write("⚠️ 暂无可用的到货年月数据")
+if month_options:
+    selected_month = st.selectbox(
+        "选择到货年月",
+        options=month_options,
+        index=0,
+        key="month_selector_current"
+    )
+else:
+    st.write("⚠️ 暂无可用的到货年月数据")
+    selected_month = None
 
 # 筛选当月数据
-if month_options and selected_month:
+if selected_month:
     df_current = df_air[df_air["到货年月"] == selected_month].copy()
     # 获取上月数据
     prev_month = get_prev_month(selected_month)
-    df_prev = df_air[
-        df_air["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
-
-    # ---------------------- ① 核心指标卡片 ----------------------
-    st.markdown("### 核心指标")
+    df_prev = df_air[df_air["到货年月"] == prev_month].copy() if (prev_month and prev_month in month_options) else pd.DataFrame()
 
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
@@ -156,124 +181,173 @@ if month_options and selected_month:
     fba_change_text = f"{'↑' if fba_change > 0 else '↓' if fba_change < 0 else '—'} {abs(fba_change)} (上月: {prev_fba})"
     fba_change_color = "red" if fba_change > 0 else "green" if fba_change < 0 else "gray"
 
-    # 2. 提前/准时数
-    current_on_time = len(
-        df_current[df_current["提前/延期"] == "提前/准时"]) if "提前/延期" in df_current.columns else 0
-    prev_on_time = len(
-        df_prev[df_prev["提前/延期"] == "提前/准时"]) if not df_prev.empty and "提前/延期" in df_prev.columns else 0
+    # 2. 提前/准时数（修复：增加兜底逻辑，避免字段错误导致分类为0）
+    if "提前/延期" in df_current.columns:
+        current_on_time = len(df_current[df_current["提前/延期"] == "提前/准时"])
+    else:
+        # 兜底：基于实际差值重新计算（预计-实际 >0 → 提前，=0→准时，<0→延期）
+        diff_col = "预计物流时效-实际物流时效差值"
+        if diff_col in df_current.columns:
+            current_on_time = len(df_current[df_current[diff_col] >= 0])
+        else:
+            current_on_time = 0
+
+    # 上月提前/准时数（同理修复）
+    if not df_prev.empty and "提前/延期" in df_prev.columns:
+        prev_on_time = len(df_prev[df_prev["提前/延期"] == "提前/准时"])
+    else:
+        diff_col = "预计物流时效-实际物流时效差值"
+        if not df_prev.empty and diff_col in df_prev.columns:
+            prev_on_time = len(df_prev[df_prev[diff_col] >= 0])
+        else:
+            prev_on_time = 0
+
     on_time_change = current_on_time - prev_on_time
     on_time_change_text = f"{'↑' if on_time_change > 0 else '↓' if on_time_change < 0 else '—'} {abs(on_time_change)} (上月: {prev_on_time})"
     on_time_change_color = "red" if on_time_change > 0 else "green" if on_time_change < 0 else "gray"
 
-    # 3. 延期数
-    current_delay = len(df_current[df_current["提前/延期"] == "延期"]) if "提前/延期" in df_current.columns else 0
-    prev_delay = len(
-        df_prev[df_prev["提前/延期"] == "延期"]) if not df_prev.empty and "提前/延期" in df_prev.columns else 0
+    # 3. 延期数（同理修复：增加兜底逻辑）
+    if "提前/延期" in df_current.columns:
+        current_delay = len(df_current[df_current["提前/延期"] == "延期"])
+    else:
+        diff_col = "预计物流时效-实际物流时效差值"
+        if diff_col in df_current.columns:
+            current_delay = len(df_current[df_current[diff_col] < 0])
+        else:
+            current_delay = 0
+
+    # 上月延期数（同理修复）
+    if not df_prev.empty and "提前/延期" in df_prev.columns:
+        prev_delay = len(df_prev[df_prev["提前/延期"] == "延期"])
+    else:
+        diff_col = "预计物流时效-实际物流时效差值"
+        if not df_prev.empty and diff_col in df_prev.columns:
+            prev_delay = len(df_prev[df_prev[diff_col] < 0])
+        else:
+            prev_delay = 0
+
     delay_change = current_delay - prev_delay
     delay_change_text = f"{'↑' if delay_change > 0 else '↓' if delay_change < 0 else '—'} {abs(delay_change)} (上月: {prev_delay})"
     delay_change_color = "red" if delay_change > 0 else "green" if delay_change < 0 else "gray"
 
-    # 4. 绝对值差值平均值（将百分比改为差值）
+    # 4. 绝对值差值平均值（修复：处理空值/NaN）
     abs_col = "预计物流时效-实际物流时效差值(绝对值)"
-    current_abs_avg = df_current[abs_col].mean() if abs_col in df_current.columns and len(df_current) > 0 else 0
-    prev_abs_avg = df_prev[abs_col].mean() if not df_prev.empty and abs_col in df_prev.columns and len(
-        df_prev) > 0 else 0
-    abs_change = current_abs_avg - prev_abs_avg  # 差值计算（替换百分比）
+    current_abs_avg = df_current[abs_col].replace([np.inf, -np.inf], np.nan).fillna(0).mean() if (abs_col in df_current.columns and current_fba > 0) else 0.0
+    prev_abs_avg = df_prev[abs_col].replace([np.inf, -np.inf], np.nan).fillna(0).mean() if (not df_prev.empty and abs_col in df_prev.columns and prev_fba > 0) else 0.0
+    abs_change = current_abs_avg - prev_abs_avg
     abs_change_text = f"{'↑' if abs_change > 0 else '↓' if abs_change < 0 else '—'} {abs(abs_change):.2f} (上月: {prev_abs_avg:.2f})"
     abs_change_color = "red" if abs_change > 0 else "green" if abs_change < 0 else "gray"
 
-    # 5. 实际差值平均值
+    # 5. 实际差值平均值（修复：处理空值/NaN）
     diff_col = "预计物流时效-实际物流时效差值"
-    current_diff_avg = df_current[diff_col].mean() if diff_col in df_current.columns and len(df_current) > 0 else 0
-    prev_diff_avg = df_prev[diff_col].mean() if not df_prev.empty and diff_col in df_prev.columns and len(
-        df_prev) > 0 else 0
+    current_diff_avg = df_current[diff_col].replace([np.inf, -np.inf], np.nan).fillna(0).mean() if (diff_col in df_current.columns and current_fba > 0) else 0.0
+    prev_diff_avg = df_prev[diff_col].replace([np.inf, -np.inf], np.nan).fillna(0).mean() if (not df_prev.empty and diff_col in df_prev.columns and prev_fba > 0) else 0.0
     diff_change = current_diff_avg - prev_diff_avg
     diff_change_text = f"{'↑' if diff_change > 0 else '↓' if diff_change < 0 else '—'} {abs(diff_change):.2f} (上月: {prev_diff_avg:.2f})"
     diff_change_color = "red" if diff_change > 0 else "green" if diff_change < 0 else "gray"
-    # ========== 新增：6. 准时率（核心修改1） ==========
-    # 当月准时率（提前/准时数 ÷ 总FBA数 × 100%）
+
+    # ========== 新增：6. 准时率（核心修改1：修复除数为0） ==========
     current_on_time_rate = (current_on_time / current_fba * 100) if current_fba > 0 else 0.0
-    # 上月准时率
-    prev_on_time_rate = (prev_on_time / prev_fba * 100) if prev_fba > 0 else 0.0
-    # 准时率环比变化（百分点）
+    prev_on_time_rate = (prev_on_time / prev_fba * 100) if prev_fba > 0 else 0.0  # 修复：增加除数为0判断
     on_time_rate_change = current_on_time_rate - prev_on_time_rate
-    # 准时率变化文本（和其他指标样式统一）
     on_time_rate_change_text = f"{'↑' if on_time_rate_change > 0 else '↓' if on_time_rate_change < 0 else '—'} {abs(on_time_rate_change):.1f}% (上月: {prev_on_time_rate:.1f}%)"
-    # 准时率变化颜色（红升绿降）
     on_time_rate_change_color = "red" if on_time_rate_change > 0 else "green" if on_time_rate_change < 0 else "gray"
 
-    # 显示卡片（一行六列）- 改用HTML自定义样式（核心修改2：从5列改为6列）
+    # 显示卡片（一行六列）- 改用HTML自定义样式
     col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
+        # 修复：无数据时显示提示
+        fba_display = current_fba if current_fba > 0 else "—"
         st.markdown(f"""
         <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: #333;'>FBA单</h5>
-            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_fba}</p>
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{fba_display}</p>
             <p style='font-size: 14px; color: {fba_change_color}; margin: 0;'>{fba_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
     with col2:
+        on_time_display = current_on_time if current_on_time > 0 else "—"
         st.markdown(f"""
         <div style='background-color: #f0f8f0; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: green;'>提前/准时数</h5>
-            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_on_time}</p>
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{on_time_display}</p>
             <p style='font-size: 14px; color: {on_time_change_color}; margin: 0;'>{on_time_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
     with col3:
+        delay_display = current_delay if current_delay > 0 else "—"
         st.markdown(f"""
         <div style='background-color: #fff0f0; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: red;'>延期数</h5>
-            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_delay}</p>
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{delay_display}</p>
             <p style='font-size: 14px; color: {delay_change_color}; margin: 0;'>{delay_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
     with col4:
+        abs_avg_display = f"{current_abs_avg:.2f}" if current_fba > 0 else "—"
         st.markdown(f"""
         <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
-            <h5 style='margin: 0; color: #333;'>绝对值差值均值</h5>
-            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_abs_avg:.2f}</p>
+            <h5 style='margin: 0; color: #333;'>绝对值差值均值（天）</h5>  <!-- 修复：补充单位 -->
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{abs_avg_display}</p>
             <p style='font-size: 14px; color: {abs_change_color}; margin: 0;'>{abs_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
     with col5:
+        diff_avg_display = f"{current_diff_avg:.2f}" if current_fba > 0 else "—"
         st.markdown(f"""
         <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
-            <h5 style='margin: 0; color: #333;'>实际差值均值</h5>
-            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_diff_avg:.2f}</p>
+            <h5 style='margin: 0; color: #333;'>实际差值均值（天）</h5>  <!-- 修复：补充单位 -->
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{diff_avg_display}</p>
             <p style='font-size: 14px; color: {diff_change_color}; margin: 0;'>{diff_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
-    # ========== 新增：第6列 准时率卡片（核心修改3） ==========
+    # ========== 新增：第6列 准时率卡片 ==========
     with col6:
+        rate_display = f"{current_on_time_rate:.1f}%" if current_fba > 0 else "—"
         st.markdown(f"""
         <div style='background-color: #e8f4f8; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: #2196f3;'>准时率</h5>
-            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_on_time_rate:.1f}%</p>
+            <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{rate_display}</p>
             <p style='font-size: 14px; color: {on_time_rate_change_color}; margin: 0;'>{on_time_rate_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
-    # 生成总结文字
+    # 生成总结文字（核心修改2：修复逻辑颠倒+补充边界判断）
+    # 修复月份显示：2026-02 → 2026年02月
+    month_text = selected_month.replace('-', '年') + "月"
     summary_text = f"""
-    {selected_month.replace('-', '年')}月物流时效情况：本月的FBA单有：{current_fba}单，与上个月对比{'增加' if fba_change > 0 else '减少' if fba_change < 0 else '持平'} {abs(fba_change)}单，
+    {month_text}物流时效情况：本月的FBA单有：{current_fba}单，与上个月对比{'增加' if fba_change > 0 else '减少' if fba_change < 0 else '持平'} {abs(fba_change)}单，
     其中提前/准时单有：{current_on_time}单，与上个月对比{'增加' if on_time_change > 0 else '减少' if on_time_change < 0 else '持平'} {abs(on_time_change)}单，
     延期单有：{current_delay}单，与上个月对比{'增加' if delay_change > 0 else '减少' if delay_change < 0 else '持平'} {abs(delay_change)}单，
-    预计物流时效-实际物流时效差异（绝对值）为：{current_abs_avg:.2f}，与上个月对比{'增加' if abs_change > 0 else '减少' if abs_change < 0 else '持平'} {abs(abs_change):.2f}，
-    预计物流时效-实际物流时效差异为：{current_diff_avg:.2f}，与上个月对比{'增加' if diff_change > 0 else '减少' if diff_change < 0 else '持平'} {abs(diff_change):.2f}。
+    预计物流时效-实际物流时效差异（绝对值）为：{current_abs_avg:.2f}天，与上个月对比{'增加' if abs_change > 0 else '减少' if abs_change < 0 else '持平'} {abs(abs_change):.2f}天，
+    预计物流时效-实际物流时效差异为：{current_diff_avg:.2f}天，与上个月对比{'增加' if diff_change > 0 else '减少' if diff_change < 0 else '持平'} {abs(diff_change):.2f}天，
+    本月准时率为：{current_on_time_rate:.1f}%，与上个月对比{'上升' if on_time_rate_change > 0 else '下降' if on_time_rate_change < 0 else '持平'} {abs(on_time_rate_change):.1f}个百分点。
     """
 
-    # 差异判断
-    if current_diff_avg > 0:
-        summary_text += "虽然有延迟，但延迟情况不严重，整体提前！"
+    # 核心修改3：修复结论逻辑颠倒 + 补充边界场景
+    if current_fba == 0:
+        summary_text += "本月无有效订单数据，无法判断物流时效表现！"
+    elif current_delay > 0:
+        # 有延期订单时的判断
+        if current_diff_avg < -5:  # 实际差值<0 → 延期，且差值绝对值>5 → 严重延期
+            summary_text += "本月延期订单较多，延迟情况严重，需重点关注！"
+        else:
+            summary_text += "本月有部分订单延期，但延迟情况不严重，需优化物流时效！"
+    elif current_on_time > 0:
+        # 无延期订单时的判断
+        if current_diff_avg > 0:
+            summary_text += "本月无延期订单，整体提前完成，物流表现优秀！"
+        else:
+            summary_text += "本月无延期订单，整体准时完成，物流表现良好！"
     else:
-        summary_text += "虽然有提前，但延迟更严重，整体还是延迟的！"
+        # 提前/延期数均为0（字段错误）
+        summary_text += "本月订单无有效时效分类数据，无法判断提前/延期情况！"
 
     st.markdown(f"> {summary_text}")
     st.divider()
