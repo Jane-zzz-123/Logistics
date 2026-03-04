@@ -17,59 +17,90 @@ st.set_page_config(
 # 数据加载函数（新增异常列处理）
 @st.cache_data
 def load_data():
+    # 1. 读取数据（变量名改为df_ship，避免和外部混淆）
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
-    df_ship_filtered = pd.read_excel(url, sheet_name="上架完成-海运")
+    try:
+        df_ship = pd.read_excel(url, sheet_name="上架完成-海运")
+    except Exception as e:
+        st.error(f"读取数据失败：{str(e)}")
+        return pd.DataFrame()  # 返回空DataFrame，避免后续报错
 
-    # 新增：处理异常数据列
-    if "是否为异常数据" in df_ship_filtered.columns:
-        df_ship_filtered["是否为异常数据"] = df_ship_filtered["是否为异常数据"].fillna("正常数据").str.strip()
+    # 2. 处理异常数据列（兼容列不存在的情况）
+    abnormal_col = "是否为异常数据"
+    if abnormal_col in df_ship.columns:
+        df_ship[abnormal_col] = df_ship[abnormal_col].fillna("正常数据").str.strip()
     else:
-        df_ship_filtered["是否为异常数据"] = "正常数据"
+        df_ship[abnormal_col] = "正常数据"
+        st.warning(f"未找到「{abnormal_col}」列，已默认全部为正常数据")
 
-    # 核心列（新增是否为异常数据）
+    # 3. 定义核心列（保留你的原始列名）
     core_columns = [
-        "FBA号", "区域","计划物流方式","店铺", "仓库", "货代", "异常备注",
-        "发货-开船","开船-到港","到港-提柜","提柜-签收","签收-完成上架",
+        "FBA号", "区域", "计划物流方式", "店铺", "仓库", "货代", "异常备注",
+        "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
         "到货年月",
         "签收-发货时间", "上架完成-发货时间",
         "预计物流时效-实际物流时效差值(绝对值)",
         "预计物流时效-实际物流时效差值", "提前/延期",
         "预计物流时效-实际物流时效差值（货代）",
         "提前/延期（货代）",
-        "提前/延期（仓库）""是否为异常数据"
+        "提前/延期（仓库）", abnormal_col
     ]
-    df_ship_filtered = df_ship_filtered[core_columns]
 
-    # 原数据清洗逻辑（不变）
-    df_ship_filtered["到货年月"] = df_ship_filtered["到货年月"].astype(str)
-    df_ship_filtered["绝对值差值"] = pd.to_numeric(df_ship_filtered["绝对值差值"], errors='coerce').fillna(0)
-    df_ship_filtered["实际差值"] = pd.to_numeric(df_ship_filtered["实际差值"], errors='coerce').fillna(0)
-    df_ship_filtered = df_ship_filtered.dropna(subset=["到货年月"])
-    return df_ship_filtered
+    # 4. 关键修复：只保留源数据中存在的列，避免KeyError
+    existing_columns = [col for col in core_columns if col in df_ship.columns]
+    missing_columns = [col for col in core_columns if col not in df_ship.columns]
+    if missing_columns:
+        st.warning(f"以下列不存在，已忽略：{missing_columns}")
+    df_ship = df_ship[existing_columns]
+
+    # 5. 修复列名匹配问题：用真实列名做数据清洗
+    df_ship["到货年月"] = df_ship["到货年月"].astype(str)
+    # 替换为核心列里的真实列名，而非「绝对值差值」「实际差值」
+    abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
+    real_diff_col = "预计物流时效-实际物流时效差值"
+    if abs_diff_col in df_ship.columns:
+        df_ship[abs_diff_col] = pd.to_numeric(df_ship[abs_diff_col], errors='coerce').fillna(0)
+    if real_diff_col in df_ship.columns:
+        df_ship[real_diff_col] = pd.to_numeric(df_ship[real_diff_col], errors='coerce').fillna(0)
+
+    # 6. 剔除空值行
+    df_ship = df_ship.dropna(subset=["到货年月"])
+    return df_ship
 
 
-# 加载数据
-df_ship_filtered = load_data()
+# ========== 加载数据 ==========
+df_ship = load_data()
 
-# ========== 新增：顶部筛选按钮 ==========
+# 空数据判断，避免后续报错
+if df_ship.empty:
+    st.error("暂无可用数据，请检查数据源或列名！")
+    st.stop()
+
+# ========== 顶部筛选按钮 ==========
 st.header("FBA海运物流交期分析看板")
 data_filter = st.radio(
     "📊 选择数据范围：",
     options=["全部数据", "纯净数据（剔除异常）"],
     index=0,
-    horizontal=True,  # 横向展示，更美观
+    horizontal=True,
     key="data_filter"
 )
 
-# 数据筛选逻辑
+# ========== 数据筛选逻辑 ==========
+abnormal_col = "是否为异常数据"
 if data_filter == "纯净数据（剔除异常）":
-    df_ship_filtered_filtered = df_ship_filtered[df_ship_filtered["是否为异常数据"] == "正常数据"].copy()
-    st.success(
-        f"已筛选为纯净数据，剔除 {len(df_ship_filtered) - len(df_ship_filtered_filtered)} 条异常数据，当前共 {len(df_ship_filtered_filtered)} 条记录")
+    df_ship_filtered = df_ship[df_ship[abnormal_col] == "正常数据"].copy()
+    exclude_count = len(df_ship) - len(df_ship_filtered)
+    st.success(f"已筛选为纯净数据，剔除 {exclude_count} 条异常数据，当前共 {len(df_ship_filtered)} 条记录")
 else:
-    df_ship_filtered_filtered = df_ship_filtered.copy()
-    st.info(
-        f"当前展示全部数据，共 {len(df_ship_filtered_filtered)} 条记录（含 {len(df_ship_filtered) - len(df_ship_filtered_filtered)} 条异常数据）")
+    df_ship_filtered = df_ship.copy()
+    abnormal_count = len(df_ship) - len(df_ship[df_ship[abnormal_col] == "正常数据"])
+    st.info(f"当前展示全部数据，共 {len(df_ship_filtered)} 条记录（含 {abnormal_count} 条异常数据）")
+
+# ========== 后续逻辑示例（可选） ==========
+# 验证筛选是否生效
+st.subheader("数据预览")
+st.dataframe(df_ship_filtered.head(10), use_container_width=True)
 
 
 # ---------------------- 工具函数 ----------------------
@@ -147,7 +178,7 @@ selected_month = st.selectbox(
 
 # 筛选当月数据
 if month_options and selected_month:
-    df_current = df_ship_filtered_filtered[df_ship_filtered_filtered["到货年月"] == selected_month].copy()
+    df_current = df_ship_filtered[df_ship_filtered["到货年月"] == selected_month].copy()
     # 获取上月数据
     prev_month = get_prev_month(selected_month)
     df_prev = df_ship_filtered[
