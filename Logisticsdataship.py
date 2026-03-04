@@ -3,64 +3,68 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
-import warnings
+from datetime import datetime, timedelta
 
-warnings.filterwarnings('ignore')
-
-# ---------------------- 页面基础配置 ----------------------
+# 页面配置（不变）
 st.set_page_config(
     page_title="FBA海运物流交期分析看板",
-    page_icon="📦",
+    page_icon="🚢",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 
-# ---------------------- 数据读取与预处理 ----------------------
+# 数据加载函数（新增异常列处理）
 @st.cache_data
 def load_data():
-    """读取FBA海运数据并预处理"""
-    # 读取指定sheet
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
-    df_ship = pd.read_excel(url, sheet_name="上架完成-海运")
+    df_ship_filtered = pd.read_excel(url, sheet_name="上架完成-海运")
 
-    # 指定需要分析的列
-    target_cols = [
-        "FBA号", "区域","计划物流方式","店铺", "仓库", "货代", "异常备注",
-        "发货-开船","开船-到港","到港-提柜","提柜-签收","签收-完成上架",
-        "到货年月",
-        "签收-发货时间", "上架完成-发货时间",
-        "预计物流时效-实际物流时效差值(绝对值)",
-        "预计物流时效-实际物流时效差值", "提前/延期",
-        "预计物流时效-实际物流时效差值（货代）",
-        "提前/延期（货代）",
-        "提前/延期（仓库）"
+    # 新增：处理异常数据列
+    if "是否为异常数据" in df_ship_filtered.columns:
+        df_ship_filtered["是否为异常数据"] = df_ship_filtered["是否为异常数据"].fillna("正常数据").str.strip()
+    else:
+        df_ship_filtered["是否为异常数据"] = "正常数据"
+
+    # 核心列（新增是否为异常数据）
+    core_columns = [
+        "FBA号", "区域", "发货日期", "开船日期", "到港日期",
+        "提取日期", "签收日期", "上架日期", "货代", "仓库",
+        "店铺", "提前/延期", "绝对值差值", "实际差值",
+        "到货年月", "是否为异常数据"
     ]
+    df_ship_filtered = df_ship_filtered[core_columns]
 
-    # 确保只保留目标列（处理列名可能的空格/大小写问题）
-    df_ship = df_ship[[col for col in target_cols if col in df_ship.columns]]
-
-    # 数据类型处理
-    df_ship["到货年月"] = pd.to_datetime(df_ship["到货年月"], errors='coerce').dt.strftime("%Y-%m")
-    df_ship = df_ship.dropna(subset=["到货年月"])  # 去除到货年月为空的数据
-
-    # 数值列处理
-    numeric_cols = [
-        "签收-发货时间", "上架完成-发货时间",
-        "预计物流时效-实际物流时效差值(绝对值)",
-        "预计物流时效-实际物流时效差值",
-        "预计物流时效-实际物流时效差值（货代）"
-    ]
-    for col in numeric_cols:
-        if col in df_ship.columns:
-            df_ship[col] = pd.to_numeric(df_ship[col], errors='coerce').fillna(0)
-
-    return df_ship
+    # 原数据清洗逻辑（不变）
+    df_ship_filtered["到货年月"] = df_ship_filtered["到货年月"].astype(str)
+    df_ship_filtered["绝对值差值"] = pd.to_numeric(df_ship_filtered["绝对值差值"], errors='coerce').fillna(0)
+    df_ship_filtered["实际差值"] = pd.to_numeric(df_ship_filtered["实际差值"], errors='coerce').fillna(0)
+    df_ship_filtered = df_ship_filtered.dropna(subset=["到货年月"])
+    return df_ship_filtered
 
 
 # 加载数据
-df_ship = load_data()
+df_ship_filtered = load_data()
+
+# ========== 新增：顶部筛选按钮 ==========
+st.header("FBA海运物流交期分析看板")
+data_filter = st.radio(
+    "📊 选择数据范围：",
+    options=["全部数据", "纯净数据（剔除异常）"],
+    index=0,
+    horizontal=True,  # 横向展示，更美观
+    key="data_filter"
+)
+
+# 数据筛选逻辑
+if data_filter == "纯净数据（剔除异常）":
+    df_ship_filtered_filtered = df_ship_filtered[df_ship_filtered["是否为异常数据"] == "正常数据"].copy()
+    st.success(
+        f"已筛选为纯净数据，剔除 {len(df_ship_filtered) - len(df_ship_filtered_filtered)} 条异常数据，当前共 {len(df_ship_filtered_filtered)} 条记录")
+else:
+    df_ship_filtered_filtered = df_ship_filtered.copy()
+    st.info(
+        f"当前展示全部数据，共 {len(df_ship_filtered_filtered)} 条记录（含 {len(df_ship_filtered) - len(df_ship_filtered_filtered)} 条异常数据）")
 
 
 # ---------------------- 工具函数 ----------------------
@@ -127,7 +131,8 @@ st.divider()
 st.subheader("🔍 当月FBA海运分析")
 
 # 时间筛选器（到货年月，最新的在最上方）
-month_options = sorted(df_ship["到货年月"].unique(), reverse=True) if len(df_ship["到货年月"].unique()) > 0 else []
+month_options = sorted(df_ship_filtered["到货年月"].unique(), reverse=True) if len(
+    df_ship_filtered["到货年月"].unique()) > 0 else []
 selected_month = st.selectbox(
     "选择到货年月",
     options=month_options,
@@ -137,11 +142,12 @@ selected_month = st.selectbox(
 
 # 筛选当月数据
 if month_options and selected_month:
-    df_current = df_ship[df_ship["到货年月"] == selected_month].copy()
+    df_current = df_ship_filtered_filtered[df_ship_filtered_filtered["到货年月"] == selected_month].copy()
     # 获取上月数据
     prev_month = get_prev_month(selected_month)
-    df_prev = df_ship[
-        df_ship["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+    df_prev = df_ship_filtered[
+        df_ship_filtered[
+            "到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
 
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
@@ -406,10 +412,10 @@ if month_options and selected_month:
 
     # 准备明细数据
     detail_cols = [
-        "到货年月", "提前/延期", "FBA号","计划物流方式","店铺", "仓库", "货代",
+        "到货年月", "提前/延期", "FBA号", "计划物流方式", "店铺", "仓库", "货代",
         # 新增的物流阶段列（加在货代右边）
-        "发货-开船","开船-到港","到港-提柜","提柜-签收","签收-完成上架",
-        "签收-发货时间", "上架完成-发货时间","提前/延期（货代）",
+        "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
+        "签收-发货时间", "上架完成-发货时间", "提前/延期（货代）",
         "提前/延期（仓库）",
         abs_col, diff_col
     ]
@@ -424,7 +430,7 @@ if month_options and selected_month:
 
         # 定义需要显示为整数的列
         int_cols = [
-            "发货-开船","开船-到港","到港-提柜","提柜-签收","签收-完成上架",
+            "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
             "签收-发货时间", "上架完成-发货时间"
         ]
         # 过滤存在的整数列
@@ -439,7 +445,8 @@ if month_options and selected_month:
         for col in detail_cols:
             if col in ["到货年月"]:
                 avg_row[col] = "平均值"
-            elif col in ["提前/延期", "FBA号", "店铺", "仓库", "货代","计划物流方式","提前/延期（货代）","提前/延期（仓库）"]:
+            elif col in ["提前/延期", "FBA号", "店铺", "仓库", "货代", "计划物流方式", "提前/延期（货代）",
+                         "提前/延期（仓库）"]:
                 avg_row[col] = "-"
             elif col in int_cols:
                 # 整数列的平均值保留两位小数
