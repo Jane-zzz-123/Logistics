@@ -4,6 +4,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from io import BytesIO
+import base64
 
 # 页面配置（不变）
 st.set_page_config(
@@ -14,101 +16,7 @@ st.set_page_config(
 )
 
 
-# 数据加载函数（新增异常列处理）
-@st.cache_data
-def load_data():
-    url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
-    try:
-        df_ship = pd.read_excel(url, sheet_name="上架完成-海运")
-    except Exception as e:
-        st.error(f"读取数据失败：{str(e)}")
-        return pd.DataFrame()
-
-    # ========== 核心修正1：处理「是否为异常数据」列（值为「是」/「否」） ==========
-    abnormal_col = "是否为异常数据"
-    if abnormal_col in df_ship.columns:
-        # 标准化值：去除空格、统一为「是」/「否」，空值填充为「否」
-        df_ship[abnormal_col] = df_ship[abnormal_col].str.strip().fillna("否")
-        # 容错：如果有其他值（比如「异常」「正常」），自动转换为「是」/「否」
-        df_ship[abnormal_col] = df_ship[abnormal_col].replace({
-            "异常数据": "是",
-            "正常数据": "否",
-            "异常": "是",
-            "正常": "否"
-        })
-    else:
-        df_ship[abnormal_col] = "否"  # 无此列时默认全部为「否」（正常）
-        st.warning(f"未找到「{abnormal_col}」列，已默认全部为正常数据（否）")
-
-    # 核心列（保留你的原始列名）
-    core_columns = [
-        "FBA号", "区域", "计划物流方式", "店铺", "仓库", "货代", "异常备注",
-        "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
-        "到货年月",
-        "签收-发货时间", "上架完成-发货时间",
-        "预计物流时效-实际物流时效差值(绝对值)",
-        "预计物流时效-实际物流时效差值", "提前/延期",
-        "预计物流时效-实际物流时效差值（货代）",
-        "提前/延期（货代）",
-        "提前/延期（仓库）", abnormal_col
-    ]
-
-    # 只保留存在的列，避免KeyError
-    existing_columns = [col for col in core_columns if col in df_ship.columns]
-    missing_columns = [col for col in core_columns if col not in df_ship.columns]
-    if missing_columns:
-        st.warning(f"以下列不存在，已忽略：{missing_columns}")
-    df_ship = df_ship[existing_columns]
-
-    # 数据清洗（列名匹配真实名称）
-    df_ship["到货年月"] = df_ship["到货年月"].astype(str)
-    abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
-    real_diff_col = "预计物流时效-实际物流时效差值"
-    if abs_diff_col in df_ship.columns:
-        df_ship[abs_diff_col] = pd.to_numeric(df_ship[abs_diff_col], errors='coerce').fillna(0)
-    if real_diff_col in df_ship.columns:
-        df_ship[real_diff_col] = pd.to_numeric(df_ship[real_diff_col], errors='coerce').fillna(0)
-
-    df_ship = df_ship.dropna(subset=["到货年月"])
-    return df_ship
-
-
-# 加载数据
-df_ship = load_data()
-if df_ship.empty:
-    st.error("暂无可用数据，请检查数据源或列名！")
-    st.stop()
-
-# ========== 顶部筛选按钮 ==========
-st.header("FBA海运物流交期分析看板")
-data_filter = st.radio(
-    "📊 选择数据范围：",
-    options=["全部数据", "纯净数据（剔除异常）"],
-    index=0,
-    horizontal=True,
-    key="data_filter"
-)
-
-# ========== 核心修正2：筛选逻辑（「否」=正常，「是」=异常） ==========
-abnormal_col = "是否为异常数据"
-if data_filter == "纯净数据（剔除异常）":
-    # 只保留「否」（正常）的行，剔除「是」（异常）的行
-    df_ship_filtered = df_ship[df_ship[abnormal_col] == "否"].copy()
-    exclude_count = len(df_ship) - len(df_ship_filtered)
-    st.success(
-        f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（「是否为异常数据」=是），当前共 {len(df_ship_filtered)} 条记录")
-else:
-    df_ship_filtered = df_ship.copy()
-    # 统计异常数据数量（「是」的行数）
-    abnormal_count = len(df_ship[df_ship[abnormal_col] == "是"])
-    st.info(f"ℹ️ 当前展示全部数据，共 {len(df_ship_filtered)} 条记录（含 {abnormal_count} 条异常数据）")
-
-# 数据预览（验证筛选效果）
-st.subheader("筛选后数据预览")
-st.dataframe(df_ship_filtered[[abnormal_col, "FBA号", "到货年月","异常备注"]].head(20), use_container_width=True)
-
-
-# ---------------------- 工具函数 ----------------------
+# ---------------------- 工具函数（提前定义，避免调用顺序问题） ----------------------
 def get_prev_month(current_month):
     """获取上个月的年月字符串（格式：YYYY-MM）"""
     try:
@@ -164,6 +72,117 @@ def highlight_change(val):
     return ""
 
 
+def get_table_download_link(df, filename, text):
+    """生成表格下载链接"""
+    # 保存为Excel（保留格式）
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='FBA海运明细')
+    output.seek(0)
+    b64 = base64.b64encode(output.read()).decode()
+
+    # 生成下载链接
+    href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
+    return href
+
+
+# 数据加载函数（新增异常列处理+格式统一）
+@st.cache_data
+def load_data():
+    url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
+    try:
+        df_ship = pd.read_excel(url, sheet_name="上架完成-海运")
+    except Exception as e:
+        st.error(f"读取数据失败：{str(e)}")
+        return pd.DataFrame()
+
+    # ========== 核心修正1：处理「是否为异常数据」列（值为「是」/「否」） ==========
+    abnormal_col = "是否为异常数据"
+    if abnormal_col in df_ship.columns:
+        # 标准化值：去除空格、统一为「是」/「否」，空值填充为「否」
+        df_ship[abnormal_col] = df_ship[abnormal_col].str.strip().fillna("否")
+        # 容错：如果有其他值（比如「异常」「正常」），自动转换为「是」/「否」
+        df_ship[abnormal_col] = df_ship[abnormal_col].replace({
+            "异常数据": "是",
+            "正常数据": "否",
+            "异常": "是",
+            "正常": "否"
+        })
+    else:
+        df_ship[abnormal_col] = "否"  # 无此列时默认全部为「否」（正常）
+        st.warning(f"未找到「{abnormal_col}」列，已默认全部为正常数据（否）")
+
+    # 核心列（保留你的原始列名）
+    core_columns = [
+        "FBA号", "区域", "计划物流方式", "店铺", "仓库", "货代", "异常备注",
+        "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
+        "到货年月",
+        "签收-发货时间", "上架完成-发货时间",
+        "预计物流时效-实际物流时效差值(绝对值)",
+        "预计物流时效-实际物流时效差值", "提前/延期",
+        "预计物流时效-实际物流时效差值（货代）",
+        "提前/延期（货代）",
+        "提前/延期（仓库）", abnormal_col
+    ]
+
+    # 只保留存在的列，避免KeyError
+    existing_columns = [col for col in core_columns if col in df_ship.columns]
+    missing_columns = [col for col in core_columns if col not in df_ship.columns]
+    if missing_columns:
+        st.warning(f"以下列不存在，已忽略：{missing_columns}")
+    df_ship = df_ship[existing_columns]
+
+    # ========== 关键修复：统一到货年月格式为YYYY-MM，避免月份匹配失败 ==========
+    df_ship["到货年月"] = pd.to_datetime(df_ship["到货年月"], errors='coerce').dt.strftime("%Y-%m")
+    df_ship = df_ship.dropna(subset=["到货年月"])
+
+    # 数据清洗（列名匹配真实名称）
+    abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
+    real_diff_col = "预计物流时效-实际物流时效差值"
+    if abs_diff_col in df_ship.columns:
+        df_ship[abs_diff_col] = pd.to_numeric(df_ship[abs_diff_col], errors='coerce').fillna(0)
+    if real_diff_col in df_ship.columns:
+        df_ship[real_diff_col] = pd.to_numeric(df_ship[real_diff_col], errors='coerce').fillna(0)
+
+    return df_ship
+
+
+# ========== 加载数据 ==========
+df_ship = load_data()
+if df_ship.empty:
+    st.error("暂无可用数据，请检查数据源或列名！")
+    st.stop()
+
+# ========== 顶部筛选按钮 ==========
+st.header("FBA海运物流交期分析看板")
+data_filter = st.radio(
+    "📊 选择数据范围：",
+    options=["全部数据", "纯净数据（剔除异常）"],
+    index=0,
+    horizontal=True,
+    key="data_filter"
+)
+
+# ========== 核心修正2：筛选逻辑（「否」=正常，「是」=异常） ==========
+abnormal_col = "是否为异常数据"
+if data_filter == "纯净数据（剔除异常）":
+    # 只保留「否」（正常）的行，剔除「是」（异常）的行
+    df_ship_filtered = df_ship[df_ship[abnormal_col] == "否"].copy()
+    exclude_count = len(df_ship) - len(df_ship_filtered)
+    st.success(
+        f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（「是否为异常数据」=是），当前共 {len(df_ship_filtered)} 条记录")
+else:
+    df_ship_filtered = df_ship.copy()
+    # 统计异常数据数量（「是」的行数）
+    abnormal_count = len(df_ship[df_ship[abnormal_col] == "是"])
+    st.info(f"ℹ️ 当前展示全部数据，共 {len(df_ship_filtered)} 条记录（含 {abnormal_count} 条异常数据）")
+
+# 数据预览（验证筛选效果）
+st.subheader("筛选后数据预览")
+preview_cols = [abnormal_col, "FBA号", "到货年月", "异常备注"]
+preview_cols = [col for col in preview_cols if col in df_ship_filtered.columns]
+st.dataframe(df_ship_filtered[preview_cols].head(20), use_container_width=True)
+
 # ---------------------- 主页面构建 ----------------------
 st.title("🚢 FBA海运分析看板区域")
 st.divider()
@@ -184,11 +203,12 @@ selected_month = st.selectbox(
 # 筛选当月数据
 if month_options and selected_month:
     df_current = df_ship_filtered[df_ship_filtered["到货年月"] == selected_month].copy()
+    # ========== 关键修复：上月数据也使用筛选后的数据（df_ship_filtered） ==========
     # 获取上月数据
     prev_month = get_prev_month(selected_month)
-    df_prev = df_ship_filtered[
-        df_ship_filtered[
-            "到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+    # 检查上月是否在筛选后的月份列表中
+    df_prev = df_ship_filtered[df_ship_filtered[
+                                   "到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
 
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
@@ -235,6 +255,7 @@ if month_options and selected_month:
     diff_change = current_diff_avg - prev_diff_avg
     diff_change_text = f"{'↑' if diff_change > 0 else '↓' if diff_change < 0 else '—'} {abs(diff_change):.2f} (上月: {prev_diff_avg:.2f})"
     diff_change_color = "red" if diff_change > 0 else "green" if diff_change < 0 else "gray"
+
     # ========== 新增：6. 准时率（核心修改1） ==========
     # 当月准时率（提前/准时数 ÷ 总FBA数 × 100%）
     current_on_time_rate = (current_on_time / current_fba * 100) if current_fba > 0 else 0.0
@@ -264,7 +285,7 @@ if month_options and selected_month:
         <div style='background-color: #f0f8f0; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: green;'>提前/准时数</h5>
             <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_on_time}</p>
-            <p style='font-size: 14px; color: {on_time_change_color}; margin: 0;'>{on_time_change_text}</p>  <!-- 新增 -->
+            <p style='font-size: 14px; color: {on_time_change_color}; margin: 0;'>{on_time_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -273,7 +294,7 @@ if month_options and selected_month:
         <div style='background-color: #fff0f0; padding: 15px; border-radius: 8px; text-align: center;'>
             <h5 style='margin: 0; color: red;'>延期数</h5>
             <p style='font-size: 24px; margin: 8px 0; font-weight: bold;'>{current_delay}</p>
-            <p style='font-size: 14px; color: {delay_change_color}; margin: 0;'>{delay_change_text}</p>  <!-- 新增 -->
+            <p style='font-size: 14px; color: {delay_change_color}; margin: 0;'>{delay_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -294,6 +315,7 @@ if month_options and selected_month:
             <p style='font-size: 14px; color: {diff_change_color}; margin: 0;'>{diff_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
+
     # ========== 新增：第6列 准时率卡片（核心修改3） ==========
     with col6:
         st.markdown(f"""
@@ -303,6 +325,7 @@ if month_options and selected_month:
             <p style='font-size: 14px; color: {on_time_rate_change_color}; margin: 0;'>{on_time_rate_change_text}</p>
         </div>
         """, unsafe_allow_html=True)
+
     # 计算辅助指标（业务视角）
     total_orders = current_fba
     on_time_rate = (current_on_time / total_orders * 100) if total_orders > 0 else 0  # 准时率
@@ -632,28 +655,8 @@ if month_options and selected_month:
         st.markdown(html_content, unsafe_allow_html=True)
 
         # === 3. 添加表格下载功能 ===
-        import pandas as pd
-        from io import BytesIO
-        import base64
-
         # 构建带平均值的完整数据（用于下载）
         df_download = pd.concat([pd.DataFrame([avg_row]), df_detail], ignore_index=True)
-
-
-        # 定义下载函数
-        def get_table_download_link(df, filename, text):
-            """生成表格下载链接"""
-            # 保存为Excel（保留格式）
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='FBA海运明细')
-            output.seek(0)
-            b64 = base64.b64encode(output.read()).decode()
-
-            # 生成下载链接
-            href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
-            return href
-
 
         # 显示下载按钮
         st.markdown(
