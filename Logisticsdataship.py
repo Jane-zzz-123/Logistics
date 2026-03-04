@@ -105,7 +105,7 @@ else:
 
 # 数据预览（验证筛选效果）
 st.subheader("筛选后数据预览")
-st.dataframe(df_ship_filtered[[abnormal_col, "FBA号", "到货年月"]].head(20), use_container_width=True)
+st.dataframe(df_ship_filtered[[abnormal_col, "FBA号", "到货年月","异常备注"]].head(20), use_container_width=True)
 
 
 # ---------------------- 工具函数 ----------------------
