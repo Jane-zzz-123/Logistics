@@ -209,7 +209,15 @@ if month_options and selected_month:
     # 检查上月是否在筛选后的月份列表中
     df_prev = df_ship_filtered[df_ship_filtered[
                                    "到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
-
+    # 在核心指标上方显示筛选提示
+    if st.session_state.get('filter_clean', False):
+        total_records = len(df_original)
+        clean_records = len(df_filtered)
+        excluded_records = total_records - clean_records
+        st.info(
+            f"已筛选为纯净数据，剔除 {excluded_records} 条异常数据（「是否为异常数据」=是），当前共 {clean_records} 条记录")
+    else:
+        st.info(f"当前显示全部数据，共 {len(df_filtered)} 条记录")
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
 
