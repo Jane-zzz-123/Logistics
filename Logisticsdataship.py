@@ -694,59 +694,77 @@ else:
 
 st.divider()
 # --------------------------
-# 1. 数据预处理 & 筛选核心数据
+# 1. 数据预处理 & 核心数据拆分（严格区分正常/延期）
 # --------------------------
 st.subheader("📝 延期订单深度归因分析")
 
-# 定义已有分类字段（必须和你数据中的列名完全一致！）
-forwarder_delay_col = "提前/延期（货代）"  # 货代延期字段
-warehouse_delay_col = "提前/延期（仓库）"  # 仓库延期字段
+# 定义核心字段（请确认列名与你的数据完全一致！）
+forwarder_delay_col = "提前/延期（货代）"  # 货代延期分类字段
+warehouse_delay_col = "提前/延期（仓库）"  # 仓库延期分类字段
+stage_cols = [  # 各环节耗时字段
+    "发货-开船",
+    "开船-到港",
+    "到港-提柜",
+    "提柜-签收",
+    "签收-完成上架"
+]
 
-# 筛选延期订单（先清洗基础字段）
+# 1.1 基础字段清洗
 df_current["提前/延期"] = df_current["提前/延期"].fillna("未知").apply(
     lambda x: x.strip() if isinstance(x, str) else "未知")
-df_delay = df_current[df_current["提前/延期"] == "延期"].copy()  # 总延期订单
-total_delay = len(df_delay)
-
-# 空值处理（避免字段为空导致统计错误）
-for col in [forwarder_delay_col, warehouse_delay_col]:
-    df_delay[col] = df_delay[col].fillna("未知").apply(lambda x: x.strip() if isinstance(x, str) else "未知")
+# 1.2 严格拆分正常/延期订单（核心：数据源完全分离）
+df_normal = df_current[df_current["提前/延期"] != "延期"].copy()  # 正常订单全集
+df_delay = df_current[df_current["提前/延期"] == "延期"].copy()  # 延期订单全集
+# 1.3 空值/非数值处理（确保均值计算准确）
+for col in stage_cols:
+    # 正常订单环节值清洗
+    df_normal[col] = pd.to_numeric(df_normal[col], errors="coerce").fillna(0.0)
+    # 延期订单环节值清洗
+    df_delay[col] = pd.to_numeric(df_delay[col], errors="coerce").fillna(0.0)
 
 # --------------------------
 # 2. 无延期订单时提示
 # --------------------------
+total_delay = len(df_delay)
+total_normal = len(df_normal)
+total_current = len(df_current)
+
 if total_delay == 0:
     st.success("✅ 本月无延期订单，各物流环节时效均符合预期！")
+    # 展示正常订单的各环节均值（无延期时仅展示正常数据）
+    st.markdown("### 📈 正常订单各环节耗时均值")
+    normal_mean = df_normal[stage_cols].mean().round(2)
+    for stage in stage_cols:
+        st.markdown(f"- **{stage}**：{float(normal_mean[stage])} 天")
 else:
     # --------------------------
-    # 3. 直接统计已有字段（核心：精准无误差）
+    # 3. 直接统计货代/仓库延期数（基于已有分类字段）
     # --------------------------
-    # 货代延期订单数（仅统计货代字段为“延期”的）
+    # 清洗货代/仓库分类字段
+    for col in [forwarder_delay_col, warehouse_delay_col]:
+        df_delay[col] = df_delay[col].fillna("未知").apply(lambda x: x.strip() if isinstance(x, str) else "未知")
+    # 统计货代延期数
     forwarder_count = int(len(df_delay[df_delay[forwarder_delay_col] == "延期"]))
-    # 仓库延期订单数（仅统计仓库字段为“延期”的）
+    # 统计仓库延期数
     warehouse_count = int(len(df_delay[df_delay[warehouse_delay_col] == "延期"]))
-    # 其他原因（既非货代也非仓库延期）
+    # 统计其他原因数
     other_count = int(len(df_delay[
                               (df_delay[forwarder_delay_col] != "延期") &
                               (df_delay[warehouse_delay_col] != "延期")
                               ]))
 
     # --------------------------
-    # 4. 计算占比（纯Python原生计算，无报错）
+    # 4. 计算占比（纯Python原生计算）
     # --------------------------
     forwarder_pct = round((forwarder_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
     warehouse_pct = round((warehouse_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
     other_pct = round((other_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
-
-    # --------------------------
-    # 5. 生成核心分析文字（数据100%精准）
-    # --------------------------
-    # 基础数据汇总
-    total_current = int(len(df_current))
-    total_normal = int(len(df_current[df_current["提前/延期"] != "延期"]))
     normal_pct = round((total_normal / total_current) * 100, 1) if total_current > 0 else 0.0
     delay_pct = round((total_delay / total_current) * 100, 1) if total_current > 0 else 0.0
 
+    # --------------------------
+    # 5. 基础数据汇总
+    # --------------------------
     st.markdown(f"""
     ### 📊 基础数据
     - 当月总订单数：{total_current} 单
@@ -754,47 +772,65 @@ else:
     - 延期订单数：{total_delay} 单（占比 {delay_pct}%）
     """)
 
-    # 归因占比展示（直接基于业务字段，精准无偏差）
+    # --------------------------
+    # 6. 货代/仓库延期占比
+    # --------------------------
     st.markdown("### 🎯 延期订单主因占比（基于业务分类字段）")
     st.markdown(f"- **货代原因**：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）")
     st.markdown(f"- **仓库原因**：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）")
     st.markdown(f"- **其他原因**：{other_count} 单（占延期订单的 {other_pct}%）")
 
     # --------------------------
-    # 6. 分环节耗时对比（可选：用于辅助分析）
+    # 7. 分开计算正常/延期各环节均值（核心优化：独立计算）
     # --------------------------
-    # 定义阶段列（如需展示耗时对比，保留；不需要可删除）
-    stage_cols = ["发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架"]
-    for col in stage_cols:
-        df_current[col] = pd.to_numeric(df_current[col], errors="coerce").fillna(0.0)
-
-    st.markdown("### 📈 各环节耗时参考（正常 vs 延期）")
-    normal_mean = df_current[df_current["提前/延期"] != "延期"][stage_cols].mean().round(2)
+    st.markdown("### 📈 各环节耗时均值对比（正常订单 vs 延期订单）")
+    # 7.1 独立计算正常订单各环节均值
+    normal_mean = df_normal[stage_cols].mean().round(2)
+    # 7.2 独立计算延期订单各环节均值
     delay_mean = df_delay[stage_cols].mean().round(2)
 
+    # 7.3 分环节展示（货代环节+仓库环节，清晰对比）
     # 货代环节（前4个）
     st.markdown("#### 🔹 货代环节")
     for stage in stage_cols[:4]:
-        st.markdown(f"- **{stage}**：正常均值 {float(normal_mean[stage])} 天 | 延期均值 {float(delay_mean[stage])} 天")
+        n_mean = float(normal_mean[stage])
+        d_mean = float(delay_mean[stage])
+        # 计算偏差率（防错：正常均值为0时偏差率为0）
+        diff_pct = round(((d_mean - n_mean) / n_mean) * 100, 1) if n_mean > 0 else 0.0
+        st.markdown(f"""
+        - **{stage}**：
+          正常订单均值：{n_mean} 天 | 
+          延期订单均值：{d_mean} 天 | 
+          偏差率：{diff_pct:+}%
+        """)
 
     # 仓库环节（最后1个）
     st.markdown("#### 🔹 仓库环节")
     stage = stage_cols[4]
-    st.markdown(f"- **{stage}**：正常均值 {float(normal_mean[stage])} 天 | 延期均值 {float(delay_mean[stage])} 天")
+    n_mean = float(normal_mean[stage])
+    d_mean = float(delay_mean[stage])
+    diff_pct = round(((d_mean - n_mean) / n_mean) * 100, 1) if n_mean > 0 else 0.0
+    st.markdown(f"""
+    - **{stage}**：
+      正常订单均值：{n_mean} 天 | 
+      延期订单均值：{d_mean} 天 | 
+      偏差率：{diff_pct:+}%
+    """)
 
     # --------------------------
-    # 7. 针对性优化建议
+    # 8. 针对性优化建议
     # --------------------------
     st.markdown("### 💡 优化建议")
     suggestions = []
     if forwarder_count > 0:
         suggestions.append(
-            f"针对货代延期：{forwarder_count} 单订单因货代环节延期，建议与货代沟通时效优化方案，明确延期赔付标准。")
+            f"针对货代延期：{forwarder_count} 单订单因货代环节延期，重点关注「发货-开船、开船-到港」等货代环节（延期均值较正常偏高{diff_pct:+}%），要求货代优化时效。")
     if warehouse_count > 0:
-        suggestions.append(f"针对仓库延期：{warehouse_count} 单订单因仓库环节延期，建议优化FBA上架流程，减少仓内滞留时间。")
+        suggestions.append(
+            f"针对仓库延期：{warehouse_count} 单订单因仓库环节延期，「签收-完成上架」环节延期均值 {d_mean} 天（正常 {n_mean} 天，偏高{diff_pct:+}%），建议优化FBA上架流程。")
     if other_count > 0:
         suggestions.append(
-            f"针对其他原因：{other_count} 单延期订单无明确货代/仓库责任，建议核查外部因素（如政策、天气）或订单基础信息。")
+            f"针对其他原因：{other_count} 单延期订单无明确货代/仓库责任，建议核查外部因素（如港口政策、天气）或订单基础信息。")
 
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
