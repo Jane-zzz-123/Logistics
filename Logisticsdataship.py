@@ -751,23 +751,20 @@ total_current = len(df_current)
 if total_delay == 0:
     st.success("✅ 本月无延期订单，各物流环节时效均符合预期！")
     # 仅展示正常订单的各环节均值
-    st.markdown("### 📈 正常订单各环节耗时均值")
+    st.markdown("### 📈 各环节耗时均值（仅正常订单）")
     normal_mean = df_normal[all_stage_cols].mean().round(2)
-    for stage in forwarder_stage_cols:
-        st.markdown(f"- **{stage}**：{float(normal_mean[stage])} 天")
-    st.markdown(f"- **{warehouse_stage_col}**：{float(normal_mean[warehouse_stage_col])} 天")
+    for stage in all_stage_cols:
+        st.markdown(f"- **{stage}**：正常均值 {float(normal_mean[stage])} 天")
 else:
     # --------------------------
     # 4. 统计货代/仓库延期订单数（精准匹配）
     # --------------------------
     forwarder_count = int(len(df_forwarder_delay))
     warehouse_count = int(len(df_warehouse_delay))
-    other_count = int(total_delay - forwarder_count - warehouse_count)  # 其他原因
 
     # 计算占比（纯Python原生计算，防错）
     forwarder_pct = round((forwarder_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
     warehouse_pct = round((warehouse_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
-    other_pct = round((other_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
     normal_pct = round((total_normal / total_current) * 100, 1) if total_current > 0 else 0.0
     delay_pct = round((total_delay / total_current) * 100, 1) if total_current > 0 else 0.0
 
@@ -787,50 +784,47 @@ else:
     st.markdown("### 🎯 延期订单主因占比")
     st.markdown(f"- **货代原因**：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）")
     st.markdown(f"- **仓库原因**：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）")
-    st.markdown(f"- **其他原因**：{other_count} 单（占延期订单的 {other_pct}%）")
 
     # --------------------------
-    # 7. 严格按你的逻辑计算各环节均值（核心！）
+    # 7. 合并展示+红色异常标记（核心优化！）
     # --------------------------
-    st.markdown("### 📈 各环节耗时均值（按业务逻辑计算）")
-
-    # 7.1 正常订单的所有环节均值（总状态=提前/准时）
-    st.markdown("#### 🔹 正常订单（提前/准时）")
+    st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
+    # 预计算所有均值
     normal_mean = df_normal[all_stage_cols].mean().round(2)
-    for stage in forwarder_stage_cols:
-        st.markdown(f"- **{stage}**：{float(normal_mean[stage])} 天")
-    st.markdown(f"- **{warehouse_stage_col}**：{float(normal_mean[warehouse_stage_col])} 天")
+    forwarder_delay_mean = df_forwarder_delay[forwarder_stage_cols].mean().round(2) if forwarder_count > 0 else None
+    warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean().round(2) if warehouse_count > 0 else None
+    # 异常阈值：偏差≥120%（即均值≥正常均值的2.2倍）标记为红色
+    abnormal_threshold = 120.0
 
-    # 7.2 货代延期的货代环节均值（总状态=延期 + 货代=延期 → 仅货代环节）
-    st.markdown("#### 🔹 货代延期订单（总延期+货代延期）")
-    if forwarder_count > 0:
-        forwarder_delay_mean = df_forwarder_delay[forwarder_stage_cols].mean().round(2)
-        for stage in forwarder_stage_cols:
-            n_mean = float(normal_mean[stage])
+    # 7.1 货代环节合并展示（正常 + 货代延期）
+    st.markdown("#### 🔹 货代环节（发货-开船 → 提柜-签收）")
+    for stage in forwarder_stage_cols:
+        n_mean = float(normal_mean[stage])
+        if forwarder_count > 0:
             d_mean = float(forwarder_delay_mean[stage])
             diff_pct = round(((d_mean - n_mean) / n_mean) * 100, 1) if n_mean > 0 else 0.0
-            st.markdown(f"""
-            - **{stage}**：
-              均值：{d_mean} 天 | 
-              对比正常偏差：{diff_pct:+}%
-            """)
-    else:
-        st.markdown("- 无货代延期订单")
+            # 红色标记异常：偏差≥120%
+            if diff_pct >= abnormal_threshold:
+                st.markdown(
+                    f"- **{stage}**：正常 {n_mean} 天 | 货代延期均值 **:red[{d_mean} 天]** | 偏差 **:red[{diff_pct:+}%]**（异常）")
+            else:
+                st.markdown(f"- **{stage}**：正常 {n_mean} 天 | 货代延期均值 {d_mean} 天 | 偏差 {diff_pct:+}%")
+        else:
+            st.markdown(f"- **{stage}**：正常 {n_mean} 天 | 无货代延期订单")
 
-    # 7.3 仓库延期的仓库环节均值（总状态=延期 + 仓库=延期 → 仅仓库环节）
-    st.markdown("#### 🔹 仓库延期订单（总延期+仓库延期）")
+    # 7.2 仓库环节合并展示（正常 + 仓库延期）
+    st.markdown("#### 🔹 仓库环节（签收-完成上架）")
+    n_mean = float(normal_mean[warehouse_stage_col])
     if warehouse_count > 0:
-        warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean().round(2)
-        n_mean = float(normal_mean[warehouse_stage_col])
         d_mean = float(warehouse_delay_mean)
         diff_pct = round(((d_mean - n_mean) / n_mean) * 100, 1) if n_mean > 0 else 0.0
-        st.markdown(f"""
-        - **{warehouse_stage_col}**：
-          均值：{d_mean} 天 | 
-          对比正常偏差：{diff_pct:+}%
-        """)
+        if diff_pct >= abnormal_threshold:
+            st.markdown(
+                f"- **{warehouse_stage_col}**：正常 {n_mean} 天 | 仓库延期均值 **:red[{d_mean} 天]** | 偏差 **:red[{diff_pct:+}%]**（异常）")
+        else:
+            st.markdown(f"- **{warehouse_stage_col}**：正常 {n_mean} 天 | 仓库延期均值 {d_mean} 天 | 偏差 {diff_pct:+}%")
     else:
-        st.markdown("- 无仓库延期订单")
+        st.markdown(f"- **{warehouse_stage_col}**：正常 {n_mean} 天 | 无仓库延期订单")
 
     # --------------------------
     # 8. 针对性优化建议
@@ -838,14 +832,25 @@ else:
     st.markdown("### 💡 优化建议")
     suggestions = []
     if forwarder_count > 0:
+        # 找出货代环节中偏差≥120%的异常环节
+        forwarder_abnormal_stages = [
+            s for s in forwarder_stage_cols
+            if forwarder_delay_mean is not None and
+               float(normal_mean[s]) > 0 and
+               round(((float(forwarder_delay_mean[s]) - float(normal_mean[s])) / float(normal_mean[s])) * 100,
+                     1) >= abnormal_threshold
+        ]
+        if forwarder_abnormal_stages:
+            suggestions.append(
+                f"⚠️ 货代环节异常：「{'」「'.join(forwarder_abnormal_stages)}」偏差≥120%，需重点跟进货代优化这些环节的时效。")
         suggestions.append(
-            f"针对货代延期：{forwarder_count} 单订单因货代环节延期，货代环节均值较正常偏高{diff_pct:+}%，建议与货代明确各环节时效标准，建立延期追责机制。")
+            f"针对货代延期：{forwarder_count} 单订单因货代环节延期，建议与货代明确各环节时效标准，建立异常追责机制。")
     if warehouse_count > 0:
-        suggestions.append(
-            f"针对仓库延期：{warehouse_count} 单订单因仓库环节延期，「{warehouse_stage_col}」均值 {d_mean} 天（正常 {n_mean} 天，偏高{diff_pct:+}%），建议优化FBA上架预约及仓内操作流程。")
-    if other_count > 0:
-        suggestions.append(
-            f"针对其他原因：{other_count} 单延期订单无明确货代/仓库责任，建议核查订单基础信息或外部政策、天气等因素。")
+        if diff_pct >= abnormal_threshold:
+            suggestions.append(
+                f"⚠️ 仓库环节异常：「{warehouse_stage_col}」偏差≥120%，均值 {d_mean} 天（正常 {n_mean} 天），需紧急优化仓内操作流程。")
+        suggestions.append(f"针对仓库延期：{warehouse_count} 单订单因仓库环节延期，建议优化FBA上架预约及仓内操作效率。")
+
 
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
