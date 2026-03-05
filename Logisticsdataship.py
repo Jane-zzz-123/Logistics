@@ -16,9 +16,7 @@ st.set_page_config(
 )
 
 
-# ---------------------- 工具函数（提前定义，避免调用顺序问题） ----------------------
-# ---------------------- 你的原有工具函数（完全不变） ----------------------
-# ---------------------- 工具函数（保持不变） ----------------------
+# ---------------------- 工具函数（完全不变） ----------------------
 def get_prev_month(current_month):
     """获取上个月的年月字符串（格式：YYYY-MM）"""
     try:
@@ -74,7 +72,7 @@ def get_table_download_link(df, filename, text):
     href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
     return href
 
-# ---------------------- 数据加载函数（修正变量名） ----------------------
+# ---------------------- 数据加载函数（完全不变） ----------------------
 @st.cache_data
 def load_data():
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
@@ -125,48 +123,20 @@ def load_data():
 
     return df_original
 
-# ---------------------- 主程序逻辑（核心修复异常数据统计） ----------------------
+# ---------------------- 主程序逻辑（核心修复：先选月份，再筛选异常） ----------------------
 # 加载数据
 df_original = load_data()
-df_filtered = pd.DataFrame()  # 初始化避免未定义
 if df_original.empty:
     st.error("暂无可用数据，请检查数据源或列名！")
     st.stop()
 
-# 顶部筛选按钮
-st.header("FBA海运物流交期分析看板")
-data_filter = st.radio(
-    "📊 选择数据范围：",
-    options=["全部数据", "纯净数据（剔除异常）"],
-    index=0,
-    horizontal=True,
-    key="data_filter"
-)
-
-# 全局数据筛选
-abnormal_col = "是否为异常数据"
-if data_filter == "纯净数据（剔除异常）":
-    df_filtered = df_original[df_original[abnormal_col] == "否"].copy()
-    exclude_count = len(df_original) - len(df_filtered)
-    st.success(f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（全局），当前共 {len(df_filtered)} 条记录")
-else:
-    df_filtered = df_original.copy()
-    abnormal_count = len(df_original[df_original[abnormal_col] == "是"])
-    st.info(f"ℹ️ 当前展示全部数据（全局），共 {len(df_filtered)} 条记录（含 {abnormal_count} 条异常数据）")
-
-# 数据预览
-st.subheader("筛选后数据预览")
-preview_cols = [abnormal_col, "FBA号", "到货年月", "异常备注"]
-preview_cols = [col for col in preview_cols if col in df_filtered.columns]
-st.dataframe(df_filtered[preview_cols].head(20), use_container_width=True)
-
-# 主看板区域
+# 顶部标题
 st.title("🚢 FBA海运分析看板区域")
 st.divider()
 
-# 当月数据筛选
+# 1️⃣ 先选月份（关键：先锁定月份，再处理异常数据）
 st.subheader("🔍 当月FBA海运分析")
-month_options = sorted(df_filtered["到货年月"].unique(), reverse=True) if len(df_filtered["到货年月"].unique()) > 0 else []
+month_options = sorted(df_original["到货年月"].unique(), reverse=True)
 if not month_options:
     st.warning("⚠️ 暂无可用的到货年月数据")
     st.stop()
@@ -178,29 +148,39 @@ selected_month = st.selectbox(
     key="month_selector_current"
 )
 
-# 筛选当月数据
-df_current = df_filtered[df_filtered["到货年月"] == selected_month].copy()
+# 2️⃣ 再选数据范围（全部/纯净）
+data_filter = st.radio(
+    "📊 选择数据范围：",
+    options=["全部数据", "纯净数据（剔除异常）"],
+    index=0,
+    horizontal=True,
+    key="data_filter"
+)
 
-# 获取上月数据（保留原有逻辑）
-prev_month = get_prev_month(selected_month)
-df_prev = df_filtered[df_filtered["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+abnormal_col = "是否为异常数据"
 
-# ---------------------- 核心修复：准确统计当月异常数据 ----------------------
-# 直接从原始数据统计当月异常数据（关键修复点）
-abnormal_current_month = len(df_original[
-    (df_original["到货年月"] == selected_month) &
-    (df_original[abnormal_col] == "是")
-])
-# 当月总数据（原始数据）
-total_current_month = len(df_original[df_original["到货年月"] == selected_month])
-# 当月纯净数据（筛选后）
-clean_current_month = len(df_current)
+# 3️⃣ 先筛选当月数据，再处理异常（核心修复点！）
+df_current_month = df_original[df_original["到货年月"] == selected_month].copy()
 
-# 显示当月异常数据提醒（核心需求）
 if data_filter == "纯净数据（剔除异常）":
-    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据，当前共 {clean_current_month} 条记录")
+    # 只在【当月数据】里剔除异常，而不是全局剔除
+    df_current = df_current_month[df_current_month[abnormal_col] == "否"].copy()
+    # 统计当月异常
+    abnormal_current_month = len(df_current_month) - len(df_current)
+    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据，当前共 {len(df_current)} 条记录")
 else:
-    st.info(f"📌 【{selected_month}】当前显示全部数据，共 {total_current_month} 条记录（含 {abnormal_current_month} 条异常数据）")
+    df_current = df_current_month.copy()
+    abnormal_current_month = len(df_current[df_current[abnormal_col] == "是"])
+    st.info(f"📌 【{selected_month}】当前显示全部数据，共 {len(df_current)} 条记录（含 {abnormal_current_month} 条异常数据）")
+
+# 4️⃣ 上月数据（基于当前筛选后的当月数据）
+prev_month = get_prev_month(selected_month)
+df_prev_month = df_original[df_original["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+
+if data_filter == "纯净数据（剔除异常）":
+    df_prev = df_prev_month[df_prev_month[abnormal_col] == "否"].copy()
+else:
+    df_prev = df_prev_month.copy()
 
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
