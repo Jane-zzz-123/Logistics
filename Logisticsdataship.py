@@ -736,44 +736,32 @@ else:
     upper_threshold = 1.2
     lower_threshold = 0.8
 
+    # --------------------------
+    # 3. 统计货代/仓库原因的订单数（移除混合分类）
+    # --------------------------
+    # 标记每笔延期订单是否涉及货代问题
+    df_delay["涉货代问题"] = df_delay.apply(
+        lambda row: any(row[stage] > normal_mean[stage] * upper_threshold for stage in forwarder_stages),
+        axis=1
+    )
+    # 标记每笔延期订单是否涉及仓库问题
+    df_delay["涉仓库问题"] = df_delay.apply(
+        lambda row: any(row[stage] > normal_mean[stage] * upper_threshold for stage in warehouse_stage),
+        axis=1
+    )
+
+    # 统计各类原因订单数（无混合，分别统计）
+    forwarder_count = len(df_delay[df_delay["涉货代问题"] == True])  # 涉货代问题的延期订单数
+    warehouse_count = len(df_delay[df_delay["涉仓库问题"] == True])  # 涉仓库问题的延期订单数
+    other_count = len(df_delay[(df_delay["涉货代问题"] == False) & (df_delay["涉仓库问题"] == False)])  # 其他原因
+
+    # 计算占比（基于总延期订单数）
+    forwarder_pct = (forwarder_count / len(df_delay) * 100).round(1)
+    warehouse_pct = (warehouse_count / len(df_delay) * 100).round(1)
+    other_pct = (other_count / len(df_delay) * 100).round(1)
 
     # --------------------------
-    # 3. 给延期订单标记主因（货代/仓库/混合）
-    # --------------------------
-    def judge_delay_cause(row):
-        """判断单条延期订单的主因类型"""
-        # 货代阶段是否有显著偏高
-        forwarder_abnormal = any(
-            row[stage] > normal_mean[stage] * upper_threshold
-            for stage in forwarder_stages
-        )
-        # 仓库阶段是否有显著偏高
-        warehouse_abnormal = any(
-            row[stage] > normal_mean[stage] * upper_threshold
-            for stage in warehouse_stage
-        )
-
-        if forwarder_abnormal and warehouse_abnormal:
-            return "混合原因（货代+仓库）"
-        elif forwarder_abnormal:
-            return "货代原因"
-        elif warehouse_abnormal:
-            return "仓库原因"
-        else:
-            return "其他原因"
-
-
-    # 给延期订单打主因标签
-    df_delay["延期主因"] = df_delay.apply(judge_delay_cause, axis=1)
-
-    # --------------------------
-    # 4. 统计归因占比
-    # --------------------------
-    cause_count = df_delay["延期主因"].value_counts()
-    cause_pct = (cause_count / len(df_delay) * 100).round(1)
-
-    # --------------------------
-    # 5. 生成核心分析文字
+    # 4. 生成核心分析文字
     # --------------------------
     # 基础数据汇总
     st.markdown(f"""
@@ -783,13 +771,14 @@ else:
     - 延期订单数：{len(df_delay)} 单（占比 {len(df_delay) / len(df_current) * 100:.1f}%）
     """)
 
-    # 归因占比展示
+    # 归因占比展示（移除混合，只展示货代/仓库/其他）
     st.markdown("### 🎯 延期订单主因占比")
-    for cause, count in cause_count.items():
-        st.markdown(f"- **{cause}**：{count} 单（占延期订单的 {cause_pct[cause]}%）")
+    st.markdown(f"- **货代原因**：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）")
+    st.markdown(f"- **仓库原因**：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）")
+    st.markdown(f"- **其他原因**：{other_count} 单（占延期订单的 {other_pct}%）")
 
     # --------------------------
-    # 6. 分阶段详细对比（货代+仓库）
+    # 5. 分阶段详细对比（货代+仓库）
     # --------------------------
     st.markdown("### 📈 各环节耗时对比（正常订单 vs 延期订单）")
 
@@ -834,12 +823,12 @@ else:
     """)
 
     # --------------------------
-    # 7. 针对性优化建议
+    # 6. 针对性优化建议
     # --------------------------
     st.markdown("### 💡 优化建议")
     suggestions = []
     # 货代原因建议
-    if "货代原因" in cause_count or "混合原因（货代+仓库）" in cause_count:
+    if forwarder_count > 0:
         # 找出货代环节中偏高的阶段
         forwarder_problem_stages = [
             s for s in forwarder_stages
@@ -847,23 +836,24 @@ else:
         ]
         if forwarder_problem_stages:
             suggestions.append(
-                f"针对货代环节：重点跟进「{'」「'.join(forwarder_problem_stages)}」环节，要求货代提供时效优化方案，明确异常赔付机制。")
+                f"针对货代环节：{forwarder_count} 单延期订单涉货代问题，重点跟进「{'」「'.join(forwarder_problem_stages)}」环节，要求货代提供时效优化方案，明确异常赔付机制。")
         else:
             suggestions.append(
-                "针对货代环节：虽判定为主因，但各阶段耗时无显著偏高，建议核查货代的流程衔接（如订舱、清关）是否有偶发异常。")
+                f"针对货代环节：{forwarder_count} 单延期订单涉货代问题，但各阶段耗时无显著偏高，建议核查货代的流程衔接（如订舱、清关）是否有偶发异常。")
 
     # 仓库原因建议
-    if "仓库原因" in cause_count or "混合原因（货代+仓库）" in cause_count:
+    if warehouse_count > 0:
         if delay_mean[warehouse_stage[0]] > normal_mean[warehouse_stage[0]] * upper_threshold:
             suggestions.append(
-                f"针对仓库环节：「{warehouse_stage[0]}」耗时偏高，建议优化亚马逊FBA上架流程，提前准备上架资料，减少仓内滞留时间。")
+                f"针对仓库环节：{warehouse_count} 单延期订单涉仓库问题，「{warehouse_stage[0]}」耗时偏高，建议优化亚马逊FBA上架流程，提前准备上架资料，减少仓内滞留时间。")
         else:
-            suggestions.append("针对仓库环节：虽判定为主因，但耗时无显著偏高，建议核查仓库收货、扫码、上架的操作效率。")
+            suggestions.append(
+                f"针对仓库环节：{warehouse_count} 单延期订单涉仓库问题，但耗时无显著偏高，建议核查仓库收货、扫码、上架的操作效率。")
 
     # 其他原因建议
-    if "其他原因" in cause_count:
+    if other_count > 0:
         suggestions.append(
-            "针对其他原因：延期订单各环节耗时无显著异常，建议核查订单的基础信息（如FBA标签、申报信息）是否有误，或是否受港口政策、天气等外部因素影响。")
+            f"针对其他原因：{other_count} 单延期订单无明显货代/仓库环节异常，建议核查订单的基础信息（如FBA标签、申报信息）是否有误，或是否受港口政策、天气等外部因素影响。")
 
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
