@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 import base64
 
-# 页面配置（不变）
+# 页面配置（完全保留你的原有配置）
 st.set_page_config(
     page_title="FBA海运物流交期分析看板",
     page_icon="🚢",
@@ -15,8 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
-# ---------------------- 工具函数（完全不变） ----------------------
+# ---------------------- 工具函数（完全保留你的原有代码，一字不改） ----------------------
 def get_prev_month(current_month):
     """获取上个月的年月字符串（格式：YYYY-MM）"""
     try:
@@ -72,28 +71,30 @@ def get_table_download_link(df, filename, text):
     href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
     return href
 
-# ---------------------- 数据加载函数（完全不变） ----------------------
+# ---------------------- 数据加载函数（替换为「两份数据」逻辑，保留你的格式处理） ----------------------
 @st.cache_data
 def load_data():
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
     try:
-        df_original = pd.read_excel(url, sheet_name="上架完成-海运")
+        df_all = pd.read_excel(url, sheet_name="上架完成-海运")  # 第一份：全部数据
     except Exception as e:
         st.error(f"读取数据失败：{str(e)}")
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()  # 返回两个空值，避免解包错误
 
-    # 处理「是否为异常数据」列
+    # 处理「是否为异常数据」列（保留你的原有逻辑）
     abnormal_col = "是否为异常数据"
-    if abnormal_col in df_original.columns:
-        df_original[abnormal_col] = df_original[abnormal_col].str.strip().fillna("否")
-        df_original[abnormal_col] = df_original[abnormal_col].replace({
+    if abnormal_col in df_all.columns:
+        df_all[abnormal_col] = df_all[abnormal_col].str.strip().fillna("否")
+        df_all[abnormal_col] = df_all[abnormal_col].replace({
             "异常数据": "是", "正常数据": "否", "异常": "是", "正常": "否"
         })
+        df_clean = df_all[df_all[abnormal_col] == "否"].copy()  # 第二份：纯净数据
     else:
-        df_original[abnormal_col] = "否"
+        df_all[abnormal_col] = "否"
+        df_clean = df_all.copy()
         st.warning(f"未找到「{abnormal_col}」列，已默认全部为正常数据（否）")
 
-    # 核心列筛选
+    # 核心列筛选（保留你的原有逻辑，两份数据同步处理）
     core_columns = [
         "FBA号", "区域", "计划物流方式", "店铺", "仓库", "货代", "异常备注",
         "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
@@ -103,40 +104,74 @@ def load_data():
         "预计物流时效-实际物流时效差值（货代）",
         "提前/延期（货代）", "提前/延期（仓库）", abnormal_col
     ]
-    existing_columns = [col for col in core_columns if col in df_original.columns]
-    missing_columns = [col for col in core_columns if col not in df_original.columns]
+    existing_columns = [col for col in core_columns if col in df_all.columns]
+    missing_columns = [col for col in core_columns if col not in df_all.columns]
     if missing_columns:
         st.warning(f"以下列不存在，已忽略：{missing_columns}")
-    df_original = df_original[existing_columns]
+    df_all = df_all[existing_columns]
+    df_clean = df_clean[existing_columns]  # 纯净数据同步筛选列
 
-    # 统一到货年月格式
-    df_original["到货年月"] = pd.to_datetime(df_original["到货年月"], errors='coerce').dt.strftime("%Y-%m")
-    df_original = df_original.dropna(subset=["到货年月"])
+    # 统一到货年月格式（保留你的原有逻辑，两份数据同步处理）
+    df_all["到货年月"] = pd.to_datetime(df_all["到货年月"], errors='coerce').dt.strftime("%Y-%m")
+    df_clean["到货年月"] = pd.to_datetime(df_clean["到货年月"], errors='coerce').dt.strftime("%Y-%m")
+    df_all = df_all.dropna(subset=["到货年月"])
+    df_clean = df_clean.dropna(subset=["到货年月"])
 
-    # 清洗数值列
+    # 数值列清洗（保留你的原有逻辑，两份数据同步处理）
     abs_diff_col = "预计物流时效-实际物流时效差值(绝对值)"
     real_diff_col = "预计物流时效-实际物流时效差值"
-    if abs_diff_col in df_original.columns:
-        df_original[abs_diff_col] = pd.to_numeric(df_original[abs_diff_col], errors='coerce').fillna(0)
-    if real_diff_col in df_original.columns:
-        df_original[real_diff_col] = pd.to_numeric(df_original[real_diff_col], errors='coerce').fillna(0)
+    if abs_diff_col in df_all.columns:
+        df_all[abs_diff_col] = pd.to_numeric(df_all[abs_diff_col], errors='coerce').fillna(0)
+        df_clean[abs_diff_col] = pd.to_numeric(df_clean[abs_diff_col], errors='coerce').fillna(0)
+    if real_diff_col in df_all.columns:
+        df_all[real_diff_col] = pd.to_numeric(df_all[real_diff_col], errors='coerce').fillna(0)
+        df_clean[real_diff_col] = pd.to_numeric(df_clean[real_diff_col], errors='coerce').fillna(0)
 
-    return df_original
+    return df_all, df_clean  # 返回：全部数据、纯净数据
 
-# ---------------------- 主程序逻辑（核心修复：先选月份，再筛选异常） ----------------------
-# 加载数据
-df_original = load_data()
-if df_original.empty:
+# ---------------------- 主程序逻辑（替换为「按钮选数据+统一变量」，保留你的展示逻辑） ----------------------
+# 1. 加载两份基础数据
+df_all, df_clean = load_data()
+if df_all.empty:
     st.error("暂无可用数据，请检查数据源或列名！")
     st.stop()
 
-# 顶部标题
+# 2. 顶部筛选按钮（保留你的原有样式）
+st.header("FBA海运物流交期分析看板")
+data_filter = st.radio(
+    "📊 选择数据范围：",
+    options=["全部数据", "纯净数据（剔除异常）"],
+    index=0,
+    horizontal=True,
+    key="data_filter"
+)
+
+# 3. 核心：按钮切换数据（只做赋值，逻辑极简）
+if data_filter == "纯净数据（剔除异常）":
+    df_selected = df_clean.copy()
+    # 全局异常统计（保留你的提示样式）
+    exclude_count = len(df_all) - len(df_clean)
+    st.success(f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（全局），当前共 {len(df_selected)} 条记录")
+else:
+    df_selected = df_all.copy()
+    # 全局异常统计（保留你的提示样式）
+    abnormal_count_total = len(df_all[df_all["是否为异常数据"] == "是"])
+    st.info(f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条记录（含 {abnormal_count_total} 条异常数据）")
+
+# 4. 数据预览（保留你的原有展示逻辑，基于df_selected）
+st.subheader("筛选后数据预览")
+abnormal_col = "是否为异常数据"
+preview_cols = [abnormal_col, "FBA号", "到货年月", "异常备注"]
+preview_cols = [col for col in preview_cols if col in df_selected.columns]
+st.dataframe(df_selected[preview_cols].head(20), use_container_width=True)
+
+# 5. 主看板区域（保留你的原有样式）
 st.title("🚢 FBA海运分析看板区域")
 st.divider()
 
-# 1️⃣ 先选月份（关键：先锁定月份，再处理异常数据）
+# 6. 当月数据筛选（基于df_selected，不会丢数据）
 st.subheader("🔍 当月FBA海运分析")
-month_options = sorted(df_original["到货年月"].unique(), reverse=True)
+month_options = sorted(df_selected["到货年月"].unique(), reverse=True)
 if not month_options:
     st.warning("⚠️ 暂无可用的到货年月数据")
     st.stop()
@@ -148,40 +183,23 @@ selected_month = st.selectbox(
     key="month_selector_current"
 )
 
-# 2️⃣ 再选数据范围（全部/纯净）
-data_filter = st.radio(
-    "📊 选择数据范围：",
-    options=["全部数据", "纯净数据（剔除异常）"],
-    index=0,
-    horizontal=True,
-    key="data_filter"
-)
+# 7. 当月数据（基于选中的df_selected）
+df_current = df_selected[df_selected["到货年月"] == selected_month].copy()
 
-abnormal_col = "是否为异常数据"
+# 8. 上月数据（基于df_selected，保留你的原有逻辑）
+prev_month = get_prev_month(selected_month)
+df_prev = df_selected[df_selected["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
 
-# 3️⃣ 先筛选当月数据，再处理异常（核心修复点！）
-df_current_month = df_original[df_original["到货年月"] == selected_month].copy()
-
+# 9. 当月异常数据统计（准确，从全部数据查）
+abnormal_current_month = len(df_all[
+    (df_all["到货年月"] == selected_month) &
+    (df_all["是否为异常数据"] == "是")
+])
+# 当月提示（保留你的原有提示样式）
 if data_filter == "纯净数据（剔除异常）":
-    # 只在【当月数据】里剔除异常，而不是全局剔除
-    df_current = df_current_month[df_current_month[abnormal_col] == "否"].copy()
-    # 统计当月异常
-    abnormal_current_month = len(df_current_month) - len(df_current)
     st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据，当前共 {len(df_current)} 条记录")
 else:
-    df_current = df_current_month.copy()
-    abnormal_current_month = len(df_current[df_current[abnormal_col] == "是"])
     st.info(f"📌 【{selected_month}】当前显示全部数据，共 {len(df_current)} 条记录（含 {abnormal_current_month} 条异常数据）")
-
-# 4️⃣ 上月数据（基于当前筛选后的当月数据）
-prev_month = get_prev_month(selected_month)
-df_prev_month = df_original[df_original["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
-
-if data_filter == "纯净数据（剔除异常）":
-    df_prev = df_prev_month[df_prev_month[abnormal_col] == "否"].copy()
-else:
-    df_prev = df_prev_month.copy()
-
     # ---------------------- ① 核心指标卡片 ----------------------
     st.markdown("### 核心指标")
 
