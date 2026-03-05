@@ -721,7 +721,7 @@ else:
     overall_stage_mean = df_current[stage_cols].mean().round(2)
 
     # 定义：阶段耗时 > 整体均值 120% 视为该阶段有明显拖慢（可调整阈值）
-    threshold = 1.2
+    threshold = 1
     forwarder_stages = stage_cols[:4]  # 货代阶段：前4个
     warehouse_stages = stage_cols[4:]   # 仓库阶段：最后1个（签收-完成上架）
 
