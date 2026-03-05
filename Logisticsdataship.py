@@ -843,14 +843,9 @@ else:
         if forwarder_abnormal_stages:
             suggestions.append(
                 f"⚠️ 货代环节异常：「{'」「'.join(forwarder_abnormal_stages)}」偏差≥120%，需重点跟进货代优化这些环节的时效。")
-        suggestions.append(
-            f"针对货代延期：{forwarder_count} 单订单因货代环节延期，建议与货代明确各环节时效标准，建立异常追责机制。")
     if warehouse_count > 0:
         if diff_pct >= abnormal_threshold:
             suggestions.append(
                 f"⚠️ 仓库环节异常：「{warehouse_stage_col}」偏差≥120%，均值 {d_mean} 天（正常 {n_mean} 天），需紧急优化仓内操作流程。")
-        suggestions.append(f"针对仓库延期：{warehouse_count} 单订单因仓库环节延期，建议优化FBA上架预约及仓内操作效率。")
-
-
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
