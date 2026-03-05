@@ -718,12 +718,14 @@ for col in stage_cols:
     for df in [df_current, df_delay, df_normal]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-# 无延期订单时直接提示
+# --------------------------
+# 2. 优先判断无延期订单的情况（核心修复：提前判断，避免空值计算）
+# --------------------------
 if len(df_delay) == 0:
     st.success("✅ 本月无延期订单，各物流环节时效均符合预期！")
 else:
     # --------------------------
-    # 2. 计算各阶段均值（正常vs延期）
+    # 3. 计算各阶段均值（正常vs延期）
     # --------------------------
     # 正常订单各阶段均值
     normal_mean = df_normal[stage_cols].mean().round(2)
@@ -737,7 +739,7 @@ else:
     lower_threshold = 0.8
 
     # --------------------------
-    # 3. 统计货代/仓库原因的订单数（移除混合分类）
+    # 4. 统计货代/仓库原因的订单数（移除混合分类）
     # --------------------------
     # 标记每笔延期订单是否涉及货代问题
     df_delay["涉货代问题"] = df_delay.apply(
@@ -755,13 +757,16 @@ else:
     warehouse_count = len(df_delay[df_delay["涉仓库问题"] == True])  # 涉仓库问题的延期订单数
     other_count = len(df_delay[(df_delay["涉货代问题"] == False) & (df_delay["涉仓库问题"] == False)])  # 其他原因
 
-    # 计算占比（基于总延期订单数）
-    forwarder_pct = (forwarder_count / len(df_delay) * 100).round(1)
-    warehouse_pct = (warehouse_count / len(df_delay) * 100).round(1)
-    other_pct = (other_count / len(df_delay) * 100).round(1)
+    # --------------------------
+    # 5. 防错计算占比（新增：确保分母不为0）
+    # --------------------------
+    total_delay = len(df_delay)
+    forwarder_pct = (forwarder_count / total_delay * 100).round(1) if total_delay > 0 else 0.0
+    warehouse_pct = (warehouse_count / total_delay * 100).round(1) if total_delay > 0 else 0.0
+    other_pct = (other_count / total_delay * 100).round(1) if total_delay > 0 else 0.0
 
     # --------------------------
-    # 4. 生成核心分析文字
+    # 6. 生成核心分析文字
     # --------------------------
     # 基础数据汇总
     st.markdown(f"""
@@ -778,22 +783,26 @@ else:
     st.markdown(f"- **其他原因**：{other_count} 单（占延期订单的 {other_pct}%）")
 
     # --------------------------
-    # 5. 分阶段详细对比（货代+仓库）
+    # 7. 分阶段详细对比（货代+仓库）
     # --------------------------
     st.markdown("### 📈 各环节耗时对比（正常订单 vs 延期订单）")
 
     # 货代阶段分析
     st.markdown("#### 🔹 货代环节（发货-开船 → 提柜-签收）")
     for stage in forwarder_stages:
-        # 计算偏差率
-        diff_pct = ((delay_mean[stage] - normal_mean[stage]) / normal_mean[stage] * 100).round(1)
-        # 异常标注
-        if delay_mean[stage] > normal_mean[stage] * upper_threshold:
-            tag = "❌ 耗时显著偏高"
-        elif delay_mean[stage] < normal_mean[stage] * lower_threshold:
-            tag = "✅ 耗时偏低"
+        # 计算偏差率（新增防错：避免分母为0）
+        if normal_mean[stage] == 0:
+            diff_pct = 0.0
+            tag = "⚪ 无参考数据"
         else:
-            tag = "⚪ 耗时正常"
+            diff_pct = ((delay_mean[stage] - normal_mean[stage]) / normal_mean[stage] * 100).round(1)
+            # 异常标注
+            if delay_mean[stage] > normal_mean[stage] * upper_threshold:
+                tag = "❌ 耗时显著偏高"
+            elif delay_mean[stage] < normal_mean[stage] * lower_threshold:
+                tag = "✅ 耗时偏低"
+            else:
+                tag = "⚪ 耗时正常"
 
         st.markdown(f"""
         - **{stage}**：
@@ -806,13 +815,18 @@ else:
     # 仓库阶段分析
     st.markdown("#### 🔹 仓库环节（签收-完成上架）")
     stage = warehouse_stage[0]  # 签收-完成上架
-    diff_pct = ((delay_mean[stage] - normal_mean[stage]) / normal_mean[stage] * 100).round(1)
-    if delay_mean[stage] > normal_mean[stage] * upper_threshold:
-        tag = "❌ 耗时显著偏高"
-    elif delay_mean[stage] < normal_mean[stage] * lower_threshold:
-        tag = "✅ 耗时偏低"
+    # 新增防错：避免分母为0
+    if normal_mean[stage] == 0:
+        diff_pct = 0.0
+        tag = "⚪ 无参考数据"
     else:
-        tag = "⚪ 耗时正常"
+        diff_pct = ((delay_mean[stage] - normal_mean[stage]) / normal_mean[stage] * 100).round(1)
+        if delay_mean[stage] > normal_mean[stage] * upper_threshold:
+            tag = "❌ 耗时显著偏高"
+        elif delay_mean[stage] < normal_mean[stage] * lower_threshold:
+            tag = "✅ 耗时偏低"
+        else:
+            tag = "⚪ 耗时正常"
 
     st.markdown(f"""
     - **{stage}**：
@@ -823,7 +837,7 @@ else:
     """)
 
     # --------------------------
-    # 6. 针对性优化建议
+    # 8. 针对性优化建议
     # --------------------------
     st.markdown("### 💡 优化建议")
     suggestions = []
@@ -832,7 +846,7 @@ else:
         # 找出货代环节中偏高的阶段
         forwarder_problem_stages = [
             s for s in forwarder_stages
-            if delay_mean[s] > normal_mean[s] * upper_threshold
+            if normal_mean[s] > 0 and delay_mean[s] > normal_mean[s] * upper_threshold
         ]
         if forwarder_problem_stages:
             suggestions.append(
@@ -843,9 +857,9 @@ else:
 
     # 仓库原因建议
     if warehouse_count > 0:
-        if delay_mean[warehouse_stage[0]] > normal_mean[warehouse_stage[0]] * upper_threshold:
+        if normal_mean[stage] > 0 and delay_mean[stage] > normal_mean[stage] * upper_threshold:
             suggestions.append(
-                f"针对仓库环节：{warehouse_count} 单延期订单涉仓库问题，「{warehouse_stage[0]}」耗时偏高，建议优化亚马逊FBA上架流程，提前准备上架资料，减少仓内滞留时间。")
+                f"针对仓库环节：{warehouse_count} 单延期订单涉仓库问题，「{stage}」耗时偏高，建议优化亚马逊FBA上架流程，提前准备上架资料，减少仓内滞留时间。")
         else:
             suggestions.append(
                 f"针对仓库环节：{warehouse_count} 单延期订单涉仓库问题，但耗时无显著偏高，建议核查仓库收货、扫码、上架的操作效率。")
