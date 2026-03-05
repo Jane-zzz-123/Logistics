@@ -180,24 +180,41 @@ selected_month = st.selectbox(
     index=0,
     key="month_selector_current"
 )
+st.subheader("")  # 空行分隔，优化排版
+# 获取所有计划物流方式选项（去重），并添加“全部”选项
+logistics_methods = ['全部'] + list(df_selected['计划物流方式'].dropna().unique())
+# 创建下拉筛选器，默认选中“全部”
+selected_logistics = st.selectbox(
+    "选择计划物流方式",
+    options=logistics_methods,
+    index=0,  # 默认选中第一个选项（全部）
+    key="logistics_filter"  # 唯一key，避免streamlit缓存冲突
+)
 
-# 7. 当月数据（基于选中的df_selected）
+# 7. 当月数据（基于选中的df_selected + 计划物流方式筛选）
 df_current = df_selected[df_selected["到货年月"] == selected_month].copy()
+# 新增：过滤计划物流方式
+if selected_logistics != '全部':
+    df_current = df_current[df_current['计划物流方式'] == selected_logistics].copy()
 
-# 8. 上月数据（基于df_selected）
+# 8. 上月数据（基于df_selected + 计划物流方式筛选）
 prev_month = get_prev_month(selected_month)
 df_prev = df_selected[df_selected["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+# 新增：过滤计划物流方式（上月数据同步筛选）
+if selected_logistics != '全部' and not df_prev.empty:
+    df_prev = df_prev[df_prev['计划物流方式'] == selected_logistics].copy()
 
 # 9. 当月异常数据统计（准确）
 abnormal_current_month = len(df_all[
     (df_all["到货年月"] == selected_month) &
     (df_all["是否为异常数据"] == "是")
 ])
-# 当月提示
+# 当月提示（新增物流方式说明）
+logistics_tip = f"，筛选物流方式：{selected_logistics}" if selected_logistics != "全部" else ""
 if data_filter == "纯净数据（剔除异常）":
-    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据，当前共 {len(df_current)} 条记录")
+    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据{logistics_tip}，当前共 {len(df_current)} 条记录")
 else:
-    st.info(f"📌 【{selected_month}】当前显示全部数据，共 {len(df_current)} 条记录（含 {abnormal_current_month} 条异常数据）")
+    st.info(f"📌 【{selected_month}】当前显示全部数据{logistics_tip}，共 {len(df_current)} 条记录（含 {abnormal_current_month} 条异常数据）")
 
 # ---------------------- 你的核心指标/可视化/表格代码（仅改数据源引用） ----------------------
 # ---------------------- ① 核心指标卡片 ----------------------
