@@ -204,11 +204,14 @@ df_prev = df_selected[df_selected["到货年月"] == prev_month].copy() if prev_
 if selected_logistics != '全部' and not df_prev.empty:
     df_prev = df_prev[df_prev['计划物流方式'] == selected_logistics].copy()
 
-# 9. 当月异常数据统计（准确）
-abnormal_current_month = len(df_all[
-    (df_all["到货年月"] == selected_month) &
-    (df_all["是否为异常数据"] == "是")
-])
+# 9. 当月异常数据统计（同步筛选计划物流方式）
+# 第一步：先筛选年月
+abnormal_filter = (df_all["到货年月"] == selected_month) & (df_all["是否为异常数据"] == "是")
+# 第二步：如果选了具体物流方式，再叠加筛选
+if selected_logistics != '全部':
+    abnormal_filter = abnormal_filter & (df_all["计划物流方式"] == selected_logistics)
+# 第三步：计算符合条件的异常数据条数
+abnormal_current_month = len(df_all[abnormal_filter])
 # 当月提示（新增物流方式说明）
 logistics_tip = f"，筛选物流方式：{selected_logistics}" if selected_logistics != "全部" else ""
 if data_filter == "纯净数据（剔除异常）":
