@@ -2667,46 +2667,35 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
-# ===================== 数据源下载（纯下载版） =====================
-st.subheader("📋 原始数据源下载")
+# ===================== 一键下载全部数据源 =====================
+st.subheader("📤 原始数据源一键下载")
 
-# 核心：直接生成XLSX下载（无任何筛选，纯原始数据）
-if len(df_selected) > 0:
-    # 内存中生成Excel流（不生成临时文件，无卡顿）
-    from io import BytesIO
+# 导入必要依赖（确保能生成Excel）
+import pandas as pd
+from io import BytesIO
 
+# 核心：直接下载df_selected的全部数据
+if 'df_selected' in locals() and len(df_selected) > 0:
+    # 1. 内存中生成Excel文件流（不创建临时文件，速度快）
     output = BytesIO()
-
-    # 写入Excel（支持自定义sheet名）
+    # 2. 把df_selected完整写入Excel（保留所有行/列，不做任何修改）
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_selected.to_excel(writer, sheet_name='原始物流数据', index=False)
-
-    # 重置流指针
+        df_selected.to_excel(writer, sheet_name='全部数据源', index=False)
+    # 3. 重置流指针，确保下载完整
     output.seek(0)
 
-    # 下载按钮（全屏宽度，醒目易点）
+    # 4. 下载按钮（点击即下载df_selected全部数据）
     st.download_button(
-        label="📤 下载完整原始数据源（XLSX格式）",
+        label="👉 点击下载全部原始数据源（XLSX格式）",
         data=output,
-        file_name=f"物流原始数据源_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        file_name=f"全部数据源_{pd.Timestamp.now().strftime('%Y%m%d')}.xlsx",  # 文件名带日期，易区分
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        type="primary"  # 蓝色主按钮，更醒目
+        use_container_width=True,  # 按钮全屏宽度，易点击
+        type="primary"  # 蓝色主按钮，醒目
     )
 
-    # 简单数据信息提示（方便校验）
-    st.caption(f"✅ 数据源信息：共 {len(df_selected)} 条数据 | {len(df_selected.columns)} 个字段")
-    st.caption(f"📅 数据时间戳：{pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    # 极简预览（仅前5行，方便快速校验数据格式）
-    st.markdown("### 🔍 数据格式预览（前5行）")
-    st.dataframe(df_selected.head(5), use_container_width=True, height=200)
+    # 简单提示数据量，方便校验
+    st.success(f"✅ 待下载数据：共 {len(df_selected)} 行 | {len(df_selected.columns)} 列")
 else:
     # 无数据时的提示
-    st.warning("⚠️ 暂无原始数据源可下载")
-
-# 可选：显示字段列表（方便校验字段是否完整）
-if len(df_selected) > 0:
-    st.markdown("### 📋 数据源字段列表")
-    field_list = [f"{i + 1}. {col}" for i, col in enumerate(df_selected.columns)]
-    st.write("\n".join(field_list))
+    st.warning("⚠️ 未检测到数据源（df_selected为空）")
