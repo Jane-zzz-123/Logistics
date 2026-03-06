@@ -2667,35 +2667,27 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
-# ===================== 一键下载全部数据源 =====================
-st.subheader("📤 原始数据源一键下载")
+# ===================== 数据源链接展示（直接打开/下载） =====================
+st.subheader("📋 原始数据源（点击链接直接访问）")
 
-# 导入必要依赖（确保能生成Excel）
-import pandas as pd
-from io import BytesIO
+# 你的Excel文件直链
+data_source_url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
 
-# 核心：直接下载df_selected的全部数据
-if 'df_selected' in locals() and len(df_selected) > 0:
-    # 1. 内存中生成Excel文件流（不创建临时文件，速度快）
-    output = BytesIO()
-    # 2. 把df_selected完整写入Excel（保留所有行/列，不做任何修改）
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_selected.to_excel(writer, sheet_name='全部数据源', index=False)
-    # 3. 重置流指针，确保下载完整
-    output.seek(0)
+# 美化的链接展示（大字体、醒目颜色）
+st.markdown(f"""
+<div style='background-color: #f0f8fb; padding: 20px; border-radius: 10px; margin: 10px 0;'>
+    <p style='font-size: 16px; color: #2d3748; margin: 0 0 10px;'>📌 数据源文件地址：</p>
+    <a href='{data_source_url}' target='_blank' style='font-size: 18px; color: #4299e1; font-weight: bold; text-decoration: none;'>
+        {data_source_url}
+    </a>
+    <p style='font-size: 14px; color: #718096; margin: 10px 0 0;'>
+        💡 点击链接可直接打开/下载Excel文件 | 建议复制链接到浏览器打开
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
-    # 4. 下载按钮（点击即下载df_selected全部数据）
-    st.download_button(
-        label="👉 点击下载全部原始数据源（XLSX格式）",
-        data=output,
-        file_name=f"全部数据源_{pd.Timestamp.now().strftime('%Y%m%d')}.xlsx",  # 文件名带日期，易区分
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,  # 按钮全屏宽度，易点击
-        type="primary"  # 蓝色主按钮，醒目
-    )
-
-    # 简单提示数据量，方便校验
-    st.success(f"✅ 待下载数据：共 {len(df_selected)} 行 | {len(df_selected.columns)} 列")
-else:
-    # 无数据时的提示
-    st.warning("⚠️ 未检测到数据源（df_selected为空）")
+# 补充提示（方便看板人员操作）
+st.caption("✅ 操作说明：")
+st.caption("1. 点击链接 → 浏览器会直接打开Excel文件（部分浏览器）或自动下载")
+st.caption("2. 若链接无法打开，复制链接到Chrome/Firefox浏览器地址栏访问")
+st.caption("3. 文件格式：XLSX | 可直接用Excel/WPS打开校验数据")
