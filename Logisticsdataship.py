@@ -2751,7 +2751,7 @@ with col2:
 with col3:
     st.warning("🇺🇸 美中区域")
     st.metric("开船-签收平均", f"{mid_sign:.1f}天", f"样本数：{mid_count}")
-# ===================== 3.2 物流方式细分（开船-签收）【原生图表·一行两列·配色统一】 =====================
+# ===================== 3.2 物流方式细分（开船-签收）【终极稳版·无任何报错】 =====================
 st.write("### 🚛 物流方式 × 区域 双向对比")
 
 # 数据预处理
@@ -2761,7 +2761,7 @@ logistics_detail = df_analysis.groupby(["区域", "计划物流方式"])["开船
 logistics_detail.columns = ["区域", "计划物流方式", "平均时效（天）", "样本数"]
 logistics_detail = logistics_detail[logistics_detail["样本数"] >= 1]
 
-# 固定配色方案（每种物流方式对应固定颜色）
+# 固定配色方案（只用于文字，图表用默认配色避免报错）
 logistics_list = logistics_detail["计划物流方式"].unique()
 color_map = {
     logistics: color for logistics, color in zip(
@@ -2770,69 +2770,81 @@ color_map = {
     )
 }
 
-# ==================== 一行两列布局 ====================
+# ==================== 一行两列布局（绝对不报错） ====================
 col_left, col_right = st.columns(2)
 
 # ------------------- 左图：同一区域 → 不同物流方式对比 -------------------
 with col_left:
     st.subheader("同一区域 · 不同物流方式")
 
-    # 按区域拆分数据
-    regions = ["美东", "美西", "美中"]
-    for region in regions:
+    # 按区域拆分展示
+    for region in ["美东", "美西", "美中"]:
         st.write(f"#### 🇺🇸 {region}")
         reg_data = logistics_detail[logistics_detail["区域"] == region].copy()
-        if not reg_data.empty:
-            # 准备图表数据
-            chart_data = reg_data.set_index("计划物流方式")["平均时效（天）"]
-            # 原生柱状图 + 自定义颜色
-            st.bar_chart(
-                chart_data,
-                color=[color_map[log] for log in chart_data.index],
-                use_container_width=True
+
+        if reg_data.empty:
+            st.info(f"该区域暂无数据")
+            st.divider()
+            continue
+
+        # 1. 原生柱状图（不用自定义color，避免数量不匹配报错）
+        chart_data = reg_data[["计划物流方式", "平均时效（天）"]].set_index("计划物流方式")
+        st.bar_chart(chart_data, use_container_width=True)
+
+        # 2. 文字总结（带颜色标签，和物流方式绑定）
+        st.write("**时效详情（颜色对应物流方式）：**")
+        for _, row in reg_data.iterrows():
+            st.markdown(
+                f"""
+                <div style='display:flex;align-items:center;margin:4px 0;'>
+                    <div style='width:16px;height:16px;background:{color_map[row["计划物流方式"]]};margin-right:8px;border-radius:3px;'></div>
+                    <span style='font-weight:500;'>{row["计划物流方式"]}</span>：
+                    <span style='color:{color_map[row["计划物流方式"]]};font-weight:bold;'>{row["平均时效（天）"]:.1f}天</span>
+                    （样本{row["样本数"]}条）
+                </div>
+                """,
+                unsafe_allow_html=True
             )
-            # 文字总结（颜色和柱子一致）
-            st.write("**时效详情：**")
-            for idx, row in reg_data.iterrows():
-                st.markdown(
-                    f"<span style='color:{color_map[row['计划物流方式']]};font-weight:bold'>{row['计划物流方式']}</span>：{row['平均时效（天）']:.1f}天（样本{row['样本数']}条）",
-                    unsafe_allow_html=True
-                )
-        else:
-            st.info(f"{region}暂无数据")
         st.divider()
 
 # ------------------- 右图：同一物流方式 → 不同区域对比 -------------------
 with col_right:
     st.subheader("同一物流方式 · 不同区域")
 
-    # 按物流方式拆分数据
+    # 按物流方式拆分展示
     for logistics in logistics_list:
         st.write(f"#### 🚛 {logistics}")
         log_data = logistics_detail[logistics_detail["计划物流方式"] == logistics].copy()
-        if not log_data.empty:
-            # 准备图表数据
-            chart_data = log_data.set_index("区域")["平均时效（天）"]
-            # 原生柱状图（用该物流方式的固定颜色）
-            st.bar_chart(
-                chart_data,
-                color=[color_map[logistics]] * len(chart_data),
-                use_container_width=True
-            )
-            # 文字总结
-            st.write("**各区域时效：**")
-            for idx, row in log_data.iterrows():
-                st.markdown(
-                    f"🇺🇸 {row['区域']}：{row['平均时效（天）']:.1f}天（样本{row['样本数']}条）",
-                    unsafe_allow_html=True
-                )
-        else:
-            st.info(f"{logistics}暂无数据")
+
+        if log_data.empty:
+            st.info(f"该物流方式暂无数据")
+            st.divider()
+            continue
+
+        # 1. 原生柱状图
+        chart_data = log_data[["区域", "平均时效（天）"]].set_index("区域")
+        st.bar_chart(chart_data, use_container_width=True)
+
+        # 2. 文字总结（突出最优/最差区域）
+        fastest_row = log_data.loc[log_data["平均时效（天）"].idxmin()]
+        slowest_row = log_data.loc[log_data["平均时效（天）"].idxmax()]
+
+        st.write("**核心结论：**")
+        st.markdown(f"- 🚀 最优区域：{fastest_row['区域']}（{fastest_row['平均时效（天）']:.1f}天）")
+        st.markdown(f"- 🐢 最慢区域：{slowest_row['区域']}（{slowest_row['平均时效（天）']:.1f}天）")
+        st.markdown(f"- 📊 区域差异：{slowest_row['平均时效（天）'] - fastest_row['平均时效（天）']:.1f}天")
         st.divider()
 
-# ==================== 明细数据 ====================
-with st.expander("📋 查看完整明细数据"):
-    st.dataframe(logistics_detail, use_container_width=True)
+# ==================== 明细数据（折叠面板） ====================
+with st.expander("📋 查看完整明细数据", expanded=False):
+    st.dataframe(
+        logistics_detail.sort_values(["区域", "计划物流方式"]),
+        use_container_width=True,
+        column_config={
+            "平均时效（天）": st.column_config.NumberColumn(format="%.1f"),
+            "样本数": st.column_config.NumberColumn(format="%d")
+        }
+    )
 
 # ===================== 3.3 开船-签收 总结 =====================
 st.write("### 📝 开船-签收 核心结论")
