@@ -99,7 +99,7 @@ def load_data():
         "FBA号", "区域", "计划物流方式", "店铺", "仓库", "货代", "异常备注",
         "发货-开船", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架",
         "到货年月", "签收-发货时间", "上架完成-发货时间","开船-签收",
-        "预计物流时效-实际物流时效差值(绝对值)","开船-签收",
+        "预计物流时效-实际物流时效差值(绝对值)",
         "预计物流时效-实际物流时效差值", "提前/延期",
         "预计物流时效-实际物流时效差值（货代）",
         "提前/延期（货代）", "提前/延期（仓库）", abnormal_col
@@ -2669,197 +2669,49 @@ else:
                                        mime="text/csv")
 
 # ===================== 区域的分析 =====================
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
-
 # ===================== 1. 数据预处理（核心修复） =====================
-st.subheader("📊 各区域-物流方式时效对比分析")
+# ======================== 极简区域时效分析（你真正想要的） ========================
+st.subheader("📊 区域时效分析（极简版）")
 
-# 【关键】先定义要分析的时效列，并校验列是否存在
+# 你真正要的列
+need_cols = [
+    "区域",
+    "开船-签收",
+    "开船-到港",
+    "到港-提柜",
+    "提柜-签收",
+    "签收-完成上架",
+    "计划物流方式"
+]
+
+# 只保留存在的列
+df_simple = df_selected[[c for c in need_cols if c in df_selected.columns]].copy()
+
+# 只转数字（超级简单）
 time_cols = [
-    "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架", "开船-签收"
+    "开船-签收",
+    "开船-到港",
+    "到港-提柜",
+    "提柜-签收",
+    "签收-完成上架"
 ]
 
-# 第一步：校验并筛选存在的列（避免列不存在报错）
-existing_time_cols = [col for col in time_cols if col in df_selected.columns]
-if len(existing_time_cols) == 0:
-    st.error(f"⚠️ 未找到时效相关列！当前数据列：{list(df_selected.columns)}")
-    st.stop()  # 终止后续执行
+for c in time_cols:
+    if c in df_simple:
+        df_simple[c] = pd.to_numeric(df_simple[c], errors="coerce")
 
-# 第二步：新增区域列（兼容空值/FBA号为空的情况）
-def get_region(fba_code):
-    # 处理空值/非字符串情况
-    if pd.isna(fba_code) or not isinstance(fba_code, str):
-        return "未知区域"
-    fba_code = fba_code.upper()
-    # 可根据你的实际FBA号规则调整
-    if any(prefix in fba_code for prefix in ["JFK", "EWR", "NYC", "ATL"]):
-        return "美东"
-    elif any(prefix in fba_code for prefix in ["LAX", "ONT", "SFO", "SEA"]):
-        return "美西"
-    elif any(prefix in fba_code for prefix in ["DFW", "ORD", "CHI", "HOU"]):
-        return "美中"
-    else:
-        return "未知区域"
+# 只看有效区域
+df_simple = df_simple[df_simple["区域"].isin(["美东","美西","美中"])].dropna()
 
-# 新增区域列（兼容df_selected为空的情况）
-if len(df_selected) > 0:
-    # 确保FBA号列存在
-    if "FBA号" in df_selected.columns:
-        df_selected["区域"] = df_selected["FBA号"].apply(get_region)
-    else:
-        st.warning("⚠️ 未找到「FBA号」列，无法匹配区域！")
-        df_selected["区域"] = "未知区域"
-else:
-    st.warning("⚠️ 数据源为空，无数据可分析！")
+if df_simple.empty:
+    st.warning("暂无有效数据可分析")
     st.stop()
 
-# 第三步：清洗时效数据（核心修复：仅处理存在的列 + 兼容空数据）
-for col in existing_time_cols:
-    # 先确保列是字符串/数值类型，避免嵌套结构
-    df_selected[col] = df_selected[col].astype(str).replace(["nan", "None", ""], pd.NA)
-    # 转为数值型，错误值转为NaN（关键修复：指定列是Series）
-    df_selected[col] = pd.to_numeric(df_selected[col], errors='coerce')
-    # 剔除极端异常值（比如>100天的异常数据）
-    df_selected[col] = df_selected[col].where(df_selected[col] < 100, pd.NA)
+# 分组算平均
+result = df_simple.groupby(["区域", "计划物流方式"])[time_cols].mean().reset_index()
 
-# 筛选有效数据（仅保留美东/美西/美中，剔除未知区域）
-df_analysis = df_selected[df_selected["区域"].isin(["美东", "美西", "美中"])].copy()
-if len(df_analysis) == 0:
-    st.warning("⚠️ 无美东/美西/美中的有效数据！")
-    st.stop()
-
-# ===================== 2. 指标聚合（兼容样本不足） =====================
-# 按「区域+计划物流方式」分组，计算各环节时效的核心指标
-# 先确保「计划物流方式」列存在
-if "计划物流方式" not in df_analysis.columns:
-    st.warning("⚠️ 未找到「计划物流方式」列，仅按区域分组！")
-    group_cols = ["区域"]
-else:
-    group_cols = ["区域", "计划物流方式"]
-
-# 聚合核心指标（平均值/中位数/数据量）
-df_agg = df_analysis.groupby(group_cols)[existing_time_cols].agg(
-    平均值='mean',
-    中位数='median',
-    最大值='max',
-    数据量='count'
-).reset_index()
-
-# 过滤有效数据（数据量≥5才纳入分析，避免样本不足）
-df_agg_valid = df_agg[df_agg["数据量"] >= 5].copy()
-if len(df_agg_valid) == 0:
-    st.warning("⚠️ 所有分组数据量均<5，无有效分析数据！")
-    st.stop()
-
-# ===================== 3. 可视化展示（兼容单/多分组） =====================
-# 3.1 选择要展示的时效指标（下拉框）
-selected_time_col = st.selectbox(
-    "选择要分析的时效环节",
-    options=existing_time_cols,
-    index=0,
-    key="time_col"
-)
-
-# 3.2 柱状图：各区域-物流方式的平均时效对比
-fig1 = px.bar(
-    df_agg_valid,
-    x="区域",
-    y=selected_time_col,
-    color=group_cols[-1] if len(group_cols) > 1 else None,
-    barmode="group",  # 分组柱状图
-    facet_col=group_cols[-1] if len(group_cols) > 1 else None,  # 按物流方式分面
-    title=f"{selected_time_col} 时效对比（按{'-'.join(group_cols)}）",
-    labels={selected_time_col: "时效（天）"},
-    hover_data=["数据量"],  # 悬浮显示数据量
-    color_discrete_map={
-        "海运": "#4299e1",
-        "空运": "#e53e3e",
-        "卡派": "#48bb78",
-        "快递": "#9f7aea"
-    }
-)
-fig1.update_layout(height=500, xaxis_tickangle=0)
-st.plotly_chart(fig1, use_container_width=True)
-
-# 3.3 雷达图：各区域-物流方式的全环节时效对比（选核心物流方式）
-if len(group_cols) > 1:
-    st.markdown("### 📈 全环节时效雷达图（按区域）")
-    logistics_options = df_agg_valid["计划物流方式"].unique()
-    if len(logistics_options) > 0:
-        selected_logistics = st.selectbox(
-            "选择物流方式",
-            options=logistics_options,
-            index=0,
-            key="logistics_radar"
-        )
-
-        # 筛选该物流方式的数据
-        df_radar = df_agg_valid[df_agg_valid["计划物流方式"] == selected_logistics].copy()
-        if len(df_radar) > 0:
-            fig2 = go.Figure()
-            # 为每个区域添加雷达图轨迹
-            for region in ["美东", "美西", "美中"]:
-                region_data = df_radar[df_radar["区域"] == region]
-                if len(region_data) > 0:
-                    values = [region_data[col].iloc[0] for col in existing_time_cols]
-                    fig2.add_trace(go.Scatterpolar(
-                        r=values,
-                        theta=existing_time_cols,
-                        fill='toself',
-                        name=region
-                    ))
-            fig2.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0, max(df_radar[existing_time_cols].max())])),
-                title=f"{selected_logistics} - 各区域全环节时效雷达图",
-                height=500
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.warning(f"暂无{selected_logistics}的有效数据")
-
-# 3.4 明细表格：各区域-物流方式时效明细
-st.markdown("### 📋 各区域-物流方式时效明细（数据量≥5）")
-st.dataframe(
-    df_agg_valid[group_cols + existing_time_cols + ["数据量"]],
-    use_container_width=True,
-    hide_index=True
-)
-
-# ===================== 4. 异常分析（找出时效异常的组合） =====================
-st.subheader("🔍 时效异常分析")
-
-# 计算各环节时效的整体均值（作为基准）
-benchmark = df_agg_valid[existing_time_cols].mean()
-
-# 找出超过基准1.5倍的异常组合
-df_abnormal = df_agg_valid.copy()
-for col in existing_time_cols:
-    df_abnormal[f"{col}_是否异常"] = df_abnormal[col] > benchmark[col] * 1.5
-
-# 展示异常组合
-abnormal_cols = [col for col in df_abnormal.columns if "是否异常" in col]
-df_abnormal_display = df_abnormal[
-    group_cols + existing_time_cols + abnormal_cols + ["数据量"]
-]
-st.dataframe(
-    df_abnormal_display,
-    use_container_width=True,
-    hide_index=True
-)
-
-# 统计异常最多的区域-物流方式组合
-abnormal_count = df_abnormal[abnormal_cols].sum(axis=1)
-df_abnormal["异常环节数"] = abnormal_count
-top_abnormal = df_abnormal.nlargest(3, "异常环节数")[
-    group_cols + ["异常环节数", "数据量"]
-]
-st.markdown("### 🚨 异常最多的TOP3区域-物流方式组合")
-st.dataframe(top_abnormal, use_container_width=True, hide_index=True)
-
-
+# 展示
+st.dataframe(result, use_container_width=True)
 
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")
