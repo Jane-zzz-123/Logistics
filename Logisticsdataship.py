@@ -2752,7 +2752,7 @@ with col3:
     st.warning("🇺🇸 美中区域")
     st.metric("开船-签收平均", f"{mid_sign:.1f}天", f"样本数：{mid_count}")
 
-# ===================== 3.2 物流方式细分（开船-签收）【双维度专业图表】 =====================
+# ===================== 3.2 物流方式细分（开船-签收）【一行两列·带数据标签·统一配色】 =====================
 st.write("### 🚛 物流方式 × 区域 双向对比")
 
 logistics_detail = df_analysis.groupby(["区域", "计划物流方式"])["开船-签收"].agg([
@@ -2763,36 +2763,82 @@ logistics_detail = logistics_detail[logistics_detail["样本数"] >= 1]
 
 import altair as alt
 
-# ------------------- 图1：同一区域内，不同物流方式对比 -------------------
-chart1 = alt.Chart(logistics_detail).mark_bar().encode(
-    x=alt.X("计划物流方式:N", title="物流方式", axis=alt.Axis(labelAngle=-45)),
+# --------------- 配色方案：给每种物流方式固定颜色，文字和柱子保持一致 ---------------
+color_scheme = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+]
+
+# ==================== 图1：按区域分 → 对比内部不同物流方式 ====================
+chart1 = alt.Chart(logistics_detail).mark_bar(width=30).encode(
+    x=alt.X("计划物流方式:N", title=None, axis=alt.Axis(labelAngle=-45)),
     y=alt.Y("平均时效（天）:Q", title="平均时效（天）"),
-    color=alt.Color("计划物流方式:N", legend=None),
-    tooltip=["区域", "计划物流方式", "平均时效（天）", "样本数"]
+    color=alt.Color(
+        "计划物流方式:N",
+        scale=alt.Scale(range=color_scheme),
+        legend=alt.Legend(title="物流方式")
+    ),
+    tooltip=[
+        alt.Tooltip("区域:N"),
+        alt.Tooltip("计划物流方式:N"),
+        alt.Tooltip("平均时效（天）:Q", format=".1f"),
+        alt.Tooltip("样本数:Q")
+    ]
 ).properties(
     title="同一区域 · 不同物流方式对比",
-    width=280, height=280
+    width=220, height=260
 ).facet(
-    column=alt.Column("区域:N", title="区域")
+    column=alt.Column("区域:N", title=None)
 )
 
-# ------------------- 图2：同一物流方式，不同区域对比 -------------------
-chart2 = alt.Chart(logistics_detail).mark_bar(color="#88c999").encode(
-    x=alt.X("区域:N", title="区域"),
+# 加上数据标签（显示天数）
+text1 = chart1.mark_text(
+    dy=-8, fontSize=11, fontWeight=500
+).encode(
+    text=alt.Text("平均时效（天）:Q", format=".1f")
+)
+
+chart1_with_label = chart1 + text1
+
+# ==================== 图2：按物流方式分 → 对比不同区域 ====================
+chart2 = alt.Chart(logistics_detail).mark_bar(width=30).encode(
+    x=alt.X("区域:N", title=None),
     y=alt.Y("平均时效（天）:Q", title="平均时效（天）"),
-    tooltip=["区域", "计划物流方式", "平均时效（天）", "样本数"]
+    color=alt.Color(
+        "计划物流方式:N",
+        scale=alt.Scale(range=color_scheme),
+        legend=None  # 右边不再重复图例
+    ),
+    tooltip=[
+        alt.Tooltip("区域:N"),
+        alt.Tooltip("计划物流方式:N"),
+        alt.Tooltip("平均时效（天）:Q", format=".1f"),
+        alt.Tooltip("样本数:Q")
+    ]
 ).properties(
     title="同一物流方式 · 不同区域对比",
-    width=280, height=280
+    width=220, height=260
 ).facet(
-    column=alt.Column("计划物流方式:N", title="物流方式")
+    column=alt.Column("计划物流方式:N", title=None)
 )
 
-# 两行展示：上面区域内对比，下面物流方式跨区对比
-st.altair_chart(chart1, use_container_width=True)
-st.altair_chart(chart2, use_container_width=True)
+# 加上数据标签
+text2 = chart2.mark_text(
+    dy=-8, fontSize=11, fontWeight=500
+).encode(
+    text=alt.Text("平均时效（天）:Q", format=".1f")
+)
 
-# 表格明细
+chart2_with_label = chart2 + text2
+
+# ==================== 一行两列展示 ====================
+col_left, col_right = st.columns(2)
+with col_left:
+    st.altair_chart(chart1_with_label, use_container_width=True)
+with col_right:
+    st.altair_chart(chart2_with_label, use_container_width=True)
+
+# 明细折叠
 with st.expander("📋 查看明细数据"):
     st.dataframe(logistics_detail, use_container_width=True)
 
