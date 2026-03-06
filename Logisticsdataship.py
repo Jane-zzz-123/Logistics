@@ -2667,3 +2667,248 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
+    # ===================== 三、数据源 =====================
+    st.subheader("📋 数据源筛选")
+
+    # ---------------------- 筛选器（单选+默认“全部”） ----------------------
+    col1, col2, col3, col4 = st.columns(4)
+
+    # 1. 到货年月筛选器（单选+默认“全部”）
+    with col1:
+        month_unique = df_selected["到货年月"].dropna().unique()
+        month_options_filter = ["全部"] + sorted(month_unique, reverse=True) if len(month_unique) > 0 else ["全部"]
+        selected_month_filter = st.selectbox(
+            "到货年月",
+            options=month_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_month_single"
+        )
+
+    # 2. 仓库筛选器（单选+默认“全部”）
+    with col2:
+        warehouse_options_filter = ["全部"]
+        if "仓库" in df_selected.columns:
+            warehouse_unique = df_selected["仓库"].dropna().unique()
+            if len(warehouse_unique) > 0:
+                warehouse_options_filter += list(warehouse_unique)
+        selected_warehouse_filter = st.selectbox(
+            "仓库",
+            options=warehouse_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_warehouse_single"
+        )
+
+    # 3. 货代筛选器（单选+默认“全部”）
+    with col3:
+        freight_options_filter = ["全部"]
+        if "货代" in df_selected.columns:
+            freight_unique = df_selected["货代"].dropna().unique()
+            if len(freight_unique) > 0:
+                freight_options_filter += list(freight_unique)
+        selected_freight_filter = st.selectbox(
+            "货代",
+            options=freight_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_freight_single"
+        )
+
+    # 4. 提前/延期筛选器（单选+默认“全部”）
+    with col4:
+        status_options_filter = ["全部"]
+        if "提前/延期" in df_selected.columns:
+            status_unique = df_selected["提前/延期"].dropna().unique()
+            if len(status_unique) > 0:
+                status_options_filter += list(status_unique)
+        selected_status_filter = st.selectbox(
+            "提前/延期",
+            options=status_options_filter,
+            index=0,  # 默认选中“全部”
+            key="filter_status_single"
+        )
+
+    # ---------------------- 应用筛选逻辑 ----------------------
+    filter_conditions = pd.Series([True] * len(df_selected))
+    if selected_month_filter != "全部" and len(df_selected) > 0:
+        filter_conditions = filter_conditions & (df_selected["到货年月"] == selected_month_filter)
+    if "仓库" in df_selected.columns and selected_warehouse_filter != "全部" and len(df_selected) > 0:
+        filter_conditions = filter_conditions & (df_selected["仓库"] == selected_warehouse_filter)
+    if "货代" in df_selected.columns and selected_freight_filter != "全部" and len(df_selected) > 0:
+        filter_conditions = filter_conditions & (df_selected["货代"] == selected_freight_filter)
+    if "提前/延期" in df_selected.columns and selected_status_filter != "全部" and len(df_selected) > 0:
+        filter_conditions = filter_conditions & (df_selected["提前/延期"] == selected_status_filter)
+    df_filtered = df_selected[filter_conditions].copy()
+
+    # ---------------------- 计算平均值 ----------------------
+    avg_target_cols = [
+        "发货-起飞", "到港-提取", "提取-签收", "签收-完成上架",
+        "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
+        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
+    ]
+    display_cols = [
+        "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",
+        "异常备注", "发货-起飞", "到港-提取", "提取-签收","清关耗时", "签收-完成上架",
+        "发货-签收", "发货-完成上架", "签收-发货时间", "上架完成-发货时间",
+        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
+    ]
+    display_cols = [col for col in display_cols if col in df_filtered.columns]
+
+    # 初始化平均值
+    avg_row = {col: "-" for col in display_cols}
+    if len(df_filtered) > 0:
+        for col in avg_target_cols:
+            if col in display_cols:
+                numeric_vals = pd.to_numeric(df_filtered[col], errors='coerce').dropna()
+                avg_row[col] = round(numeric_vals.mean(), 2) if len(numeric_vals) > 0 else 0.00
+
+    # 处理数据行
+    df_display = df_filtered[display_cols].copy() if len(df_filtered) > 0 else pd.DataFrame(columns=display_cols)
+    for col in avg_target_cols:
+        if col in df_display.columns:
+            df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
+
+    # ---------------------- 生成表格（修复样式语法） ----------------------
+    st.markdown("### 原始数据（含筛选后平均值）")
+
+    # 列宽配置（简化为单行字符串，避免语法错误）
+    col_width_config = {
+        "到货年月": "80px", "FBA号": "120px", "店铺": "80px", "仓库": "80px",
+        "货代": "80px", "提前/延期": "80px", "异常备注": "100px", "发货-起飞": "80px",
+        "到港-提取": "80px", "提取-签收": "80px", "签收-完成上架": "100px", "发货-签收": "80px",
+        "发货-完成上架": "100px", "签收-发货时间": "100px", "上架完成-发货时间": "120px",
+        "预计物流时效-实际物流时效差值(绝对值)": "150px", "预计物流时效-实际物流时效差值": "150px"
+    }
+
+    # 核心修复：CSS样式改为单行紧凑格式，避免换行导致的语法错误
+    table_css = """
+    <style>
+    /* 全局表格样式重置 */
+    .table-outer {
+        width: 100%;
+        border: 1px solid #dee2e6;
+        margin: 10px 0;
+        font-size: 14px;
+    }
+    /* 固定头部容器 */
+    .table-fixed {
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 99;
+    }
+    /* 表头样式 */
+    .table-header th {
+        width: var(--col-width);
+        max-width: var(--col-width);
+        min-width: var(--col-width);
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        background: #e9ecef;
+        font-weight: bold;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        vertical-align: top;
+    }
+    /* 平均值行样式 */
+    .table-avg td {
+        width: var(--col-width);
+        max-width: var(--col-width);
+        min-width: var(--col-width);
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        background: #fff3cd;
+        font-weight: bold;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        vertical-align: top;
+    }
+    /* 数据滚动容器 */
+    .table-scroll {
+        height: 400px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+    /* 数据行样式 */
+    .table-data td {
+        width: var(--col-width);
+        max-width: var(--col-width);
+        min-width: var(--col-width);
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        vertical-align: top;
+    }
+    /* 高亮单元格 */
+    .highlight {
+        background-color: #ffebee !important;
+    }
+    /* 表格布局统一 */
+    .table-header, .table-avg, .table-data {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        border-spacing: 0;
+    }
+    </style>
+    """
+
+    # 构建表头（使用CSS变量传递列宽，避免内联样式换行错误）
+    header_html = "<table class='table-header'><tr>"
+    for col in display_cols:
+        width = col_width_config.get(col, "100px")
+        header_html += f"<th style='--col-width: {width}'>{col}</th>"
+    header_html += "</tr></table>"
+
+    # 构建平均值行
+    avg_html = "<table class='table-avg'><tr>"
+    for col in display_cols:
+        width = col_width_config.get(col, "100px")
+        val = avg_row[col]
+        if col in avg_target_cols and isinstance(val, (int, float)):
+            val = f"{val:.2f}"
+        avg_html += f"<td style='--col-width: {width}'>{val}</td>"
+    avg_html += "</tr></table>"
+
+    # 构建数据行
+    data_html = "<table class='table-data'><tbody>"
+    if len(df_display) > 0:
+        for _, row in df_display.iterrows():
+            data_html += "<tr>"
+            for col in display_cols:
+                width = col_width_config.get(col, "100px")
+                val = row[col]
+                highlight = "highlight" if (
+                            col in avg_target_cols and pd.notna(val) and pd.notna(avg_row[col]) and isinstance(
+                        avg_row[col], (int, float)) and float(val) > avg_row[col]) else ""
+                display_val = f"{val:.2f}" if (col in avg_target_cols and isinstance(val, (int, float))) else (
+                    "" if pd.isna(val) else str(val))
+                data_html += f"<td style='--col-width: {width}' class='{highlight}'>{display_val}</td>"
+            data_html += "</tr>"
+    else:
+        data_html += f"<tr><td colspan='{len(display_cols)}' style='text-align: center; padding: 20px;'>⚠️ 暂无符合筛选条件的数据</td></tr>"
+    data_html += "</tbody></table>"
+
+    # 拼接最终HTML（核心：使用CSS变量传递列宽，避免内联样式换行）
+    final_html = f"""
+    {table_css}
+    <div class='table-outer'>
+        <div class='table-fixed'>
+            {header_html}
+            {avg_html}
+        </div>
+        <div class='table-scroll'>
+            {data_html}
+        </div>
+    </div>
+    """
+
+    st.markdown(final_html, unsafe_allow_html=True)
+
+    # 数据量提示
+    if len(df_filtered) > 0:
+        st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_selected)} 条")
+    else:
+        st.caption("⚠️ 暂无符合筛选条件的业务数据")
