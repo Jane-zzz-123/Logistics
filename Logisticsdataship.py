@@ -2800,14 +2800,37 @@ text1 = chart1.mark_text(
 
 chart1_with_label = chart1 + text1
 
-# ==================== 图2：按物流方式分 → 对比不同区域 ====================
-chart2 = alt.Chart(logistics_detail).mark_bar(width=30).encode(
-    x=alt.X("区域:N", title=None),
+# ===================== 3.2 物流方式细分（开船-签收）【兼容版·一行两列·带数据标签】 =====================
+st.write("### 🚛 物流方式 × 区域 双向对比")
+
+logistics_detail = df_analysis.groupby(["区域", "计划物流方式"])["开船-签收"].agg([
+    "mean", "count"
+]).reset_index()
+logistics_detail.columns = ["区域", "计划物流方式", "平均时效（天）", "样本数"]
+logistics_detail = logistics_detail[logistics_detail["样本数"] >= 1]
+
+import altair as alt
+
+# --------------- 固定配色方案（物流方式=颜色） ---------------
+color_scheme = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+]
+
+# ==================== 图1：按区域分 → 对比内部不同物流方式（兼容版） ====================
+# 基础柱状图
+base1 = alt.Chart(logistics_detail).properties(
+    title="同一区域 · 不同物流方式对比",
+    width=220, height=260
+)
+
+bar1 = base1.mark_bar(width=30).encode(
+    x=alt.X("计划物流方式:N", title=None, axis=alt.Axis(labelAngle=-45)),
     y=alt.Y("平均时效（天）:Q", title="平均时效（天）"),
     color=alt.Color(
         "计划物流方式:N",
         scale=alt.Scale(range=color_scheme),
-        legend=None  # 右边不再重复图例
+        legend=alt.Legend(title="物流方式")
     ),
     tooltip=[
         alt.Tooltip("区域:N"),
@@ -2815,28 +2838,57 @@ chart2 = alt.Chart(logistics_detail).mark_bar(width=30).encode(
         alt.Tooltip("平均时效（天）:Q", format=".1f"),
         alt.Tooltip("样本数:Q")
     ]
-).properties(
+).facet(column=alt.Column("区域:N", title=None))
+
+# 数据标签（兼容低版本写法）
+text1 = base1.mark_text(dy=-8, fontSize=11, fontWeight=500).encode(
+    x=alt.X("计划物流方式:N"),
+    y=alt.Y("平均时效（天）:Q"),
+    text=alt.Text("平均时效（天）:Q", format=".1f")
+).facet(column=alt.Column("区域:N"))
+
+# 合并图表+标签
+chart1 = bar1 + text1
+
+# ==================== 图2：按物流方式分 → 对比不同区域（兼容版） ====================
+# 基础柱状图
+base2 = alt.Chart(logistics_detail).properties(
     title="同一物流方式 · 不同区域对比",
     width=220, height=260
-).facet(
-    column=alt.Column("计划物流方式:N", title=None)
 )
 
-# 加上数据标签
-text2 = chart2.mark_text(
-    dy=-8, fontSize=11, fontWeight=500
-).encode(
+bar2 = base2.mark_bar(width=30).encode(
+    x=alt.X("区域:N", title=None),
+    y=alt.Y("平均时效（天）:Q", title="平均时效（天）"),
+    color=alt.Color(
+        "计划物流方式:N",
+        scale=alt.Scale(range=color_scheme),
+        legend=None  # 不重复显示图例
+    ),
+    tooltip=[
+        alt.Tooltip("区域:N"),
+        alt.Tooltip("计划物流方式:N"),
+        alt.Tooltip("平均时效（天）:Q", format=".1f"),
+        alt.Tooltip("样本数:Q")
+    ]
+).facet(column=alt.Column("计划物流方式:N", title=None))
+
+# 数据标签
+text2 = base2.mark_text(dy=-8, fontSize=11, fontWeight=500).encode(
+    x=alt.X("区域:N"),
+    y=alt.Y("平均时效（天）:Q"),
     text=alt.Text("平均时效（天）:Q", format=".1f")
-)
+).facet(column=alt.Column("计划物流方式:N"))
 
-chart2_with_label = chart2 + text2
+# 合并图表+标签
+chart2 = bar2 + text2
 
 # ==================== 一行两列展示 ====================
 col_left, col_right = st.columns(2)
 with col_left:
-    st.altair_chart(chart1_with_label, use_container_width=True)
+    st.altair_chart(chart1, use_container_width=True)
 with col_right:
-    st.altair_chart(chart2_with_label, use_container_width=True)
+    st.altair_chart(chart2, use_container_width=True)
 
 # 明细折叠
 with st.expander("📋 查看明细数据"):
