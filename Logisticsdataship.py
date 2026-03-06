@@ -1771,148 +1771,195 @@ FREIGHT_MONTH_COLUMN_MAPPING = {
     "到货年月列名": "到货年月",  # 替换为你实际的到货年月列名
     "提前延期列名": "提前/延期（货代）"  # 替换为你实际的提前/延期列名
 }
+# ---------------------- 【修改1】：新增计划物流方式列校验 ----------------------
 required_cols = [
     FREIGHT_MONTH_COLUMN_MAPPING["货代列名"],
     FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"],
     FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"],
-    "FBA号"  # 用于统计订单数
+    "FBA号",  # 用于统计订单数
+    "计划物流方式"  # 新增：计划物流方式列
 ]
 missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少货代月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
-    # 筛选有效数据
-    df_freight_month_valid = df_selected[
-        (df_selected[FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]].notna()) &
-        (df_selected[FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
-        ].copy()
-
-    if len(df_freight_month_valid) == 0:
-        st.warning("暂无货代跨月份数据可分析")
-    else:
-        # ===== 2. 按「到货年月+货代」聚合核心指标 =====
-        freight_month_stats = df_freight_month_valid.groupby(
-            [FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"], FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]]
-        ).agg(
-            总订单数=("FBA号", "count"),
-            提前准时订单数=(FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "提前/准时"])),
-            延期订单数=(FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "延期"]))
-        ).reset_index()
-
-        # 重命名列方便后续使用
-        freight_month_stats.rename(columns={
-            FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"]: "到货年月",
-            FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]: "货代"
-        }, inplace=True)
-
-        # 计算准时率（修复列名：确保列名是「准时率(%)」，无多余空格）
-        freight_month_stats["准时率(%)"] = round(
-            freight_month_stats["提前准时订单数"] / freight_month_stats["总订单数"] * 100, 2
+    # ---------------------- 【新增1】：计划物流方式筛选器（第一步筛选） ----------------------
+    st.markdown("### 筛选条件")
+    # 新增：物流方式筛选行（控制列宽）
+    col_logistics, col_empty = st.columns([1, 3])
+    with col_logistics:
+        # 获取唯一的计划物流方式（去重+排序+去空）
+        unique_logistics = sorted(df_selected["计划物流方式"].dropna().unique())
+        # 新增"全部"选项，默认选中
+        logistics_options = ["全部"] + unique_logistics
+        selected_logistics = st.selectbox(
+            "计划物流方式",
+            options=logistics_options,
+            index=0,
+            key="freight_selected_logistics"  # 独立key，避免冲突
         )
 
+    # 新增：根据选中的物流方式过滤原始数据
+    if selected_logistics == "全部":
+        df_filtered_by_logistics = df_selected.copy()
+    else:
+        df_filtered_by_logistics = df_selected[df_selected["计划物流方式"] == selected_logistics].copy()
 
-        # ===== 3. 货代归类（优质/合格/异常 + 颜色标记）=====
-        def get_freight_category(rate):
-            """根据准时率返回归类标签和颜色"""
-            if rate >= 90:
-                return "优质", "#2e7d32"  # 绿色
-            elif rate >= 80:
-                return "合格", "#ff9800"  # 黄色/橙色
-            else:
-                return "异常", "#c62828"  # 红色
-
-
-        # 新增归类列
-        freight_month_stats["货代归类"] = freight_month_stats["准时率(%)"].apply(
-            lambda x: get_freight_category(x)[0])
-        freight_month_stats["归类颜色"] = freight_month_stats["准时率(%)"].apply(
-            lambda x: get_freight_category(x)[1])
-
-        # ===== 4. 双下拉框时间范围筛选 =====
-        st.markdown("### 筛选条件")
-        # 生成中文月份列表（用于下拉框）
-        freight_month_stats["年月排序"] = pd.to_datetime(freight_month_stats["到货年月"] + "-01")
-        freight_month_stats["中文月份"] = freight_month_stats["年月排序"].dt.strftime("%Y年%m月")
-
-        # 提取唯一的中文月份（正序）
-        unique_months = freight_month_stats.sort_values("年月排序")["中文月份"].unique().tolist()
-        unique_ym = freight_month_stats.sort_values("年月排序")["到货年月"].unique().tolist()
-
-        # 双下拉框选择开始/结束月份
-        col_start, col_end = st.columns(2)
-        with col_start:
-            start_month_cn = st.selectbox(
-                "开始月份",
-                options=unique_months,
-                index=0,
-                key="freight_start_month"
-            )
-        with col_end:
-            end_month_cn = st.selectbox(
-                "结束月份",
-                options=unique_months,
-                index=len(unique_months) - 1,
-                key="freight_end_month"
-            )
-
-        # 转换为原始年月格式
-        start_ym = freight_month_stats[freight_month_stats["中文月份"] == start_month_cn]["到货年月"].iloc[0]
-        end_ym = freight_month_stats[freight_month_stats["中文月份"] == end_month_cn]["到货年月"].iloc[0]
-
-        # 筛选时间范围内的数据
-        df_freight_filtered = freight_month_stats[
-            (freight_month_stats["到货年月"] >= start_ym) &
-            (freight_month_stats["到货年月"] <= end_ym)
+    # 新增：容错处理 - 物流方式筛选后无数据
+    if len(df_filtered_by_logistics) == 0:
+        st.warning(f"所选物流方式「{selected_logistics}」暂无货代数据")
+    else:
+        # ---------------------- 【修改2】：数据源从df_selected改为df_filtered_by_logistics ----------------------
+        # 筛选有效数据（基于物流方式筛选后的数据）
+        df_freight_month_valid = df_filtered_by_logistics[
+            (df_filtered_by_logistics[FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]].notna()) &
+            (df_filtered_by_logistics[FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
             ].copy()
 
-        # 按「到货年月降序 + 总订单数降序」排序
-        df_freight_filtered["年月排序"] = pd.to_datetime(df_freight_filtered["到货年月"] + "-01")
-        df_freight_filtered = df_freight_filtered.sort_values(
-            by=["年月排序", "总订单数"],
-            ascending=[False, False]
-        ).reset_index(drop=True)
-
-        if len(df_freight_filtered) == 0:
-            st.warning("所选时间范围内无货代数据")
+        if len(df_freight_month_valid) == 0:
+            st.warning("暂无货代跨月份数据可分析")
         else:
-            # ===== 5. 货代月度明细表格（带颜色归类）=====
-            st.markdown("### 货代月度核心指标明细（到货年月降序+订单数降序）")
+            # ===== 2. 按「到货年月+货代」聚合核心指标 =====
+            freight_month_stats = df_freight_month_valid.groupby(
+                [FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"], FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]]
+            ).agg(
+                总订单数=("FBA号", "count"),
+                提前准时订单数=(FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "提前/准时"])),
+                延期订单数=(FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "延期"]))
+            ).reset_index()
 
-            # 准备展示列
-            display_cols = [
-                "中文月份", "货代", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)", "货代归类"
-            ]
-            df_freight_display = df_freight_filtered[display_cols].copy()
+            # 重命名列方便后续使用
+            freight_month_stats.rename(columns={
+                FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"]: "到货年月",
+                FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]: "货代"
+            }, inplace=True)
 
-
-            # 表格样式：归类列按颜色标记
-            def highlight_freight_category(row):
-                styles = [""] * len(row)
-                # 获取归类颜色
-                color = df_freight_filtered.loc[row.name, "归类颜色"]
-                # 给货代归类列上色
-                styles[
-                    display_cols.index("货代归类")] = f"background-color: {color}; color: white; font-weight: bold;"
-                # 准时率<80%标红
-                if row["准时率(%)"] < 80:
-                    styles[display_cols.index(
-                        "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-                return styles
-
-
-            # 3. 核心修复：格式化准时率为2位小数（去掉多余0）
-            styled_freight_table = df_freight_display.style.apply(highlight_freight_category, axis=1)
-            # 关键：强制格式化准时率为2位小数，自动去除末尾无意义的0
-            styled_freight_table = styled_freight_table.format({
-                "准时率(%)": lambda x:
-                # 先保留2位小数，再去掉末尾的0和小数点（如果需要）
-                f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
-            })
-            st.dataframe(
-                styled_freight_table,
-                use_container_width=True,
-                hide_index=True
+            # 计算准时率（修复列名：确保列名是「准时率(%)」，无多余空格）
+            freight_month_stats["准时率(%)"] = round(
+                freight_month_stats["提前准时订单数"] / freight_month_stats["总订单数"] * 100, 2
             )
+
+
+            # ===== 3. 货代归类（优质/合格/异常 + 颜色标记）=====
+            def get_freight_category(rate):
+                """根据准时率返回归类标签和颜色"""
+                if rate >= 90:
+                    return "优质", "#2e7d32"  # 绿色
+                elif rate >= 80:
+                    return "合格", "#ff9800"  # 黄色/橙色
+                else:
+                    return "异常", "#c62828"  # 红色
+
+
+            # 新增归类列
+            freight_month_stats["货代归类"] = freight_month_stats["准时率(%)"].apply(
+                lambda x: get_freight_category(x)[0])
+            freight_month_stats["归类颜色"] = freight_month_stats["准时率(%)"].apply(
+                lambda x: get_freight_category(x)[1])
+
+
+            # ===== 4. 双下拉框时间范围筛选 =====
+            # ---------------------- 【修改3】：移除重复的"筛选条件"标题 ----------------------
+            # 原st.markdown("### 筛选条件")已上移，此处删除
+
+            # 新增：日期解析容错函数（避免格式错误）
+            def safe_parse_ym(ym):
+                try:
+                    return pd.to_datetime(str(ym) + "-01")
+                except:
+                    return pd.NaT
+
+
+            # 生成中文月份列表（用于下拉框）
+            freight_month_stats["年月排序"] = freight_month_stats["到货年月"].apply(safe_parse_ym)
+            # 过滤无效日期
+            freight_month_stats = freight_month_stats[freight_month_stats["年月排序"].notna()].copy()
+
+            if len(freight_month_stats) == 0:
+                st.warning("暂无有效货代月份数据可分析")
+            else:
+                freight_month_stats["中文月份"] = freight_month_stats["年月排序"].dt.strftime("%Y年%m月")
+
+                # 提取唯一的中文月份（正序）
+                unique_months = freight_month_stats.sort_values("年月排序")["中文月份"].unique().tolist()
+                unique_ym = freight_month_stats.sort_values("年月排序")["到货年月"].unique().tolist()
+
+                # 双下拉框选择开始/结束月份
+                col_start, col_end = st.columns(2)
+                with col_start:
+                    start_month_cn = st.selectbox(
+                        "开始月份",
+                        options=unique_months,
+                        index=0,
+                        key="freight_start_month"
+                    )
+                with col_end:
+                    end_month_cn = st.selectbox(
+                        "结束月份",
+                        options=unique_months,
+                        index=len(unique_months) - 1,
+                        key="freight_end_month"
+                    )
+
+                # 安全转换为原始年月格式（避免IndexError）
+                start_ym = freight_month_stats[freight_month_stats["中文月份"] == start_month_cn]["到货年月"].iloc[0]
+                end_ym = freight_month_stats[freight_month_stats["中文月份"] == end_month_cn]["到货年月"].iloc[0]
+
+                # 筛选时间范围内的数据
+                df_freight_filtered = freight_month_stats[
+                    (freight_month_stats["到货年月"] >= start_ym) &
+                    (freight_month_stats["到货年月"] <= end_ym)
+                    ].copy()
+
+                # 按「到货年月降序 + 总订单数降序」排序
+                df_freight_filtered["年月排序"] = df_freight_filtered["到货年月"].apply(safe_parse_ym)
+                df_freight_filtered = df_freight_filtered.sort_values(
+                    by=["年月排序", "总订单数"],
+                    ascending=[False, False]
+                ).reset_index(drop=True)
+
+                if len(df_freight_filtered) == 0:
+                    st.warning("所选时间范围内无货代数据")
+                else:
+                    # ===== 5. 货代月度明细表格（带颜色归类）=====
+                    st.markdown("### 货代月度核心指标明细（到货年月降序+订单数降序）")
+
+                    # 准备展示列
+                    display_cols = [
+                        "中文月份", "货代", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)", "货代归类"
+                    ]
+                    df_freight_display = df_freight_filtered[display_cols].copy()
+
+
+                    # 表格样式：归类列按颜色标记
+                    def highlight_freight_category(row):
+                        styles = [""] * len(row)
+                        # 获取归类颜色
+                        color = df_freight_filtered.loc[row.name, "归类颜色"]
+                        # 给货代归类列上色
+                        styles[
+                            display_cols.index(
+                                "货代归类")] = f"background-color: {color}; color: white; font-weight: bold;"
+                        # 准时率<80%标红
+                        if row["准时率(%)"] < 80:
+                            styles[display_cols.index(
+                                "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+                        return styles
+
+
+                    # 3. 核心修复：格式化准时率为2位小数（去掉多余0）
+                    styled_freight_table = df_freight_display.style.apply(highlight_freight_category, axis=1)
+                    # 关键：强制格式化准时率为2位小数，自动去除末尾无意义的0
+                    styled_freight_table = styled_freight_table.format({
+                        "准时率(%)": lambda x:
+                        # 先保留2位小数，再去掉末尾的0和小数点（如果需要）
+                        f"{x:.2f}".rstrip('0').rstrip('.') if '.' in f"{x:.2f}" else f"{x:.2f}"
+                    })
+                    st.dataframe(
+                        styled_freight_table,
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
             # ===== 6. 货代归类结果汇总表（修复KeyError核心点）=====
             st.markdown("### 货代归类结果汇总（所选时间范围）")
