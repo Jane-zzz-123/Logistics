@@ -2160,7 +2160,7 @@ else:
                     "总订单数"]).sum() / total_orders if total_orders > 0 else 0
 
                 # 2. 设定门槛（可根据业务调整）
-                MIN_ORDERS = 3  # 最低订单量门槛
+                MIN_ORDERS = 5  # 最低订单量门槛
                 MIN_MONTHS = 2  # 最低出现月份门槛
 
                 # 3. 评级逻辑
