@@ -1496,66 +1496,110 @@ else:
 st.markdown("## 📈 不同月份整体趋势分析")
 st.divider()
 
-# ===== 1. 数据预处理（按到货年月聚合）=====
-required_cols = ["到货年月", "FBA号", "提前/延期"]
+# ===== 1. 数据预处理（先加物流方式筛选，再聚合年月）=====
+# ---------------------- 【修改1】：新增计划物流方式列校验 ----------------------
+required_cols = ["到货年月", "FBA号", "提前/延期", "计划物流方式"]  # 新增：计划物流方式
 missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
-    # 按到货年月分组计算核心指标
-    monthly_stats = df_selected.groupby("到货年月").agg(
-        总订单数=("FBA号", "count"),
-        提前准时订单数=("提前/延期", lambda x: len(x[x == "提前/准时"])),
-        延期订单数=("提前/延期", lambda x: len(x[x == "延期"]))
-    ).reset_index()
+    # ---------------------- 【新增1】：计划物流方式筛选器（核心新增） ----------------------
+    st.markdown("### 筛选条件")  # 保留原标题，位置提前
+    # 新增：控制筛选器列宽，界面更美观
+    col_logistics, col_empty = st.columns([1, 3])
+    with col_logistics:
+        # 新增：获取唯一的计划物流方式（去重+排序）
+        unique_logistics = sorted(df_selected["计划物流方式"].dropna().unique())
+        # 新增：添加"全部"选项，默认选中
+        logistics_options = ["全部"] + unique_logistics
+        selected_logistics = st.selectbox(
+            "计划物流方式",
+            options=logistics_options,
+            index=0,
+            key="selected_logistics"
+        )
 
-    # 计算准时率（保留2位小数）
-    monthly_stats["准时率(%)"] = round(monthly_stats["提前准时订单数"] / monthly_stats["总订单数"] * 100, 2)
-
-    # 生成中文月份标签（如：2026年1月）
-    monthly_stats["年月排序"] = pd.to_datetime(monthly_stats["到货年月"] + "-01")
-    monthly_stats["中文月份"] = monthly_stats["年月排序"].dt.strftime("%Y年%m月")
-    # 按时间正序排序（图表从左到右时间递增）
-    monthly_stats = monthly_stats.sort_values("年月排序", ascending=True).reset_index(drop=True)
-
-    # 计算环比变化（总订单数、准时率）
-    monthly_stats["总订单数环比变化"] = monthly_stats["总订单数"].diff(1)
-    monthly_stats["准时率环比变化(百分点)"] = monthly_stats["准时率(%)"].diff(1)
-    # 填充空值
-    monthly_stats["总订单数环比变化"] = monthly_stats["总订单数环比变化"].fillna(0)
-    monthly_stats["准时率环比变化(百分点)"] = monthly_stats["准时率环比变化(百分点)"].fillna(0)
-
-    if len(monthly_stats) == 0:
-        st.warning("暂无跨月份数据可分析")
+    # 新增：根据选中的物流方式过滤原始数据
+    if selected_logistics == "全部":
+        df_filtered_by_logistics = df_selected.copy()  # 全部物流方式
     else:
-        # ===== 2. 筛选器：双下拉框时间范围选择 =====
-        st.markdown("### 筛选条件")
-        col_start, col_end = st.columns(2)
-        with col_start:
-            start_month = st.selectbox(
-                "开始月份",
-                options=monthly_stats["中文月份"].tolist(),
-                index=0,
-                key="start_month"
-            )
-        with col_end:
-            end_month = st.selectbox(
-                "结束月份",
-                options=monthly_stats["中文月份"].tolist(),
-                index=len(monthly_stats) - 1,
-                key="end_month"
-            )
+        df_filtered_by_logistics = df_selected[df_selected["计划物流方式"] == selected_logistics].copy()
 
-        # 转换回原始年月格式用于筛选
-        start_ym = monthly_stats[monthly_stats["中文月份"] == start_month]["到货年月"].iloc[0]
-        end_ym = monthly_stats[monthly_stats["中文月份"] == end_month]["到货年月"].iloc[0]
+    # 新增：容错处理 - 筛选后无数据的提示
+    if len(df_filtered_by_logistics) == 0:
+        st.warning(f"所选物流方式「{selected_logistics}」暂无数据")
+    else:
+        # ---------------------- 【修改2】：聚合数据从df_selected改为df_filtered_by_logistics ----------------------
+        # 按到货年月分组计算核心指标（基于筛选后的物流方式数据）
+        monthly_stats = df_filtered_by_logistics.groupby("到货年月").agg(
+            总订单数=("FBA号", "count"),
+            提前准时订单数=("提前/延期", lambda x: len(x[x == "提前/准时"])),
+            延期订单数=("提前/延期", lambda x: len(x[x == "延期"]))
+        ).reset_index()
 
-        # 筛选数据并保持时间正序
-        df_filtered = monthly_stats[
-            (monthly_stats["到货年月"] >= start_ym) &
-            (monthly_stats["到货年月"] <= end_ym)
-            ].copy()
-        df_filtered = df_filtered.sort_values("年月排序", ascending=True).reset_index(drop=True)
+        # 计算准时率（保留2位小数）
+        monthly_stats["准时率(%)"] = round(monthly_stats["提前准时订单数"] / monthly_stats["总订单数"] * 100, 2)
+
+
+        # ---------------------- 【修改3】：新增日期解析容错（避免报错） ----------------------
+        # 生成中文月份标签（如：2026年1月）
+        # 新增：容错函数 - 处理到货年月格式不统一的问题
+        def safe_parse_ym(ym):
+            try:
+                return pd.to_datetime(str(ym) + "-01")
+            except:
+                return pd.NaT
+
+
+        # 修改：用容错函数解析日期
+        monthly_stats["年月排序"] = monthly_stats["到货年月"].apply(safe_parse_ym)
+        # 新增：过滤无效日期行
+        monthly_stats = monthly_stats[monthly_stats["年月排序"].notna()].copy()
+
+        if len(monthly_stats) == 0:
+            st.warning("暂无有效月份数据可分析")
+        else:
+            monthly_stats["中文月份"] = monthly_stats["年月排序"].dt.strftime("%Y年%m月")
+            # 按时间正序排序（图表从左到右时间递增）
+            monthly_stats = monthly_stats.sort_values("年月排序", ascending=True).reset_index(drop=True)
+
+            # 计算环比变化（总订单数、准时率）
+            monthly_stats["总订单数环比变化"] = monthly_stats["总订单数"].diff(1).fillna(0)
+            monthly_stats["准时率环比变化(百分点)"] = monthly_stats["准时率(%)"].diff(1).fillna(0)
+
+            # ===== 2. 筛选器：双下拉框时间范围选择 =====
+            # ---------------------- 【修改4】：移除重复的"筛选条件"标题 ----------------------
+            # 原代码的st.markdown("### 筛选条件")被移到上方，这里删除（避免重复）
+            col_start, col_end = st.columns(2)
+            with col_start:
+                start_month = st.selectbox(
+                    "开始月份",
+                    options=monthly_stats["中文月份"].tolist(),
+                    index=0,
+                    key="start_month"
+                )
+            with col_end:
+                end_month = st.selectbox(
+                    "结束月份",
+                    options=monthly_stats["中文月份"].tolist(),
+                    index=len(monthly_stats) - 1,
+                    key="end_month"
+                )
+
+            # 转换回原始年月格式用于筛选
+            start_ym = monthly_stats[monthly_stats["中文月份"] == start_month]["到货年月"].iloc[0]
+            end_ym = monthly_stats[monthly_stats["中文月份"] == end_month]["到货年月"].iloc[0]
+
+            # 筛选数据并保持时间正序
+            df_filtered = monthly_stats[
+                (monthly_stats["到货年月"] >= start_ym) &
+                (monthly_stats["到货年月"] <= end_ym)
+                ].copy()
+            df_filtered = df_filtered.sort_values("年月排序", ascending=True).reset_index(drop=True)
+
+            # ---------------------- 【新增2】：调试用筛选结果展示（可选） ----------------------
+            st.write(f"筛选结果：{selected_logistics} | {start_month} 至 {end_month}")
+            st.write(df_filtered[["中文月份", "总订单数", "准时率(%)"]])
 
         # ===== 3. 计算平均准时率（用于红色虚线）=====
         avg_on_time_rate = df_filtered["准时率(%)"].mean()
