@@ -1266,103 +1266,137 @@ else:
         warehouse_stats["上月延期订单数"] = None
 
     # ===== 4. 可视化展示（双轴图 + 所有仓库迷你卡片）=====
-    col1, col2 = st.columns([2, 1])
-    # 4.1 左：仓库订单量占比 + 准时率 双轴图
-    with col1:
-        import plotly.graph_objects as go
+    # 4.1 上方：仓库订单量占比 + 准时率 双轴图（全屏宽度）
+    import plotly.graph_objects as go
 
-        fig = go.Figure()
-        # 订单量占比-柱状图
-        fig.add_trace(go.Bar(
-            x=warehouse_stats["仓库"],
-            y=warehouse_stats["订单量占比(%)"],
-            name="订单量占比(%)",
-            yaxis="y1",
-            marker_color="#9f7aea",  # 紫色（和货代的蓝色区分）
-            opacity=0.8,
-            text=warehouse_stats["订单量占比(%)"].apply(lambda x: f"{x:.2f}%"),
-            textposition="auto"
-        ))
-        # 准时率-折线图
-        fig.add_trace(go.Scatter(
-            x=warehouse_stats["仓库"],
-            y=warehouse_stats["准时率(%)"],
-            name="准时率(%)",
-            yaxis="y2",
-            marker_color="#38b2ac",  # 青绿色（和货代的红色区分）
-            mode="lines+markers+text",
-            line=dict(width=3),
-            marker=dict(size=8),
-            text=warehouse_stats["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
-            textposition="top center"
-        ))
-        # 图表样式配置
-        fig.update_layout(
-            title=f"{selected_month} 仓库订单量占比 & 准时率对比（签收-上架）",
-            yaxis=dict(title="订单量占比(%)", side="left", range=[0, 100], color="#9f7aea"),
-            yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100], color="#38b2ac"),
-            xaxis=dict(title="仓库名称", tickangle=0),
-            legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
-            height=400,
-            plot_bgcolor="#ffffff"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    fig = go.Figure()
+    # 订单量占比-柱状图
+    fig.add_trace(go.Bar(
+        x=warehouse_stats["仓库"],
+        y=warehouse_stats["订单量占比(%)"],
+        name="订单量占比(%)",
+        yaxis="y1",
+        marker_color="#9f7aea",  # 紫色（和货代的蓝色区分）
+        opacity=0.8,
+        text=warehouse_stats["订单量占比(%)"].apply(lambda x: f"{x:.2f}%"),
+        textposition="auto"
+    ))
+    # 准时率-折线图
+    fig.add_trace(go.Scatter(
+        x=warehouse_stats["仓库"],
+        y=warehouse_stats["准时率(%)"],
+        name="准时率(%)",
+        yaxis="y2",
+        marker_color="#38b2ac",  # 青绿色（和货代的红色区分）
+        mode="lines+markers+text",
+        line=dict(width=3),
+        marker=dict(size=8),
+        text=warehouse_stats["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
+        textposition="top center"
+    ))
+    # 图表样式配置
+    fig.update_layout(
+        title=f"{selected_month} 仓库订单量占比 & 准时率对比（签收-上架）",
+        yaxis=dict(title="订单量占比(%)", side="left", range=[0, 100], color="#9f7aea"),
+        yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100], color="#38b2ac"),
+        xaxis=dict(title="仓库名称", tickangle=0),
+        legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
+        height=400,
+        plot_bgcolor="#ffffff"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-    # 4.2 右：所有仓库核心表现迷你卡片
-    with col2:
-        st.markdown("#### 仓库核心表现")
-        for _, row in warehouse_stats.iterrows():
-            # 准时率颜色分级：优质≥90% | 合格80-90% | 异常<80%
-            if row["准时率(%)"] >= 90:
-                card_bg = "#f0f8f0"
-                rate_color = "#2e7d32"
-                tag = "优质"
-                level_desc = "准时率表现优秀"
-            elif row["准时率(%)"] >= 80:
-                card_bg = "#fff8e1"
-                rate_color = "#ff9800"
-                tag = "合格"
-                level_desc = "准时率表现达标"
-            else:
-                card_bg = "#fff0f0"
-                rate_color = "#c62828"
-                tag = "异常"
-                level_desc = "准时率表现不达标，需重点关注"
+    # 4.2 下方：所有仓库核心表现迷你卡片（一行3列 + 按优质→合格→异常排序）
+    st.markdown("#### 仓库核心表现")
 
-            # 准时率差值样式
-            diff_val = row["准时率差值(%)"]
-            prev_rate = row["上月准时率(%)"]
-            if pd.notna(prev_rate):
-                if diff_val > 0:
-                    diff_text = f"↑{diff_val:.2f}%"
-                    diff_color = "#2e7d32"
-                elif diff_val < 0:
-                    diff_text = f"↓{abs(diff_val):.2f}%"
-                    diff_color = "#c62828"
+
+    # 第一步：给仓库数据添加评级标识，用于排序
+    def get_grade_flag(rate):
+        """返回排序标识：优质=0，合格=1，异常=2"""
+        if rate >= 90:
+            return 0
+        elif rate >= 80:
+            return 1
+        else:
+            return 2
+
+
+    # 新增排序列
+    warehouse_stats["评级排序"] = warehouse_stats["准时率(%)"].apply(get_grade_flag)
+    # 按评级排序（优质→合格→异常），同评级按准时率降序
+    warehouse_stats_sorted = warehouse_stats.sort_values(
+        by=["评级排序", "准时率(%)"],
+        ascending=[True, False]
+    ).reset_index(drop=True)
+
+    # 第二步：一行3列展示卡片（兼容不足3个的情况）
+    from itertools import zip_longest
+
+    # 每3个仓库分为一组
+    warehouse_groups = list(zip_longest(*[iter(warehouse_stats_sorted.to_dict('records'))] * 3))
+
+    # 第三步：循环渲染每组的3列卡片
+    for group in warehouse_groups:
+        # 创建3列布局
+        col1, col2, col3 = st.columns(3)
+        cols = [col1, col2, col3]
+
+        # 为每组内的每个仓库渲染卡片
+        for idx, warehouse in enumerate(group):
+            if warehouse is None:  # 处理最后一组不足3个的情况
+                continue
+            with cols[idx]:
+                # 准时率颜色分级：优质≥90% | 合格80-90% | 异常<80%
+                if warehouse["准时率(%)"] >= 90:
+                    card_bg = "#f0f8f0"
+                    rate_color = "#2e7d32"
+                    tag = "优质"
+                    level_desc = "准时率表现优秀"
+                elif warehouse["准时率(%)"] >= 80:
+                    card_bg = "#fff8e1"
+                    rate_color = "#ff9800"
+                    tag = "合格"
+                    level_desc = "准时率表现达标"
+                else:
+                    card_bg = "#fff0f0"
+                    rate_color = "#c62828"
+                    tag = "异常"
+                    level_desc = "准时率表现不达标，需重点关注"
+
+                # 准时率差值样式
+                diff_val = warehouse["准时率差值(%)"]
+                prev_rate = warehouse["上月准时率(%)"]
+                if pd.notna(prev_rate):
+                    if diff_val > 0:
+                        diff_text = f"↑{diff_val:.2f}%"
+                        diff_color = "#2e7d32"
+                    elif diff_val < 0:
+                        diff_text = f"↓{abs(diff_val):.2f}%"
+                        diff_color = "#c62828"
+                    else:
+                        diff_text = "—"
+                        diff_color = "#757575"
+                    prev_rate_text = f"（上月{prev_rate:.2f}%）"
                 else:
                     diff_text = "—"
                     diff_color = "#757575"
-                prev_rate_text = f"（上月{prev_rate:.2f}%）"
-            else:
-                diff_text = "—"
-                diff_color = "#757575"
-                prev_rate_text = ""
+                    prev_rate_text = ""
 
-            # 生成仓库迷你卡片
-            st.markdown(f"""
-            <div style='background-color: {card_bg}; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid {rate_color};'>
-                <div style='display: flex; justify-content: space-between; align-items: center;'>
-                    <p style='margin: 0; font-weight: bold; font-size: 16px;'>{row['仓库']}</p>
-                    <span style='font-size: 12px; padding: 2px 6px; border-radius: 12px; background: {rate_color}; color: white;'>{tag}</span>
+                # 生成仓库迷你卡片（保留原有样式，适配列布局）
+                st.markdown(f"""
+                <div style='background-color: {card_bg}; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid {rate_color};'>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <p style='margin: 0; font-weight: bold; font-size: 16px;'>{warehouse['仓库']}</p>
+                        <span style='font-size: 12px; padding: 2px 6px; border-radius: 12px; background: {rate_color}; color: white;'>{tag}</span>
+                    </div>
+                    <p style='margin: 6px 0 0; font-size: 14px;'>
+                        准时率：<span style='color: {rate_color}; font-weight: bold; font-size: 18px;'>{warehouse['准时率(%)']:.2f}%</span>
+                    </p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>订单：{warehouse['总订单数']}单（{warehouse['订单量占比(%)']:.2f}%）</p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>差值：<span style='color: {diff_color}; font-weight: bold;'>{diff_text}</span> {prev_rate_text}</p>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>最长上架时长：{warehouse['最长上架时长']:.1f}天</p>
                 </div>
-                <p style='margin: 6px 0 0; font-size: 14px;'>
-                    准时率：<span style='color: {rate_color}; font-weight: bold; font-size: 18px;'>{row['准时率(%)']:.2f}%</span>
-                </p>
-                <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>订单：{row['总订单数']}单（{row['订单量占比(%)']:.2f}%）</p>
-                <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>差值：<span style='color: {diff_color}; font-weight: bold;'>{diff_text}</span> {prev_rate_text}</p>
-                <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>最长上架时长：{row['最长上架时长']:.1f}天</p>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
     # ===== 5. 仓库详细时效指标表（带上月差值对比）=====
     st.markdown("#### 仓库详细时效指标表")
