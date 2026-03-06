@@ -2726,17 +2726,34 @@ else:
             key="filter_status_single"
         )
 
-    # ---------------------- 应用筛选逻辑 ----------------------
-    filter_conditions = pd.Series([True] * len(df_selected))
-    if selected_month_filter != "全部" and len(df_selected) > 0:
-        filter_conditions = filter_conditions & (df_selected["到货年月"] == selected_month_filter)
-    if "仓库" in df_selected.columns and selected_warehouse_filter != "全部" and len(df_selected) > 0:
-        filter_conditions = filter_conditions & (df_selected["仓库"] == selected_warehouse_filter)
-    if "货代" in df_selected.columns and selected_freight_filter != "全部" and len(df_selected) > 0:
-        filter_conditions = filter_conditions & (df_selected["货代"] == selected_freight_filter)
-    if "提前/延期" in df_selected.columns and selected_status_filter != "全部" and len(df_selected) > 0:
-        filter_conditions = filter_conditions & (df_selected["提前/延期"] == selected_status_filter)
-    df_filtered = df_selected[filter_conditions].copy()
+    # ---------------------- 应用筛选逻辑（核心修复） ----------------------
+    # 修复1：优先判断df_selected是否为空，避免空数组操作
+    if len(df_selected) == 0:
+        df_filtered = pd.DataFrame(columns=df_selected.columns)
+    else:
+        # 修复2：初始化布尔数组时绑定df_selected的索引，避免长度错位
+        filter_conditions = pd.Series(True, index=df_selected.index)
+
+        # 修复3：每个筛选条件都清理NaN值（fillna(False)）
+        if selected_month_filter != "全部":
+            cond_month = (df_selected["到货年月"] == selected_month_filter).fillna(False)
+            filter_conditions = filter_conditions & cond_month
+
+        if "仓库" in df_selected.columns and selected_warehouse_filter != "全部":
+            cond_warehouse = (df_selected["仓库"] == selected_warehouse_filter).fillna(False)
+            filter_conditions = filter_conditions & cond_warehouse
+
+        if "货代" in df_selected.columns and selected_freight_filter != "全部":
+            cond_freight = (df_selected["货代"] == selected_freight_filter).fillna(False)
+            filter_conditions = filter_conditions & cond_freight
+
+        if "提前/延期" in df_selected.columns and selected_status_filter != "全部":
+            cond_status = (df_selected["提前/延期"] == selected_status_filter).fillna(False)
+            filter_conditions = filter_conditions & cond_status
+
+        # 修复4：最终清理NaN值，确保布尔数组无异常
+        filter_conditions = filter_conditions.fillna(False)
+        df_filtered = df_selected[filter_conditions].copy()
 
     # ---------------------- 计算平均值 ----------------------
     avg_target_cols = [
@@ -2748,8 +2765,8 @@ else:
         "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",
         "异常备注", "发货-开船", "开船-到港", "到港-提柜", "提柜-签收",
         "签收-完成上架", "签收-发货时间", "上架完成-发货时间",
-        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值","提前/延期（货代）",
-        "提前/延期（仓库）","是否为异常数据"
+        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值", "提前/延期（货代）",
+        "提前/延期（仓库）", "是否为异常数据"
     ]
     display_cols = [col for col in display_cols if col in df_filtered.columns]
 
@@ -2777,7 +2794,7 @@ else:
         "开船-到港": "80px", "到港-提柜": "80px", "提柜-签收": "100px", "签收-完成上架": "80px",
         "签收-发货时间": "100px", "上架完成-发货时间": "120px",
         "预计物流时效-实际物流时效差值(绝对值)": "150px", "预计物流时效-实际物流时效差值": "150px",
-        "提前/延期（货代）": "80px","提前/延期（仓库）": "80px","是否为异常数据": "80px"
+        "提前/延期（货代）": "80px", "提前/延期（仓库）": "80px", "是否为异常数据": "80px"
     }
 
     # 核心修复：CSS样式改为单行紧凑格式，避免换行导致的语法错误
@@ -2883,8 +2900,8 @@ else:
                 width = col_width_config.get(col, "100px")
                 val = row[col]
                 highlight = "highlight" if (
-                            col in avg_target_cols and pd.notna(val) and pd.notna(avg_row[col]) and isinstance(
-                        avg_row[col], (int, float)) and float(val) > avg_row[col]) else ""
+                        col in avg_target_cols and pd.notna(val) and pd.notna(avg_row[col]) and isinstance(
+                    avg_row[col], (int, float)) and float(val) > avg_row[col]) else ""
                 display_val = f"{val:.2f}" if (col in avg_target_cols and isinstance(val, (int, float))) else (
                     "" if pd.isna(val) else str(val))
                 data_html += f"<td style='--col-width: {width}' class='{highlight}'>{display_val}</td>"
