@@ -2669,7 +2669,7 @@ else:
                                        mime="text/csv")
 
 # ===================== 区域的分析 =====================
-# ======================== 区域时效分析（完整极简版） ========================
+# ======================== 区域时效分析（修复颜色报错版） ========================
 st.subheader("🚢 美东/美西/美中 时效深度分析")
 st.divider()
 
@@ -2693,8 +2693,11 @@ df_analysis = df_selected[df_selected["到货年月"] == selected_month].copy()
 df_analysis = df_analysis[df_analysis["区域"].isin(["美东", "美西", "美中"])].copy()
 # 清理数值（只转选中的列）
 df_analysis[selected_time_col] = pd.to_numeric(df_analysis[selected_time_col], errors="coerce").dropna()
-# 过滤空值
-df_analysis = df_analysis[df_analysis[selected_time_col] > 0].copy()
+# 过滤空值和无效数据
+df_analysis = df_analysis[
+    (df_analysis[selected_time_col] > 0) &
+    (df_analysis[selected_time_col] < 100)  # 过滤极端值
+].copy()
 
 if df_analysis.empty:
     st.warning(f"⚠️ {selected_month} 暂无 {selected_time_col} 的有效数据")
@@ -2719,75 +2722,98 @@ df_mid = df_analysis[df_analysis["区域"] == "美中"].copy()
 mid_avg = df_mid[selected_time_col].mean() if len(df_mid) > 0 else 0
 mid_count = len(df_mid)
 
-# 分区域卡片展示
+# 分区域卡片展示（更简洁）
 with col1:
     st.info("🇺🇸 美东区域")
-    st.metric(f"{selected_time_col}平均", f"{east_avg:.1f}天", f"样本数：{east_count}")
+    st.metric(label=f"{selected_time_col}平均", value=f"{east_avg:.1f}天", delta=f"样本数：{east_count}")
 
 with col2:
     st.success("🇺🇸 美西区域")
-    st.metric(f"{selected_time_col}平均", f"{west_avg:.1f}天", f"样本数：{west_count}")
+    st.metric(label=f"{selected_time_col}平均", value=f"{west_avg:.1f}天", delta=f"样本数：{west_count}")
 
 with col3:
     st.warning("🇺🇸 美中区域")
-    st.metric(f"{selected_time_col}平均", f"{mid_avg:.1f}天", f"样本数：{mid_count}")
+    st.metric(label=f"{selected_time_col}平均", value=f"{mid_avg:.1f}天", delta=f"样本数：{mid_count}")
 
-# ---------------------- 第四步：图表展示（两种形式，直观对比） ----------------------
+# ---------------------- 第四步：图表展示（修复颜色报错，更稳） ----------------------
 st.subheader("📈 可视化对比")
 tab1, tab2 = st.tabs(["柱状图（区域对比）", "折线图（物流方式细分）"])
 
 with tab1:
-    # 区域对比柱状图
+    # 区域对比柱状图（去掉手动color参数，用默认配色，避免数量不匹配）
     region_data = pd.DataFrame({
         "区域": ["美东", "美西", "美中"],
         "平均时效（天）": [east_avg, west_avg, mid_avg],
         "样本数": [east_count, west_count, mid_count]
     })
-    st.bar_chart(region_data.set_index("区域")["平均时效（天）"], color=["#FF6B6B", "#4ECDC4", "#45B7D1"])
+    # 只展示有数据的区域
+    region_data = region_data[region_data["平均时效（天）"] > 0]
+    st.bar_chart(region_data.set_index("区域")["平均时效（天）"])
 
 with tab2:
-    # 按物流方式细分折线图
+    # 按物流方式细分折线图（兼容空数据）
     logistics_data = df_analysis.groupby(["区域", "计划物流方式"])[selected_time_col].mean().reset_index()
-    st.line_chart(logistics_data.pivot(index="区域", columns="计划物流方式", values=selected_time_col))
+    # 过滤无数据的组合
+    logistics_data = logistics_data[logistics_data[selected_time_col] > 0]
+    if not logistics_data.empty:
+        st.line_chart(logistics_data.pivot(index="区域", columns="计划物流方式", values=selected_time_col))
+    else:
+        st.info("暂无物流方式细分数据")
 
 # ---------------------- 第五步：自动结论分析（直接出业务结论） ----------------------
 st.subheader("📝 核心结论分析")
 st.divider()
 
-# 1. 时效最快/最慢区域
-all_avg = [east_avg, west_avg, mid_avg]
-all_region = ["美东", "美西", "美中"]
-fastest_region = all_region[all_avg.index(min([x for x in all_avg if x > 0]))] if any(all_avg) else "无"
-slowest_region = all_region[all_avg.index(max([x for x in all_avg if x > 0]))] if any(all_avg) else "无"
+# 1. 过滤掉0值，只算有数据的区域
+valid_regions = []
+valid_avgs = []
+if east_avg > 0:
+    valid_regions.append("美东")
+    valid_avgs.append(east_avg)
+if west_avg > 0:
+    valid_regions.append("美西")
+    valid_avgs.append(west_avg)
+if mid_avg > 0:
+    valid_regions.append("美中")
+    valid_avgs.append(mid_avg)
 
 # 2. 结论生成
-conclusion = f"""
-### 🎯 核心结论（{selected_month} - {selected_time_col}）
-1. **时效最快区域**：{fastest_region}（平均 {min([x for x in all_avg if x > 0]):.1f} 天）
-2. **时效最慢区域**：{slowest_region}（平均 {max([x for x in all_avg if x > 0]):.1f} 天）
-3. **时效差异**：最快 vs 最慢 相差 {abs(max([x for x in all_avg if x > 0]) - min([x for x in all_avg if x > 0])):.1f} 天
+if valid_regions:
+    fastest_idx = valid_avgs.index(min(valid_avgs))
+    slowest_idx = valid_avgs.index(max(valid_avgs))
+    fastest_region = valid_regions[fastest_idx]
+    slowest_region = valid_regions[slowest_idx]
+    time_diff = max(valid_avgs) - min(valid_avgs)
 
-### 📌 业务建议
-"""
+    conclusion = f"""
+    ### 🎯 核心结论（{selected_month} - {selected_time_col}）
+    1. **时效最快区域**：{fastest_region}（平均 {min(valid_avgs):.1f} 天）
+    2. **时效最慢区域**：{slowest_region}（平均 {max(valid_avgs):.1f} 天）
+    3. **时效差异**：最快 vs 最慢 相差 {time_diff:.1f} 天
 
-# 针对性建议
-if west_avg < east_avg and west_avg < mid_avg:
-    conclusion += "- 美西时效最优，可优先选择美西港口发货\n"
-if east_avg > 30:
-    conclusion += "- 美东时效超过30天，需排查到港提柜/签收环节是否存在拥堵\n"
-if mid_count < 10:
-    conclusion += "- 美中样本数不足10个，数据参考性有限，建议补充数据\n"
+    ### 📌 业务建议
+    """
+
+    # 针对性建议
+    if "美西" in valid_regions and west_avg == min(valid_avgs):
+        conclusion += "- 美西时效最优，可优先选择美西港口发货，降低整体物流周期\n"
+    if "美东" in valid_regions and east_avg > 30:
+        conclusion += "- 美东{selected_time_col}时效超过30天，建议排查：\n  - 到港后提柜效率\n  - 当地派送服务商时效\n  - 港口拥堵情况\n"
+    if mid_count < 10 and "美中" in valid_regions:
+        conclusion += "- 美中样本数不足10个，数据参考性有限，建议后续重点跟踪美中物流时效\n"
+else:
+    conclusion = f"### 🎯 核心结论（{selected_month} - {selected_time_col}）\n暂无有效数据可分析"
 
 st.markdown(conclusion)
 
 # ---------------------- 第六步：明细数据（可下载） ----------------------
 st.subheader("📋 明细数据（可下载）")
-detail_cols = ["区域", "计划物流方式", selected_time_col, "FBA号", "仓库", "货代"]
+detail_cols = ["区域", "计划物流方式", selected_time_col, "FBA号", "仓库", "货代", "到货年月"]
 detail_cols = [c for c in detail_cols if c in df_analysis.columns]
 st.dataframe(df_analysis[detail_cols], use_container_width=True)
 
-# 下载明细
-csv = df_analysis[detail_cols].to_csv(index=False, encoding="utf-8")
+# 下载明细（兼容中文）
+csv = df_analysis[detail_cols].to_csv(index=False, encoding="utf-8-sig")
 st.download_button(
     label="💾 下载分析明细（CSV）",
     data=csv,
