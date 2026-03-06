@@ -2451,47 +2451,77 @@ else:
                 # ===== 7. 趋势图 =====
                 st.markdown("### 仓库月度趋势分析")
                 unique_warehouses = df_warehouse_filtered["仓库"].unique().tolist()
-                selected_warehouse = st.selectbox("选择仓库", options=unique_warehouses, index=0,
-                                                  key="selected_warehouse")
 
-                df_trend = df_warehouse_filtered[df_warehouse_filtered["仓库"] == selected_warehouse].sort_values(
-                    "年月排序", ascending=True).copy()
-                if len(df_trend) == 0:
-                    st.warning(f"无{selected_warehouse}的趋势数据")
+                # ---------------------- 新增：带搜索功能的仓库筛选 ----------------------
+                # 1. 添加搜索输入框
+                search_warehouse = st.text_input(
+                    "搜索仓库",
+                    placeholder="输入仓库名快速筛选（支持模糊匹配）",
+                    key="search_warehouse"
+                )
+
+                # 2. 根据搜索关键词过滤仓库列表（模糊匹配）
+                if search_warehouse.strip():
+                    filtered_warehouses = [
+                        warehouse for warehouse in unique_warehouses
+                        if search_warehouse.strip() in warehouse
+                    ]
+                    # 无匹配结果时的提示
+                    if len(filtered_warehouses) == 0:
+                        st.warning(f"未找到包含「{search_warehouse}」的仓库")
                 else:
-                    import plotly.graph_objects as go
+                    filtered_warehouses = unique_warehouses
 
-                    avg_rate = df_trend["准时率(%)"].mean()
-
-                    fig = go.Figure()
-                    # 柱状图
-                    fig.add_trace(
-                        go.Bar(x=df_trend["中文月份"], y=df_trend["总订单数"], name="总订单数", yaxis="y1",
-                               marker_color="#4299e1"))
-                    fig.add_trace(
-                        go.Bar(x=df_trend["中文月份"], y=df_trend["提前准时订单数"], name="提前/准时订单数",
-                               yaxis="y1", marker_color="#48bb78"))
-                    fig.add_trace(
-                        go.Bar(x=df_trend["中文月份"], y=df_trend["延期订单数"], name="延期订单数", yaxis="y1",
-                               marker_color="#e53e3e"))
-                    # 折线图
-                    fig.add_trace(
-                        go.Scatter(x=df_trend["中文月份"], y=df_trend["准时率(%)"], name="准时率(%)", yaxis="y2",
-                                   marker_color="#9f7aea", mode="lines+markers+text",
-                                   text=[f"{x:.2f}%" for x in df_trend["准时率(%)"]]))
-                    # 平均线
-                    fig.add_trace(go.Scatter(x=df_trend["中文月份"], y=[avg_rate] * len(df_trend),
-                                             name=f"平均准时率: {avg_rate:.2f}%",
-                                             yaxis="y2", mode="lines", line=dict(color="#ff0000", dash="dash")))
-
-                    fig.update_layout(
-                        title=f"{selected_warehouse} 月度趋势",
-                        yaxis=dict(title="订单数", side="left", range=[0, max(df_trend["总订单数"]) * 1.2]),
-                        yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
-                        xaxis=dict(title="年月", tickangle=45),
-                        height=450, barmode="group"
+                # 3. 下拉框显示过滤后的仓库列表（默认选第一个）
+                if len(filtered_warehouses) > 0:
+                    selected_warehouse = st.selectbox(
+                        "选择仓库",
+                        options=filtered_warehouses,
+                        index=0,
+                        key="selected_warehouse"
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+
+                    df_trend = df_warehouse_filtered[df_warehouse_filtered["仓库"] == selected_warehouse].sort_values(
+                        "年月排序", ascending=True).copy()
+                    if len(df_trend) == 0:
+                        st.warning(f"无{selected_warehouse}的趋势数据")
+                    else:
+                        import plotly.graph_objects as go
+
+                        avg_rate = df_trend["准时率(%)"].mean()
+
+                        fig = go.Figure()
+                        # 柱状图
+                        fig.add_trace(
+                            go.Bar(x=df_trend["中文月份"], y=df_trend["总订单数"], name="总订单数", yaxis="y1",
+                                   marker_color="#4299e1"))
+                        fig.add_trace(
+                            go.Bar(x=df_trend["中文月份"], y=df_trend["提前准时订单数"], name="提前/准时订单数",
+                                   yaxis="y1", marker_color="#48bb78"))
+                        fig.add_trace(
+                            go.Bar(x=df_trend["中文月份"], y=df_trend["延期订单数"], name="延期订单数", yaxis="y1",
+                                   marker_color="#e53e3e"))
+                        # 折线图
+                        fig.add_trace(
+                            go.Scatter(x=df_trend["中文月份"], y=df_trend["准时率(%)"], name="准时率(%)", yaxis="y2",
+                                       marker_color="#9f7aea", mode="lines+markers+text",
+                                       text=[f"{x:.2f}%" for x in df_trend["准时率(%)"]]))
+                        # 平均线
+                        fig.add_trace(go.Scatter(x=df_trend["中文月份"], y=[avg_rate] * len(df_trend),
+                                                 name=f"平均准时率: {avg_rate:.2f}%",
+                                                 yaxis="y2", mode="lines", line=dict(color="#ff0000", dash="dash")))
+
+                        fig.update_layout(
+                            title=f"{selected_warehouse} 月度趋势",
+                            yaxis=dict(title="订单数", side="left", range=[0, max(df_trend["总订单数"]) * 1.2]),
+                            yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
+                            xaxis=dict(title="年月", tickangle=45),
+                            height=450, barmode="group"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    # 无匹配仓库时不渲染图表
+                    st.info("请输入有效仓库名或清空搜索框查看全部仓库")
 
                 # ===== 8. 综合总结 =====
                 st.markdown("### 仓库月度表现总结")
