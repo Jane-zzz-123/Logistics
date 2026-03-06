@@ -2667,181 +2667,46 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
-    # ===================== 三、数据源 =====================
-    st.subheader("📋 数据源筛选")
-    # ---------------------- 计算平均值 ----------------------
-    avg_target_cols = [
-        "发货-开船", "开船-到港", "到港-提柜", "提柜-签收",
-        "签收-完成上架", "签收-发货时间", "上架完成-发货时间",
-        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值"
-    ]
-    display_cols = [
-        "到货年月", "FBA号", "店铺", "仓库", "货代", "提前/延期",
-        "异常备注", "发货-开船", "开船-到港", "到港-提柜", "提柜-签收",
-        "签收-完成上架", "签收-发货时间", "上架完成-发货时间",
-        "预计物流时效-实际物流时效差值(绝对值)", "预计物流时效-实际物流时效差值", "提前/延期（货代）",
-        "提前/延期（仓库）", "是否为异常数据"
-    ]
-    display_cols = [col for col in display_cols if col in df_filtered.columns]
+# ===================== 数据源下载（纯下载版） =====================
+st.subheader("📋 原始数据源下载")
 
-    # 初始化平均值
-    avg_row = {col: "-" for col in display_cols}
-    if len(df_filtered) > 0:
-        for col in avg_target_cols:
-            if col in display_cols:
-                numeric_vals = pd.to_numeric(df_filtered[col], errors='coerce').dropna()
-                avg_row[col] = round(numeric_vals.mean(), 2) if len(numeric_vals) > 0 else 0.00
+# 核心：直接生成XLSX下载（无任何筛选，纯原始数据）
+if len(df_selected) > 0:
+    # 内存中生成Excel流（不生成临时文件，无卡顿）
+    from io import BytesIO
 
-    # 处理数据行
-    df_display = df_filtered[display_cols].copy() if len(df_filtered) > 0 else pd.DataFrame(columns=display_cols)
-    for col in avg_target_cols:
-        if col in df_display.columns:
-            df_display[col] = pd.to_numeric(df_display[col], errors='coerce')
+    output = BytesIO()
 
-    # ---------------------- 生成表格（修复样式语法） ----------------------
-    st.markdown("### 原始数据（含筛选后平均值）")
+    # 写入Excel（支持自定义sheet名）
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_selected.to_excel(writer, sheet_name='原始物流数据', index=False)
 
-    # 列宽配置（简化为单行字符串，避免语法错误）
-    col_width_config = {
-        "到货年月": "80px", "FBA号": "120px", "店铺": "80px", "仓库": "80px",
-        "货代": "80px", "提前/延期": "80px", "异常备注": "100px", "发货-开船": "80px",
-        "开船-到港": "80px", "到港-提柜": "80px", "提柜-签收": "100px", "签收-完成上架": "80px",
-        "签收-发货时间": "100px", "上架完成-发货时间": "120px",
-        "预计物流时效-实际物流时效差值(绝对值)": "150px", "预计物流时效-实际物流时效差值": "150px",
-        "提前/延期（货代）": "80px", "提前/延期（仓库）": "80px", "是否为异常数据": "80px"
-    }
+    # 重置流指针
+    output.seek(0)
 
-    # 核心修复：CSS样式改为单行紧凑格式，避免换行导致的语法错误
-    table_css = """
-    <style>
-    /* 全局表格样式重置 */
-    .table-outer {
-        width: 100%;
-        border: 1px solid #dee2e6;
-        margin: 10px 0;
-        font-size: 14px;
-    }
-    /* 固定头部容器 */
-    .table-fixed {
-        position: sticky;
-        top: 0;
-        background: white;
-        z-index: 99;
-    }
-    /* 表头样式 */
-    .table-header th {
-        width: var(--col-width);
-        max-width: var(--col-width);
-        min-width: var(--col-width);
-        padding: 8px 12px;
-        border: 1px solid #dee2e6;
-        background: #e9ecef;
-        font-weight: bold;
-        text-align: left;
-        white-space: normal;
-        word-wrap: break-word;
-        vertical-align: top;
-    }
-    /* 平均值行样式 */
-    .table-avg td {
-        width: var(--col-width);
-        max-width: var(--col-width);
-        min-width: var(--col-width);
-        padding: 8px 12px;
-        border: 1px solid #dee2e6;
-        background: #fff3cd;
-        font-weight: bold;
-        text-align: left;
-        white-space: normal;
-        word-wrap: break-word;
-        vertical-align: top;
-    }
-    /* 数据滚动容器 */
-    .table-scroll {
-        height: 400px;
-        overflow-y: auto;
-        overflow-x: hidden;
-    }
-    /* 数据行样式 */
-    .table-data td {
-        width: var(--col-width);
-        max-width: var(--col-width);
-        min-width: var(--col-width);
-        padding: 8px 12px;
-        border: 1px solid #dee2e6;
-        text-align: left;
-        white-space: normal;
-        word-wrap: break-word;
-        vertical-align: top;
-    }
-    /* 高亮单元格 */
-    .highlight {
-        background-color: #ffebee !important;
-    }
-    /* 表格布局统一 */
-    .table-header, .table-avg, .table-data {
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: collapse;
-        border-spacing: 0;
-    }
-    </style>
-    """
+    # 下载按钮（全屏宽度，醒目易点）
+    st.download_button(
+        label="📤 下载完整原始数据源（XLSX格式）",
+        data=output,
+        file_name=f"物流原始数据源_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        type="primary"  # 蓝色主按钮，更醒目
+    )
 
-    # 构建表头（使用CSS变量传递列宽，避免内联样式换行错误）
-    header_html = "<table class='table-header'><tr>"
-    for col in display_cols:
-        width = col_width_config.get(col, "100px")
-        header_html += f"<th style='--col-width: {width}'>{col}</th>"
-    header_html += "</tr></table>"
+    # 简单数据信息提示（方便校验）
+    st.caption(f"✅ 数据源信息：共 {len(df_selected)} 条数据 | {len(df_selected.columns)} 个字段")
+    st.caption(f"📅 数据时间戳：{pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # 构建平均值行
-    avg_html = "<table class='table-avg'><tr>"
-    for col in display_cols:
-        width = col_width_config.get(col, "100px")
-        val = avg_row[col]
-        if col in avg_target_cols and isinstance(val, (int, float)):
-            val = f"{val:.2f}"
-        avg_html += f"<td style='--col-width: {width}'>{val}</td>"
-    avg_html += "</tr></table>"
+    # 极简预览（仅前5行，方便快速校验数据格式）
+    st.markdown("### 🔍 数据格式预览（前5行）")
+    st.dataframe(df_selected.head(5), use_container_width=True, height=200)
+else:
+    # 无数据时的提示
+    st.warning("⚠️ 暂无原始数据源可下载")
 
-    # 构建数据行
-    data_html = "<table class='table-data'><tbody>"
-    if len(df_display) > 0:
-        for _, row in df_display.iterrows():
-            data_html += "<tr>"
-            for col in display_cols:
-                width = col_width_config.get(col, "100px")
-                val = row[col]
-                highlight = "highlight" if (
-                        col in avg_target_cols and pd.notna(val) and pd.notna(avg_row[col]) and isinstance(
-                    avg_row[col], (int, float)) and float(val) > avg_row[col]) else ""
-                display_val = f"{val:.2f}" if (col in avg_target_cols and isinstance(val, (int, float))) else (
-                    "" if pd.isna(val) else str(val))
-                data_html += f"<td style='--col-width: {width}' class='{highlight}'>{display_val}</td>"
-            data_html += "</tr>"
-    else:
-        data_html += f"<tr><td colspan='{len(display_cols)}' style='text-align: center; padding: 20px;'>⚠️ 暂无符合筛选条件的数据</td></tr>"
-    data_html += "</tbody></table>"
-
-    # 拼接最终HTML（核心：使用CSS变量传递列宽，避免内联样式换行）
-    final_html = f"""
-    {table_css}
-    <div class='table-outer'>
-        <div class='table-fixed'>
-            {header_html}
-            {avg_html}
-        </div>
-        <div class='table-scroll'>
-            {data_html}
-        </div>
-    </div>
-    """
-
-    st.markdown(final_html, unsafe_allow_html=True)
-
-    # 数据量提示
-    if len(df_filtered) > 0:
-        st.caption(f"当前筛选结果共 {len(df_filtered)} 条数据 | 总数据量：{len(df_selected)} 条")
-    else:
-        st.caption("⚠️ 暂无符合筛选条件的业务数据")
+# 可选：显示字段列表（方便校验字段是否完整）
+if len(df_selected) > 0:
+    st.markdown("### 📋 数据源字段列表")
+    field_list = [f"{i + 1}. {col}" for i, col in enumerate(df_selected.columns)]
+    st.write("\n".join(field_list))
