@@ -2256,143 +2256,173 @@ WAREHOUSE_MONTH_COLUMN_MAPPING = {
     "到货年月列名": "到货年月",  # 替换为你实际的到货年月列名
     "提前延期列名": "提前/延期（仓库）"  # 替换为你实际的提前/延期列名
 }
+# ---------------------- 【修改1】：新增计划物流方式列校验 ----------------------
 required_warehouse_cols = [
     WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"],
     WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"],
     WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"],
-    "FBA号"
+    "FBA号",
+    "计划物流方式"  # 新增：计划物流方式列
 ]
 missing_warehouse_cols = [col for col in required_warehouse_cols if col not in df_selected.columns]
 if missing_warehouse_cols:
     st.error(f"缺少仓库月度分析必要列：{missing_warehouse_cols}，请检查数据列名！")
 else:
-    # 筛选有效数据
-    df_warehouse_month_valid = df_selected[
-        (df_selected[WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]].notna()) &
-        (df_selected[WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
-        ].copy()
-
-    if len(df_warehouse_month_valid) == 0:
-        st.warning("暂无仓库跨月份数据可分析")
-    else:
-        # ===== 2. 聚合核心指标 =====
-        warehouse_month_stats = df_warehouse_month_valid.groupby(
-            [WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"], WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]]
-        ).agg(
-            总订单数=("FBA号", "count"),
-            提前准时订单数=(WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "提前/准时"])),
-            延期订单数=(WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "延期"]))
-        ).reset_index()
-
-        # 重命名列
-        warehouse_month_stats.rename(columns={
-            WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"]: "到货年月",
-            WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]: "仓库"
-        }, inplace=True)
-
-        # 计算准时率
-        warehouse_month_stats["准时率(%)"] = round(
-            warehouse_month_stats["提前准时订单数"] / warehouse_month_stats["总订单数"] * 100, 2
+    # ---------------------- 【新增1】：计划物流方式筛选器（第一步筛选） ----------------------
+    st.markdown("### 筛选条件")
+    # 新增：物流方式筛选行（控制列宽）
+    col_logistics, col_empty = st.columns([1, 3])
+    with col_logistics:
+        # 获取唯一的计划物流方式（去重+排序+去空）
+        unique_logistics = sorted(df_selected["计划物流方式"].dropna().unique())
+        # 新增"全部"选项，默认选中
+        logistics_options = ["全部"] + unique_logistics
+        selected_logistics = st.selectbox(
+            "计划物流方式",
+            options=logistics_options,
+            index=0,
+            key="warehouse_selected_logistics"  # 独立key，避免冲突
         )
 
+    # 新增：根据选中的物流方式过滤原始数据
+    if selected_logistics == "全部":
+        df_filtered_by_logistics = df_selected.copy()
+    else:
+        df_filtered_by_logistics = df_selected[df_selected["计划物流方式"] == selected_logistics].copy()
 
-        # ===== 3. 仓库归类 =====
-        def get_warehouse_category(rate):
-            if rate >= 90:
-                return "优质", "#2e7d32"
-            elif rate >= 80:
-                return "合格", "#ff9800"
-            else:
-                return "异常", "#c62828"
+    # 新增：容错处理 - 物流方式筛选后无数据
+    if len(df_filtered_by_logistics) == 0:
+        st.warning(f"所选物流方式「{selected_logistics}」暂无仓库数据")
+    else:
+        # ---------------------- 【修改2】：数据源从df_selected改为df_filtered_by_logistics ----------------------
+        # 筛选有效数据（基于物流方式筛选后的数据）
+        df_warehouse_month_valid = df_filtered_by_logistics[
+            (df_filtered_by_logistics[WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]].notna()) &
+            (df_filtered_by_logistics[WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
+            ].copy()
 
-
-        warehouse_month_stats["仓库归类"] = warehouse_month_stats["准时率(%)"].apply(
-            lambda x: get_warehouse_category(x)[0])
-        warehouse_month_stats["归类颜色"] = warehouse_month_stats["准时率(%)"].apply(
-            lambda x: get_warehouse_category(x)[1])
-
-        # ===== 4. 时间筛选（终极修复：仅基于年月排序筛选，放弃反向匹配） =====
-        st.markdown("### 筛选条件")
-
-
-        # 核心修改1：生成可靠的年月排序（仅用于筛选，不反向匹配）
-        def safe_parse_ym(ym):
-            """安全解析到货年月为datetime"""
-            try:
-                # 处理常见格式：202509、2025-09、2025年09月等
-                ym_str = str(ym).replace("年", "").replace("月", "").replace("-", "").strip()
-                if len(ym_str) == 6:  # 202509
-                    return pd.to_datetime(f"{ym_str[:4]}-{ym_str[4:]}-01")
-                elif len(ym_str) == 8:  # 20250901
-                    return pd.to_datetime(ym_str)
-                else:
-                    return pd.NaT
-            except:
-                return pd.NaT
-
-
-        # 生成可靠的年月排序列
-        warehouse_month_stats["年月排序"] = warehouse_month_stats["到货年月"].apply(safe_parse_ym)
-        # 过滤无效日期
-        warehouse_month_stats = warehouse_month_stats[warehouse_month_stats["年月排序"].notna()].copy()
-
-        if len(warehouse_month_stats) == 0:
-            st.warning("无有效仓库月份数据可分析")
+        if len(df_warehouse_month_valid) == 0:
+            st.warning("暂无仓库跨月份数据可分析")
         else:
-            # 生成展示用的中文月份（仅用于下拉框展示）
-            warehouse_month_stats["中文月份"] = warehouse_month_stats["年月排序"].dt.strftime("%Y年%m月")
-            # 获取唯一的中文月份（按时间正序）
-            unique_months = sorted(warehouse_month_stats["中文月份"].unique())
+            # ===== 2. 聚合核心指标 =====
+            warehouse_month_stats = df_warehouse_month_valid.groupby(
+                [WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"], WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]]
+            ).agg(
+                总订单数=("FBA号", "count"),
+                提前准时订单数=(WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "提前/准时"])),
+                延期订单数=(WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"], lambda x: len(x[x == "延期"]))
+            ).reset_index()
 
-            # 核心修改2：下拉框选择中文月份，但筛选时直接用年月排序
-            col_start, col_end = st.columns(2)
-            with col_start:
-                start_month_cn = st.selectbox("开始月份", options=unique_months, index=0, key="warehouse_start")
-            with col_end:
-                end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months) - 1,
-                                            key="warehouse_end")
+            # 重命名列
+            warehouse_month_stats.rename(columns={
+                WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"]: "到货年月",
+                WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]: "仓库"
+            }, inplace=True)
 
-            # 核心修改3：将选中的中文月份转回datetime，直接筛选年月排序（无反向匹配）
-            start_dt = pd.to_datetime(start_month_cn + "-01", format="%Y年%m月-%d")
-            end_dt = pd.to_datetime(end_month_cn + "-01", format="%Y年%m月-%d")
+            # 计算准时率
+            warehouse_month_stats["准时率(%)"] = round(
+                warehouse_month_stats["提前准时订单数"] / warehouse_month_stats["总订单数"] * 100, 2
+            )
 
-            # 直接筛选时间范围（彻底避免反向匹配）
-            df_warehouse_filtered = warehouse_month_stats[
-                (warehouse_month_stats["年月排序"] >= start_dt) &
-                (warehouse_month_stats["年月排序"] <= end_dt)
-                ].copy()
 
-            # 排序
-            df_warehouse_filtered = df_warehouse_filtered.sort_values(
-                by=["年月排序", "总订单数"], ascending=[False, False]
-            ).reset_index(drop=True)
+            # ===== 3. 仓库归类 =====
+            def get_warehouse_category(rate):
+                if rate >= 90:
+                    return "优质", "#2e7d32"
+                elif rate >= 80:
+                    return "合格", "#ff9800"
+                else:
+                    return "异常", "#c62828"
 
-            if len(df_warehouse_filtered) == 0:
-                st.warning("所选时间范围内无仓库数据")
+
+            warehouse_month_stats["仓库归类"] = warehouse_month_stats["准时率(%)"].apply(
+                lambda x: get_warehouse_category(x)[0])
+            warehouse_month_stats["归类颜色"] = warehouse_month_stats["准时率(%)"].apply(
+                lambda x: get_warehouse_category(x)[1])
+
+
+            # ===== 4. 时间筛选（终极修复：仅基于年月排序筛选，放弃反向匹配） =====
+            # ---------------------- 【修改3】：移除重复的"筛选条件"标题 ----------------------
+            # 原st.markdown("### 筛选条件")已上移，此处删除
+
+            # 核心修改1：生成可靠的年月排序（仅用于筛选，不反向匹配）
+            def safe_parse_ym(ym):
+                """安全解析到货年月为datetime"""
+                try:
+                    # 处理常见格式：202509、2025-09、2025年09月等
+                    ym_str = str(ym).replace("年", "").replace("月", "").replace("-", "").strip()
+                    if len(ym_str) == 6:  # 202509
+                        return pd.to_datetime(f"{ym_str[:4]}-{ym_str[4:]}-01")
+                    elif len(ym_str) == 8:  # 20250901
+                        return pd.to_datetime(ym_str)
+                    else:
+                        return pd.NaT
+                except:
+                    return pd.NaT
+
+
+            # 生成可靠的年月排序列
+            warehouse_month_stats["年月排序"] = warehouse_month_stats["到货年月"].apply(safe_parse_ym)
+            # 过滤无效日期
+            warehouse_month_stats = warehouse_month_stats[warehouse_month_stats["年月排序"].notna()].copy()
+
+            if len(warehouse_month_stats) == 0:
+                st.warning("无有效仓库月份数据可分析")
             else:
-                # ===== 5. 月度明细表格 =====
-                st.markdown("### 仓库月度核心指标明细")
-                display_cols = ["中文月份", "仓库", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)",
-                                "仓库归类"]
-                df_warehouse_display = df_warehouse_filtered[display_cols].copy()
+                # 生成展示用的中文月份（仅用于下拉框展示）
+                warehouse_month_stats["中文月份"] = warehouse_month_stats["年月排序"].dt.strftime("%Y年%m月")
+                # 获取唯一的中文月份（按时间正序）
+                unique_months = sorted(warehouse_month_stats["中文月份"].unique())
+
+                # 核心修改2：下拉框选择中文月份，但筛选时直接用年月排序
+                col_start, col_end = st.columns(2)
+                with col_start:
+                    start_month_cn = st.selectbox("开始月份", options=unique_months, index=0, key="warehouse_start")
+                with col_end:
+                    end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months) - 1,
+                                                key="warehouse_end")
+
+                # 核心修改3：将选中的中文月份转回datetime，直接筛选年月排序（无反向匹配）
+                start_dt = pd.to_datetime(start_month_cn + "-01", format="%Y年%m月-%d")
+                end_dt = pd.to_datetime(end_month_cn + "-01", format="%Y年%m月-%d")
+
+                # 直接筛选时间范围（彻底避免反向匹配）
+                df_warehouse_filtered = warehouse_month_stats[
+                    (warehouse_month_stats["年月排序"] >= start_dt) &
+                    (warehouse_month_stats["年月排序"] <= end_dt)
+                    ].copy()
+
+                # 排序
+                df_warehouse_filtered = df_warehouse_filtered.sort_values(
+                    by=["年月排序", "总订单数"], ascending=[False, False]
+                ).reset_index(drop=True)
+
+                if len(df_warehouse_filtered) == 0:
+                    st.warning("所选时间范围内无仓库数据")
+                else:
+                    # ===== 5. 月度明细表格 =====
+                    st.markdown("### 仓库月度核心指标明细")
+                    display_cols = ["中文月份", "仓库", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)",
+                                    "仓库归类"]
+                    df_warehouse_display = df_warehouse_filtered[display_cols].copy()
 
 
-                # 表格样式
-                def highlight_warehouse_category(row):
-                    styles = [""] * len(row)
-                    color = df_warehouse_filtered.loc[row.name, "归类颜色"]
-                    styles[display_cols.index(
-                        "仓库归类")] = f"background-color: {color}; color: white; font-weight: bold;"
-                    if row["准时率(%)"] < 80:
+                    # 表格样式
+                    def highlight_warehouse_category(row):
+                        styles = [""] * len(row)
+                        color = df_warehouse_filtered.loc[row.name, "归类颜色"]
                         styles[display_cols.index(
-                            "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-                    return styles
+                            "仓库归类")] = f"background-color: {color}; color: white; font-weight: bold;"
+                        if row["准时率(%)"] < 80:
+                            styles[display_cols.index(
+                                "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+                        return styles
 
 
-                styled_table = df_warehouse_display.style.apply(highlight_warehouse_category, axis=1)
-                styled_table = styled_table.format({"准时率(%)": lambda x: f"{x:.2f}".rstrip('0').rstrip(
-                    '.') if '.' in f"{x:.2f}" else f"{x:.2f}"})
-                st.dataframe(styled_table, use_container_width=True, hide_index=True)
+                    styled_table = df_warehouse_display.style.apply(highlight_warehouse_category, axis=1)
+                    styled_table = styled_table.format({"准时率(%)": lambda x: f"{x:.2f}".rstrip('0').rstrip(
+                        '.') if '.' in f"{x:.2f}" else f"{x:.2f}"})
+                    st.dataframe(styled_table, use_container_width=True, hide_index=True)
 
                 # ===== 6. 归类汇总表 =====
                 st.markdown("### 仓库归类结果汇总")
