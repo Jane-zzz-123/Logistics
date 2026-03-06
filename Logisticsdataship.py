@@ -2514,23 +2514,53 @@ else:
                 if "样本不足" in cate_count: cate_text.append(f"- 样本不足：{cate_count['样本不足']}个")
                 st.markdown("\n".join(cate_text))
 
-                # 仓库卡片
+                # 仓库卡片（一行3列 + 按优质→合格→异常排序）
                 st.markdown("#### 各仓库详细表现")
-                for _, row in df_summary.iterrows():
-                    color = "#2e7d32" if row["综合评级"] == "优质" else "#ff9800" if row[
-                                                                                         "综合评级"] == "合格" else "#c62828" if \
-                        row["综合评级"] == "异常" else "#718096"
-                    desc = "优秀稳定" if row["综合评级"] == "优质" else "达标待优化" if row[
-                                                                                            "综合评级"] == "合格" else "风险较高" if \
-                        row["综合评级"] == "异常" else "需持续观察"
-                    st.markdown(f"""
-                    <div style='border:1px solid #e2e8f0; border-radius:6px; padding:15px; margin:10px 0; border-left:4px solid {color};'>
-                      <strong style='font-size:16px;'>{row['仓库']}</strong>
-                      <p style='color:{color};'>{row['综合评级']} | {desc}</p>
-                      <p>📊 加权准时率：{row['加权平均准时率']}% | 📦 累计订单：{row['累计订单数']}单 | 📅 出现月份：{row['出现月份数']}个</p>
-                      <p>🔍 最新表现：{row['最新表现']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+
+                # 1. 按评级排序：优质→合格→异常→样本不足，同评级按加权准时率降序
+                grade_order = {"优质": 0, "合格": 1, "异常": 2, "样本不足": 3}
+                df_summary["排序标识"] = df_summary["综合评级"].map(grade_order)
+                df_summary_sorted = df_summary.sort_values(
+                    by=["排序标识", "加权平均准时率"],
+                    ascending=[True, False]
+                ).reset_index(drop=True)
+
+                # 2. 一行3列展示（用itertools分组，兼容不足3个的情况）
+                from itertools import zip_longest
+
+                # 每3个仓库分为一组
+                warehouse_groups = list(zip_longest(*[iter(df_summary_sorted.to_dict('records'))] * 3))
+
+                # 3. 循环渲染每组的3列卡片
+                for group in warehouse_groups:
+                    # 创建3列布局
+                    col1, col2, col3 = st.columns(3)
+                    cols = [col1, col2, col3]
+
+                    # 为每组内的每个仓库渲染卡片
+                    for idx, warehouse in enumerate(group):
+                        if warehouse is None:  # 处理最后一组不足3个的情况
+                            continue
+                        with cols[idx]:
+                            # 保留你原来的颜色和文案逻辑
+                            color = "#2e7d32" if warehouse["综合评级"] == "优质" else "#ff9800" if warehouse[
+                                                                                                       "综合评级"] == "合格" else "#c62828" if \
+                            warehouse["综合评级"] == "异常" else "#718096"
+                            desc = "优秀稳定" if warehouse["综合评级"] == "优质" else "达标待优化" if warehouse[
+                                                                                                          "综合评级"] == "合格" else "风险较高" if \
+                            warehouse["综合评级"] == "异常" else "需持续观察"
+
+                            # 保留你原来的卡片样式（仅调整换行符适配列布局）
+                            st.markdown(f"""
+                            <div style='border:1px solid #e2e8f0; border-radius:6px; padding:15px; margin:10px 0; border-left:4px solid {color};'>
+                              <strong style='font-size:16px;'>{warehouse['仓库']}</strong>
+                              <p style='color:{color}; margin:8px 0;'>{warehouse['综合评级']} | {desc}</p>
+                              <p style='font-size:14px; margin:4px 0;'>📊 加权准时率：{warehouse['加权平均准时率']}%</p>
+                              <p style='font-size:14px; margin:4px 0;'>📦 累计订单：{warehouse['累计订单数']}单</p>
+                              <p style='font-size:14px; margin:4px 0;'>📅 出现月份：{warehouse['出现月份数']}个</p>
+                              <p style='font-size:14px; margin:4px 0;'>🔍 最新表现：{warehouse['最新表现']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
 
                 # ===== 9. 数据下载 =====
                 st.markdown("### 数据下载")
