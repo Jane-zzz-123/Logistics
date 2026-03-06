@@ -1498,12 +1498,12 @@ st.divider()
 
 # ===== 1. 数据预处理（按到货年月聚合）=====
 required_cols = ["到货年月", "FBA号", "提前/延期"]
-missing_cols = [col for col in required_cols if col not in df_current.columns]
+missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
     # 按到货年月分组计算核心指标
-    monthly_stats = df_current.groupby("到货年月").agg(
+    monthly_stats = df_selected.groupby("到货年月").agg(
         总订单数=("FBA号", "count"),
         提前准时订单数=("提前/延期", lambda x: len(x[x == "提前/准时"])),
         延期订单数=("提前/延期", lambda x: len(x[x == "延期"]))
@@ -1733,14 +1733,14 @@ required_cols = [
     FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"],
     "FBA号"  # 用于统计订单数
 ]
-missing_cols = [col for col in required_cols if col not in df_current.columns]
+missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少货代月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
     # 筛选有效数据
-    df_freight_month_valid = df_current[
-        (df_current[FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]].notna()) &
-        (df_current[FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
+    df_freight_month_valid = df_selected[
+        (df_selected[FREIGHT_MONTH_COLUMN_MAPPING["货代列名"]].notna()) &
+        (df_selected[FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
         ].copy()
 
     if len(df_freight_month_valid) == 0:
@@ -2171,14 +2171,14 @@ required_warehouse_cols = [
     WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"],
     "FBA号"
 ]
-missing_warehouse_cols = [col for col in required_warehouse_cols if col not in df_current.columns]
+missing_warehouse_cols = [col for col in required_warehouse_cols if col not in df_selected.columns]
 if missing_warehouse_cols:
     st.error(f"缺少仓库月度分析必要列：{missing_warehouse_cols}，请检查数据列名！")
 else:
     # 筛选有效数据
-    df_warehouse_month_valid = df_current[
-        (df_current[WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]].notna()) &
-        (df_current[WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
+    df_warehouse_month_valid = df_selected[
+        (df_selected[WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]].notna()) &
+        (df_selected[WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"]].notna())
         ].copy()
 
     if len(df_warehouse_month_valid) == 0:
