@@ -2903,27 +2903,38 @@ for logistics in logistics_list:
         multi_data = df_log.groupby("区域")[time_cols_all].mean()
         st.line_chart(multi_data)
     with tab2:
-        # 各环节耗时占比（按区域）【修复饼图报错】
+        # 各环节耗时占比（按区域）【彻底替换饼图，用柱状图更稳】
+        st.write("#### 📊 各区域环节耗时占比（柱状图更清晰）")
         for region in ["美东", "美西", "美中"]:
             df_reg = df_log[df_log["区域"] == region].copy()
             if len(df_reg) == 0:
+                st.write(f"🇺🇸 {region}：暂无数据")
                 continue
 
             # 计算各环节平均耗时
             avg_times = [df_reg[col].mean() for col in time_cols_all]
-            # 过滤掉全0/空的情况（避免饼图报错）
-            if sum(avg_times) == 0:
-                st.write(f"#### 🇺🇸 {region} 环节耗时占比")
-                st.info("该区域暂无有效耗时数据，无法生成饼图")
+            # 计算占比（避免除以0）
+            total_time = sum(avg_times)
+            if total_time == 0:
+                st.write(f"🇺🇸 {region}：暂无有效耗时数据")
                 continue
 
-            # 生成饼图数据
+            # 生成占比数据
             ratio_data = pd.DataFrame({
                 "环节": time_cols_all,
-                "平均耗时（天）": avg_times
+                "平均耗时（天）": avg_times,
+                "占比(%)": [round((t / total_time) * 100, 1) for t in avg_times]
             })
-            st.write(f"#### 🇺🇸 {region} 环节耗时占比")
-            st.pie_chart(ratio_data.set_index("环节"))
+
+            st.write(f"##### 🇺🇸 {region}")
+            # 用柱状图展示（绝对不报错）
+            chart_data = ratio_data[["环节", "占比(%)"]].set_index("环节")
+            st.bar_chart(chart_data, use_container_width=True)
+
+            # 文字展示占比详情
+            st.write("**占比详情：**")
+            for _, row in ratio_data.iterrows():
+                st.markdown(f"- {row['环节']}：{row['占比(%)']}%（{row['平均耗时（天）']:.1f}天）")
 
     # 3. 该物流方式总结
     st.write("#### 📝 总结")
