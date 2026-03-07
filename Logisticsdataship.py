@@ -1024,15 +1024,27 @@ else:
         # 6. 业务解读（通俗易懂）
         st.markdown("#### 📝 分析解读")
         rate_75 = next((r for r in analysis_results if r["目标准时率(%)"] == 75), None)
+        rate_80 = next((r for r in analysis_results if r["目标准时率(%)"] == 80), None)
+        rate_85 = next((r for r in analysis_results if r["目标准时率(%)"] == 85), None)
         rate_90 = next((r for r in analysis_results if r["目标准时率(%)"] == 90), None)
+        rate_95 = next((r for r in analysis_results if r["目标准时率(%)"] == 95), None)
         rate_100 = next((r for r in analysis_results if r["目标准时率(%)"] == 100), None)
 
         if rate_75 and rate_75["对应时效上限(天)"] != "-":
             st.markdown(
                 f"- 【{logistics_type}】要达到75%准时率：上架完成-发货时间需≤**{rate_75['对应时效上限(天)']}天**（此时累计订单占比{rate_75['实际累计占比(%)']}%）")
+        if rate_80 and rate_80["对应时效上限(天)"] != "-":
+            st.markdown(
+                f"- 【{logistics_type}】要达到80%准时率：上架完成-发货时间需≤**{rate_80['对应时效上限(天)']}天**（此时累计订单占比{rate_80['实际累计占比(%)']}%）")
+        if rate_85 and rate_85["对应时效上限(天)"] != "-":
+            st.markdown(
+                f"- 【{logistics_type}】要达到85%准时率：上架完成-发货时间需≤**{rate_85['对应时效上限(天)']}天**（此时累计订单占比{rate_85['实际累计占比(%)']}%）")
         if rate_90 and rate_90["对应时效上限(天)"] != "-":
             st.markdown(
                 f"- 【{logistics_type}】要达到90%准时率：上架完成-发货时间需≤**{rate_90['对应时效上限(天)']}天**（此时累计订单占比{rate_90['实际累计占比(%)']}%）")
+        if rate_95 and rate_95["对应时效上限(天)"] != "-":
+            st.markdown(
+                f"- 【{logistics_type}】要达到95%准时率：上架完成-发货时间需≤**{rate_95['对应时效上限(天)']}天**（此时累计订单占比{rate_95['实际累计占比(%)']}%）")
         if rate_100 and rate_100["对应时效上限(天)"] != "-":
             st.markdown(
                 f"- 【{logistics_type}】要达到100%准时率：上架完成-发货时间需≤**{rate_100['对应时效上限(天)']}天**（覆盖所有订单）")
