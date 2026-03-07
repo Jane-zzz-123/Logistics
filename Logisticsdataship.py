@@ -849,6 +849,152 @@ else:
                 f"⚠️ 仓库环节异常：「{warehouse_stage_col}」偏差≥120%，均值 {d_mean} 天（正常 {n_mean} 天），需紧急优化仓内操作流程。")
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
+# ---------------------- 新增：货代准时率-物流时效分析维度 ----------------------
+st.divider()
+st.subheader("📦 计划物流方式-准时率对应物流时效分析（上架完成-发货时间）")
+
+# 1. 定义需要分析的准时率阈值
+target_rates = [75, 80, 85, 90, 95, 100]
+# 核心统计列（上架完成-发货时间）
+time_col = "上架完成-发货时间"
+
+# 2. 数据预处理：确保物流方式和时效列有效
+if time_col not in df_selected.columns or "计划物流方式" not in df_selected.columns:
+    st.warning(f"⚠️ 缺失核心列：{time_col} 或 计划物流方式，无法进行分析")
+else:
+    # 过滤有效数据（剔除空值、非数值的时效数据）
+    df_analysis = df_selected.copy()
+    df_analysis[time_col] = pd.to_numeric(df_analysis[time_col], errors="coerce")
+    df_analysis = df_analysis.dropna(subset=[time_col, "计划物流方式", "提前/延期"])
+
+    if len(df_analysis) == 0:
+        st.warning("⚠️ 无有效数据用于准时率-时效分析")
+    else:
+        # 3. 按「计划物流方式」分组分析
+        logistics_types = df_analysis["计划物流方式"].unique()
+        selected_logistics_analysis = st.selectbox(
+            "选择计划物流方式（可多选，默认全部）",
+            options=["全部"] + list(logistics_types),
+            index=0,
+            key="logistics_analysis"
+        )
+
+        # 过滤选中的物流方式
+        if selected_logistics_analysis != "全部":
+            df_analysis_filtered = df_analysis[df_analysis["计划物流方式"] == selected_logistics_analysis].copy()
+        else:
+            df_analysis_filtered = df_analysis.copy()
+
+        # 4. 核心计算：不同准时率阈值对应的时效
+        analysis_results = []
+        # 先标记「是否准时」（提前/准时=1，延期=0）
+        df_analysis_filtered["是否准时"] = df_analysis_filtered["提前/延期"].apply(
+            lambda x: 1 if x in ["提前/准时", "提前", "准时"] else 0
+        )
+
+        # 按「上架完成-发货时间」升序排序（时效越短，准时率越高）
+        df_sorted = df_analysis_filtered.sort_values(by=time_col, ascending=True).reset_index(drop=True)
+        total_orders = len(df_sorted)
+
+        if total_orders == 0:
+            st.warning("⚠️ 选中的物流方式无有效数据")
+        else:
+            # 计算累计准时率，匹配目标阈值的时效
+            df_sorted["累计订单数"] = range(1, total_orders + 1)
+            df_sorted["累计准时数"] = df_sorted["是否准时"].cumsum()
+            df_sorted["累计准时率"] = (df_sorted["累计准时数"] / total_orders) * 100
+
+            # 匹配每个目标准时率对应的最小时效
+            for target_rate in target_rates:
+                # 筛选出累计准时率≥目标值的记录
+                df_matched = df_sorted[df_sorted["累计准时率"] >= target_rate]
+                if not df_matched.empty:
+                    # 取最小的时效（即达到该准时率的最短时效）
+                    min_time = df_matched[time_col].min()
+                    # 取该时效下的实际准时率
+                    actual_rate = df_matched[df_matched[time_col] == min_time]["累计准时率"].iloc[0]
+                    analysis_results.append({
+                        "目标准时率(%)": target_rate,
+                        "实际达标准时率(%)": round(actual_rate, 1),
+                        "对应上架完成-发货时间(天)": round(min_time, 1),
+                        "达标订单数": len(df_matched)
+                    })
+                else:
+                    # 无数据时标记为"-"
+                    analysis_results.append({
+                        "目标准时率(%)": target_rate,
+                        "实际达标准时率(%)": "-",
+                        "对应上架完成-发货时间(天)": "-",
+                        "达标订单数": 0
+                    })
+
+            # 5. 展示分析结果表格
+            df_results = pd.DataFrame(analysis_results)
+            st.dataframe(
+                df_results,
+                use_container_width=True,
+                column_config={
+                    "目标准时率(%)": st.column_config.NumberColumn("目标准时率(%)", format="%d"),
+                    "实际达标准时率(%)": st.column_config.NumberColumn("实际达标准时率(%)", format="%.1f"),
+                    "对应上架完成-发货时间(天)": st.column_config.NumberColumn("对应时效(天)", format="%.1f"),
+                    "达标订单数": st.column_config.NumberColumn("达标订单数", format="%d")
+                }
+            )
+
+            # 6. 可视化：准时率-时效趋势图
+            st.markdown("#### 📈 准时率-物流时效趋势曲线")
+            fig = px.line(
+                df_sorted,
+                x=time_col,
+                y="累计准时率",
+                title=f"{selected_logistics_analysis} - 上架完成-发货时间 vs 累计准时率",
+                labels={
+                    time_col: "上架完成-发货时间(天)",
+                    "累计准时率": "累计准时率(%)"
+                },
+                hover_data={
+                    time_col: ":.1f",
+                    "累计准时率": ":.1f",
+                    "累计订单数": ":d"
+                }
+            )
+            # 添加目标准时率参考线
+            for rate in target_rates:
+                fig.add_hline(
+                    y=rate,
+                    line_dash="dash",
+                    line_color="red",
+                    annotation_text=f"{rate}%",
+                    annotation_position="right"
+                )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # 7. 业务解读
+            st.markdown("#### 📝 分析解读")
+            # 提取有效结果
+            valid_results = [r for r in analysis_results if r["对应上架完成-发货时间(天)"] != "-"]
+            if valid_results:
+                # 取90%准时率对应的时效（核心阈值）
+                rate_90 = next((r for r in valid_results if r["目标准时率(%)"] == 90), None)
+                if rate_90:
+                    st.markdown(
+                        f"- 要达到90%准时率，{selected_logistics_analysis}的「上架完成-发货时间」需控制在 **{rate_90['对应上架完成-发货时间(天)']}天** 以内，此时实际准时率为{rate_90['实际达标准时率(%)']}%")
+                # 取100%准时率对应的时效
+                rate_100 = next((r for r in valid_results if r["目标准时率(%)"] == 100), None)
+                if rate_100 and rate_100["对应上架完成-发货时间(天)"] != "-":
+                    st.markdown(
+                        f"- 要达到100%准时率，{selected_logistics_analysis}的「上架完成-发货时间」需控制在 **{rate_100['对应上架完成-发货时间(天)']}天** 以内（仅{rate_100['达标订单数']}单达标）")
+                # 最低阈值参考
+                rate_75 = next((r for r in valid_results if r["目标准时率(%)"] == 75), None)
+                if rate_75:
+                    st.markdown(
+                        f"- 基础达标（75%准时率）的时效要求为 **{rate_75['对应上架完成-发货时间(天)']}天** 以内，是当前最易达成的阈值")
+            else:
+                st.markdown("- 暂无有效数据支撑解读，请选择其他物流方式或检查数据完整性")
+
+
+
 # ---------------------- 货代准时情况分析（独立版：发货-签收环节，无仓库关联） ----------------------
 st.markdown("### 货代准时情况分析（发货-签收环节）")
 
