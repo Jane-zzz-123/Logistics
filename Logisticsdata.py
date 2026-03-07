@@ -699,8 +699,7 @@ warehouse_delay_col = "提前/延期（仓库）"  # 仓库延期分类列
 forwarder_stage_cols = [  # 货代负责的环节
     "发货-提取",
     "提取-到港",
-    "到港-提柜",
-    "提柜-签收"
+    "到港-签收",
 ]
 warehouse_stage_col = "签收-完成上架"  # 仓库负责的环节（单独列）
 all_stage_cols = forwarder_stage_cols + [warehouse_stage_col]  # 所有环节
