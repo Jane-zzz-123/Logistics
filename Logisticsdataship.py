@@ -2783,7 +2783,7 @@ else:
 
 st.divider()
 
-# ===================== 高颜值多维度时效对比（专业商务版） =====================
+# ===================== 高颜值多维度时效对比（专业商务版 · 修复灰色重复） =====================
 st.write("### 🚢 多维度时效对比（区域 × 物流方式 × 环节）")
 
 # 1. 数据预处理（保证数据格式正确）
@@ -2826,10 +2826,10 @@ bars = base.mark_bar(
     x=alt.X("计划物流方式:N", title="计划物流方式", axis=alt.Axis(labelAngle=0, labelFontSize=12)),
     # Y轴：耗时（堆叠）
     y=alt.Y("平均耗时(天):Q", title="平均耗时（天）", stack="zero", axis=alt.Axis(titleFontSize=12)),
-    # 颜色：环节（绑定专业配色）
+    # 颜色：环节（绑定专业配色 · 修复映射）
     color=alt.Color(
         "环节:N",
-        scale=alt.Scale(domain=list(color_palette.keys()), range=list(color_palette.values())),
+        scale=alt.Scale(range=[v for k, v in color_palette.items()]),
         legend=alt.Legend(title="时效环节", titleFontSize=12, labelFontSize=11, symbolSize=100)
     ),
     # 鼠标悬浮提示（精准显示所有信息）
@@ -2841,7 +2841,7 @@ bars = base.mark_bar(
     ]
 )
 
-# 数据标签（柱子上显示数值，更直观）
+# 数据标签（修复Y轴计算 · 避免重复渲染）
 text = base.mark_text(
     align="center",
     baseline="middle",
@@ -2849,9 +2849,10 @@ text = base.mark_text(
     color="#333333"
 ).encode(
     x="计划物流方式:N",
-    y="平均耗时(天):Q",
+    y=alt.Y("平均耗时(天):Q", stack="zero", aggregate="sum"),
     detail="环节:N",
-    text=alt.Text("平均耗时(天):Q", format=".1f")
+    text=alt.Text("平均耗时(天):Q", format=".1f"),
+    yOffset=alt.expr.datum["平均耗时(天)"] / 2
 )
 
 # 按区域分面（每个区域一个图表，横向排列）
@@ -2911,39 +2912,6 @@ for region in stack_data["区域"].unique():
         bottleneck = max(time_cols_all, key=lambda x: row[x])
         st.markdown(f"- **{row['计划物流方式']} 瓶颈环节**：{bottleneck}（{row[bottleneck]:.2f} 天）")
     st.divider()
-# ===================== 3.4 核心结论（自动生成） =====================
-st.write("### 📝 多维度对比核心结论")
-
-if not stack_data.empty:
-    # 遍历每个区域
-    for region in stack_data["区域"].unique():
-        st.write(f"#### 🇺🇸 {region} 区域")
-        region_data = stack_data[stack_data["区域"] == region].copy()
-
-        if len(region_data) < 2:
-            st.info("该区域物流方式不足，无法对比")
-            continue
-
-        # 找整体最快/最慢的物流方式
-        region_data["总耗时"] = region_data[time_cols_all].sum(axis=1)
-        fastest_log = region_data.loc[region_data["总耗时"].idxmin()]["计划物流方式"]
-        slowest_log = region_data.loc[region_data["总耗时"].idxmax()]["计划物流方式"]
-        fastest_total = region_data["总耗时"].min()
-        slowest_total = region_data["总耗时"].max()
-
-        st.markdown(f"- **整体时效最优**：{fastest_log}（总耗时 {fastest_total:.2f} 天）")
-        st.markdown(f"- **整体时效最差**：{slowest_log}（总耗时 {slowest_total:.2f} 天）")
-        st.markdown(f"- **时效差异**：相差 {slowest_total - fastest_total:.2f} 天")
-
-        # 找每个物流方式的瓶颈环节
-        for _, row in region_data.iterrows():
-            log = row["计划物流方式"]
-            step_times = [row[col] for col in time_cols_all]
-            bottleneck = time_cols_all[step_times.index(max(step_times))]
-            st.markdown(f"- **{log} 瓶颈环节**：{bottleneck}（{row[bottleneck]:.2f} 天）")
-        st.divider()
-else:
-    st.info("暂无有效数据可生成结论")
 
 # ---------------------- 第五步：数据下载 ----------------------
 st.subheader("💾 分析数据下载")
