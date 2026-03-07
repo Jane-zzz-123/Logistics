@@ -2159,7 +2159,7 @@ else:
             summary += f" 所选时间范围平均准时率为：{avg_on_time_rate:.2f}%。"
             st.markdown(f"> {summary}")
 
-# ===== 【简化版】多物流方式-多阈值时效趋势折线图 =====
+# ===== 【简化版】多物流方式-多阈值时效趋势折线图（新增累计订单数）=====
 st.markdown("### 📦 各物流方式-不同准时率阈值时效趋势")
 st.divider()
 
@@ -2183,7 +2183,7 @@ df_time_analysis = df_time_analysis[
 if len(df_time_analysis) == 0:
     st.warning("暂无有效时效数据（时效为空/≤0 或 物流方式为空）")
 else:
-    # 2. 核心计算：按【物流方式+月份+阈值】计算时效上限
+    # 2. 核心计算：按【物流方式+月份+阈值】计算时效上限（新增累计订单数）
     trend_results = []
     # 获取所有需要分析的物流方式（根据筛选条件）
     if selected_logistics == "全部":
@@ -2209,17 +2209,21 @@ else:
             # 关联中文月份名称
             month_cn = monthly_stats[monthly_stats["到货年月"] == ym]["中文月份"].iloc[0]
 
-            # 遍历每个阈值计算时效上限
+            # 遍历每个阈值计算时效上限+累计订单数
             for target_rate in target_rates:
                 df_matched = df_month_sorted[df_month_sorted["累计占比(%)"] >= target_rate]
                 if not df_matched.empty:
                     min_time = round(df_matched[time_col].min(), 1)  # 保留1位小数
+                    # 新增：计算该阈值下的累计订单数
+                    pass_orders = len(df_month_sorted[df_month_sorted[time_col] <= min_time])
                     trend_results.append({
                         "计划物流方式": logistics_type,
                         "到货年月": ym,
                         "中文月份": month_cn,
                         "准时率阈值(%)": target_rate,
-                        "时效上限(天)": min_time
+                        "时效上限(天)": min_time,
+                        "当月总订单数": month_total,  # 新增
+                        "达标累计订单数": pass_orders  # 新增：达到该阈值的累计订单数
                     })
 
     # 3. 生成折线图（每个物流方式1张图）
@@ -2274,15 +2278,20 @@ else:
             st.plotly_chart(fig, use_container_width=True)
             st.divider()
 
-        # 可选：生成汇总数据表格
-        st.markdown("#### 📊 时效趋势原始数据")
+        # 优化：原始数据表格（新增累计订单数）
+        st.markdown("#### 📊 时效趋势原始数据（含累计订单数）")
+        # 选择展示的列（调整顺序，突出核心信息）
+        display_cols = [
+            "计划物流方式", "中文月份", "准时率阈值(%)",
+            "时效上限(天)", "当月总订单数", "达标累计订单数"
+        ]
         st.dataframe(
-            df_trend[["计划物流方式", "中文月份", "准时率阈值(%)", "时效上限(天)"]],
+            df_trend[display_cols],
             use_container_width=True,
             hide_index=True
         )
 
-        # 数据下载
+        # 数据下载（包含累计订单数）
         csv_trend = df_trend.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
             label="📥 下载时效趋势数据",
