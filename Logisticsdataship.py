@@ -2710,7 +2710,7 @@ if selected_logistics != "全部":
 df_analysis = df_analysis[df_analysis["区域"].isin(["美东", "美西", "美中"])].copy()
 
 # 4. 清理所有时效列（5个核心环节）【业务正确：只删空值，不删 <1 天的正常数据】
-time_cols_all = ["开船-签收", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架"]
+time_cols_all = ["开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架"]
 time_cols_all = [c for c in time_cols_all if c in df_analysis.columns]
 
 # 先统一转数字
