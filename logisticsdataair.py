@@ -10,7 +10,7 @@ import base64
 # 页面配置（完全保留）
 st.set_page_config(
     page_title="FBA空派物流交期分析看板",
-    page_icon="🚢",
+    page_icon="📦 ",
     layout="wide",
     initial_sidebar_state="expanded"
 )
