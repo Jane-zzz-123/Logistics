@@ -2868,12 +2868,63 @@ for region in stack_data["区域"].unique():
     region_df = stack_data[stack_data["区域"] == region].copy()
     if len(region_df) == 0:
         continue
+
+    # 计算核心数据
     fastest = region_df.loc[region_df["开船-签收总耗时"].idxmin()]
     slowest = region_df.loc[region_df["开船-签收总耗时"].idxmax()]
-    st.markdown(f"#### 🇺🇸 {region} 区域")
-    st.markdown(f"- ✅ **最优物流**：{fastest['计划物流方式']}（总耗时 {fastest['开船-签收总耗时']:.2f} 天）")
-    st.markdown(f"- ❌ **最差物流**：{slowest['计划物流方式']}（总耗时 {slowest['开船-签收总耗时']:.2f} 天）")
-    st.markdown(f"- 📊 **时效差距**：{slowest['开船-签收总耗时'] - fastest['开船-签收总耗时']:.2f} 天")
+    gap = slowest["开船-签收总耗时"] - fastest["开船-签收总耗时"]
+
+    # 提取最优/最差物流的各环节平均耗时（精简展示）
+    fastest_detail = f"""
+    开船-到港：{fastest['开船-到港']:.1f}天<br>
+    到港-提柜：{fastest['到港-提柜']:.1f}天<br>
+    提柜-签收：{fastest['提柜-签收']:.1f}天<br>
+    签收-完成：{fastest['签收-完成上架']:.1f}天
+    """
+    slowest_detail = f"""
+    开船-到港：{slowest['开船-到港']:.1f}天<br>
+    到港-提柜：{slowest['到港-提柜']:.1f}天<br>
+    提柜-签收：{slowest['提柜-签收']:.1f}天<br>
+    签收-完成：{slowest['签收-完成上架']:.1f}天
+    """
+
+    # 一行三列布局
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown(f"""
+        <div style='background:#e8f4f8;padding:15px;border-radius:8px;height:100%;'>
+            <div style='color:#2e86ab;font-weight:bold;font-size:14px;margin-bottom:8px;'>✅ 最优物流</div>
+            <div style='font-size:13px;font-weight:bold;'>{fastest['计划物流方式']}</div>
+            <div style='font-size:12px;color:#666;margin:6px 0;'>总耗时：{fastest['开船-签收总耗时']:.2f} 天</div>
+            <div style='font-size:11px;color:#555;line-height:1.4;'>{fastest_detail}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div style='background:#fdf2f8;padding:15px;border-radius:8px;height:100%;'>
+            <div style='color:#d9480f;font-weight:bold;font-size:14px;margin-bottom:8px;'>❌ 最差物流</div>
+            <div style='font-size:13px;font-weight:bold;'>{slowest['计划物流方式']}</div>
+            <div style='font-size:12px;color:#666;margin:6px 0;'>总耗时：{slowest['开船-签收总耗时']:.2f} 天</div>
+            <div style='font-size:11px;color:#555;line-height:1.4;'>{slowest_detail}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div style='background:#f5f5f5;padding:15px;border-radius:8px;height:100%;text-align:center;'>
+            <div style='color:#26a69a;font-weight:bold;font-size:14px;margin-bottom:8px;'>📊 核心对比</div>
+            <div style='font-size:18px;font-weight:bold;color:#26a69a;'>{gap:.2f} 天</div>
+            <div style='font-size:12px;color:#666;margin:6px 0;'>时效差距</div>
+            <div style='font-size:12px;color:#666;'>{region} 区域</div>
+            <div style='font-size:11px;color:#555;margin-top:8px;'>
+                最快瓶颈：{max(time_cols_all, key=lambda x: fastest[x])}<br>
+                最慢瓶颈：{max(time_cols_all, key=lambda x: slowest[x])}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.divider()
 
 # ---------------------- 第五步：数据下载 ----------------------
