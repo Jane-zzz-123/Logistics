@@ -2889,37 +2889,45 @@ for i, (_, row) in enumerate(log_summary.iterrows()):
             delta="平均总耗时"
         )
 
-# 3. 环节耗时占比（核心：哪个环节拖后腿）
-st.write("#### 🧩 环节耗时占比（全局）")
-step_avg = stack_data[time_cols_all].mean()
-step_total = step_avg.sum()
-step_ratio = (step_avg / step_total * 100).round(1)
-step_df = pd.DataFrame({
-    "环节": time_cols_all,
-    "平均耗时(天)": step_avg,
-    "占比(%)": step_ratio
-}).sort_values("占比(%)", ascending=False)
+st.write("### 📝 多维度对比结论（纯文字总结版）")
 
-col_step = st.columns(len(step_df))
-for i, (_, row) in enumerate(step_df.iterrows()):
-    with col_step[i]:
-        st.metric(
-            label=row["环节"],
-            value=f"{row['平均耗时(天)']:.1f}天",
-            delta=f"{row['占比(%)']}%"
-        )
+for region in stack_data["区域"].unique():
+    st.markdown(f"---\n#### 🌍 {region} 区域")
+    region_df = stack_data[stack_data["区域"] == region].copy()
 
-# 4. 核心洞察（一句话讲明白）
-st.write("#### 💡 核心洞察")
-fastest_log = log_summary.iloc[0]["计划物流方式"]
-slowest_log = log_summary.iloc[-1]["计划物流方式"]
-bottleneck_step = step_df.iloc[0]["环节"]
+    if len(region_df) == 0:
+        st.info("该区域暂无有效数据")
+        continue
 
-st.markdown(f"""
-- ✅ **整体趋势**：{stack_data['区域'].unique()} 三大区域中，**{stack_data.loc[stack_data['开船-签收总耗时'].idxmin(), '区域']}** 时效最优，**{stack_data.loc[stack_data['开船-签收总耗时'].idxmax(), '区域']}** 时效最慢
-- 🚀 **最优物流**：**{fastest_log}** 平均总耗时 {log_summary.iloc[0]['开船-签收总耗时']:.2f} 天，是所有方式中效率最高的
-- 🐢 **最差物流**：**{slowest_log}** 平均总耗时 {log_summary.iloc[-1]['开船-签收总耗时']:.2f} 天，效率最低
-- ⚠️ **核心瓶颈**：**{bottleneck_step}** 环节占总耗时 {step_df.iloc[0]['占比(%)']}%，是拖慢整体时效的关键
+    # 遍历该区域的每个物流方式
+    for _, log_row in region_df.iterrows():
+        log_name = log_row["计划物流方式"]
+        total_time = log_row["开船-签收总耗时"]
+
+        # 找出该物流方式的瓶颈环节（耗时最长的环节）
+        bottleneck = max(time_cols_all, key=lambda x: log_row[x])
+        bottleneck_days = log_row[bottleneck]
+
+        st.markdown(f"""
+**🚛 {log_name}**
+- 总耗时（开船-签收）：{total_time:.2f} 天
+- 各环节平均耗时：
+  - 开船-到港：{log_row['开船-到港']:.1f} 天
+  - 到港-提柜：{log_row['到港-提柜']:.1f} 天
+  - 提柜-签收：{log_row['提柜-签收']:.1f} 天
+  - 签收-完成上架：{log_row['签收-完成上架']:.1f} 天
+- ⚠️ 瓶颈环节：**{bottleneck}**（{bottleneck_days:.1f} 天，占总耗时 {bottleneck_days / total_time * 100:.1f}%）
+""")
+
+    # 该区域内物流方式对比总结
+    if len(region_df) > 1:
+        fastest_log = region_df.loc[region_df["开船-签收总耗时"].idxmin()]["计划物流方式"]
+        slowest_log = region_df.loc[region_df["开船-签收总耗时"].idxmax()]["计划物流方式"]
+        st.markdown(f"""
+👉 **{region} 区域对比**：
+- 最快物流：**{fastest_log}**
+- 最慢物流：**{slowest_log}**
+- 时效差距：{region_df['开船-签收总耗时'].max() - region_df['开船-签收总耗时'].min():.2f} 天
 """)
 
 # ---------------------- 第五步：数据下载 ----------------------
