@@ -2698,21 +2698,33 @@ if not selected_months:
     st.warning("⚠️ 请至少选择一个到货年月")
     st.stop()
 
-# ---------------------- 第二步：数据筛选（年月+物流方式+有效区域） ----------------------
+# ---------------------- 第二步：数据筛选（年月+物流方式+有效区域）【业务正确版】 ----------------------
 # 1. 筛选年月范围
 df_analysis = df_selected[df_selected["到货年月"].isin(selected_months)].copy()
+
 # 2. 筛选物流方式
 if selected_logistics != "全部":
     df_analysis = df_analysis[df_analysis["计划物流方式"] == selected_logistics].copy()
+
 # 3. 只保留美东/美西/美中
 df_analysis = df_analysis[df_analysis["区域"].isin(["美东", "美西", "美中"])].copy()
 
-# 4. 清理所有时效列（5个核心环节）
+# 4. 清理所有时效列（5个核心环节）【业务正确：只删空值，不删 <1 天的正常数据】
 time_cols_all = ["开船-签收", "开船-到港", "到港-提柜", "提柜-签收", "签收-完成上架"]
 time_cols_all = [c for c in time_cols_all if c in df_analysis.columns]
+
+# 先统一转数字
 for col in time_cols_all:
     df_analysis[col] = pd.to_numeric(df_analysis[col], errors="coerce")
-    df_analysis = df_analysis[(df_analysis[col] > 0) & (df_analysis[col] < 100)]  # 过滤异常值
+
+# 【只删除：空值 / 负数】
+# 【保留：0 ~ 100 天所有正常数据】
+df_analysis = df_analysis.dropna(subset=time_cols_all).copy()
+for col in time_cols_all:
+    df_analysis = df_analysis[df_analysis[col] >= 0]
+
+# 最后再过滤极端异常（比如 >200 天这种明显错的）
+df_analysis = df_analysis[(df_analysis["开船-签收"] < 200)].copy()
 
 if df_analysis.empty:
     st.warning(f"⚠️ 所选条件下暂无有效数据")
