@@ -156,19 +156,12 @@ else:
     abnormal_count_total = len(df_all[df_all["是否为异常数据"] == "是"])
     st.info(f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条记录（含 {abnormal_count_total} 条异常数据）")
 
-# 4. 数据预览
-st.subheader("筛选后数据预览")
-abnormal_col = "是否为异常数据"
-preview_cols = [abnormal_col, "FBA号", "到货年月", "异常备注"]
-preview_cols = [col for col in preview_cols if col in df_selected.columns]
-st.dataframe(df_selected[preview_cols].head(20), use_container_width=True)
-
 # 5. 主看板区域
 st.title("🚢 FBA海运分析看板区域")
 st.divider()
 
 # 6. 当月数据筛选（基于df_selected，不会丢数据）
-st.subheader("🔍 当月FBA海运分析")
+st.subheader("🔍 当月海运分析")
 month_options = sorted(df_selected["到货年月"].unique(), reverse=True)
 if not month_options:
     st.warning("⚠️ 暂无可用的到货年月数据")
@@ -353,17 +346,17 @@ on_time_rate_change = on_time_rate - prev_on_time_rate  # 准时率变化
 
 # 核心结论（先给定性判断）
 if on_time_rate >= 90:
-    core_conclusion = f"{selected_month}FBA海运物流整体表现优秀，准时率达{on_time_rate:.1f}%，远高于行业基准"
+    core_conclusion = f"{selected_month}海运物流整体表现优秀，准时率达{on_time_rate:.1f}%，远高于行业基准"
 elif on_time_rate >= 80:
-    core_conclusion = f"{selected_month}FBA海运物流表现良好，准时率{on_time_rate:.1f}%，整体可控"
+    core_conclusion = f"{selected_month}海运物流表现良好，准时率{on_time_rate:.1f}%，整体可控"
 elif on_time_rate >= 70:
-    core_conclusion = f"{selected_month}FBA海运物流表现一般，准时率{on_time_rate:.1f}%，需关注延期问题"
+    core_conclusion = f"{selected_month}海运物流表现一般，准时率{on_time_rate:.1f}%，需关注延期问题"
 else:
-    core_conclusion = f"{selected_month}FBA海运物流表现较差，准时率仅{on_time_rate:.1f}%，延期风险显著"
+    core_conclusion = f"{selected_month}海运物流表现较差，准时率仅{on_time_rate:.1f}%，延期风险显著"
 
 # 关键数据支撑（精简+业务化）
 data_support = f"""
-本月共处理FBA订单{current_fba}单（环比{'+' if fba_change > 0 else ''}{fba_change}单）：
+本月共处理订单{current_fba}单（环比{'+' if fba_change > 0 else ''}{fba_change}单）：
 ✅ 提前/准时单{current_on_time}单（准时率{on_time_rate:.1f}%，环比{'↑' if on_time_rate_change > 0 else '↓'}{abs(on_time_rate_change):.1f}个百分点）；
 ❌ 延期单{current_delay}单（延期率{delay_rate:.1f}%）；
 📊 实际物流时效与预计的偏差均值为{current_diff_avg:.2f}天（绝对值均值{current_abs_avg:.2f}天），环比{'扩大' if abs_change > 0 else '收窄'}{abs(abs_change):.2f}天。
@@ -389,7 +382,7 @@ if not tips:
 
 # 整合最终总结
 summary_text = f"""
-### {selected_month}FBA海运物流核心分析
+### {selected_month}海运物流核心分析
 {core_conclusion}
 
 {data_support}
@@ -427,7 +420,7 @@ with col1:
         fig_pie = px.pie(
             values=pie_data.values,
             names=pie_data.index,
-            title=f"{selected_month} FBA海运准时率分布",
+            title=f"{selected_month} 海运准时率分布",
             color=pie_data.index,  # 显式指定颜色依据
             color_discrete_sequence=colors  # 使用顺序颜色列表确保对应关系
         )
@@ -493,7 +486,7 @@ with col2:
 
 st.divider()
 # ---------------------- ③ 当月FBA海运明细表格 ----------------------
-st.markdown("### FBA海运明细（含平均值）")
+st.markdown("### 海运明细（含平均值）")
 
 # 准备明细数据
 detail_cols = [
@@ -683,8 +676,8 @@ if len(df_detail) > 0:
     st.markdown(
         get_table_download_link(
             df_download,
-            f"FBA海运明细_{selected_month}.xlsx",
-            "📥 下载FBA海运明细表格（Excel格式）"
+            f"海运明细_{selected_month}.xlsx",
+            "📥 下载海运明细表格（Excel格式）"
         ),
         unsafe_allow_html=True
     )
@@ -3177,7 +3170,7 @@ else:
 
 # ===================== 区域的分析 =====================
 # ======================== 区域+物流方式 时效分析（精准匹配需求版） ========================
-st.subheader("🚢 FBA海运时效深度分析（按区域+物流方式）")
+st.subheader("🚢 海运时效深度分析（按区域+物流方式）")
 st.divider()
 
 # ---------------------- 第一步：核心筛选器（年月范围+物流方式） ----------------------
