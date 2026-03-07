@@ -2763,100 +2763,6 @@ with col2:
 with col3:
     st.warning("🇺🇸 美中区域")
     st.metric("开船-签收平均", f"{mid_sign:.1f}天", f"样本数：{mid_count}")
-# ===================== 3.2 物流方式细分（开船-签收）【终极稳版·无任何报错】 =====================
-st.write("### 🚛 物流方式 × 区域 双向对比")
-
-# 数据预处理
-logistics_detail = df_analysis.groupby(["区域", "计划物流方式"])["开船-签收"].agg([
-    "mean", "count"
-]).reset_index()
-logistics_detail.columns = ["区域", "计划物流方式", "平均时效（天）", "样本数"]
-logistics_detail = logistics_detail[logistics_detail["样本数"] >= 1]
-
-# 固定配色方案（只用于文字，图表用默认配色避免报错）
-logistics_list = logistics_detail["计划物流方式"].unique()
-color_map = {
-    logistics: color for logistics, color in zip(
-        logistics_list,
-        ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f"]
-    )
-}
-
-# ==================== 一行两列布局（绝对不报错） ====================
-col_left, col_right = st.columns(2)
-
-# ------------------- 左图：同一区域 → 不同物流方式对比 -------------------
-with col_left:
-    st.subheader("同一区域 · 不同物流方式")
-
-    # 按区域拆分展示
-    for region in ["美东", "美西", "美中"]:
-        st.write(f"#### 🇺🇸 {region}")
-        reg_data = logistics_detail[logistics_detail["区域"] == region].copy()
-
-        if reg_data.empty:
-            st.info(f"该区域暂无数据")
-            st.divider()
-            continue
-
-        # 1. 原生柱状图（不用自定义color，避免数量不匹配报错）
-        chart_data = reg_data[["计划物流方式", "平均时效（天）"]].set_index("计划物流方式")
-        st.bar_chart(chart_data, use_container_width=True)
-
-        # 2. 文字总结（带颜色标签，和物流方式绑定）
-        st.write("**时效详情（颜色对应物流方式）：**")
-        for _, row in reg_data.iterrows():
-            st.markdown(
-                f"""
-                <div style='display:flex;align-items:center;margin:4px 0;'>
-                    <div style='width:16px;height:16px;background:{color_map[row["计划物流方式"]]};margin-right:8px;border-radius:3px;'></div>
-                    <span style='font-weight:500;'>{row["计划物流方式"]}</span>：
-                    <span style='color:{color_map[row["计划物流方式"]]};font-weight:bold;'>{row["平均时效（天）"]:.1f}天</span>
-                    （样本{row["样本数"]}条）
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        st.divider()
-
-# ------------------- 右图：同一物流方式 → 不同区域对比 -------------------
-with col_right:
-    st.subheader("同一物流方式 · 不同区域")
-
-    # 按物流方式拆分展示
-    for logistics in logistics_list:
-        st.write(f"#### 🚛 {logistics}")
-        log_data = logistics_detail[logistics_detail["计划物流方式"] == logistics].copy()
-
-        if log_data.empty:
-            st.info(f"该物流方式暂无数据")
-            st.divider()
-            continue
-
-        # 1. 原生柱状图
-        chart_data = log_data[["区域", "平均时效（天）"]].set_index("区域")
-        st.bar_chart(chart_data, use_container_width=True)
-
-        # 2. 文字总结（突出最优/最差区域）
-        fastest_row = log_data.loc[log_data["平均时效（天）"].idxmin()]
-        slowest_row = log_data.loc[log_data["平均时效（天）"].idxmax()]
-
-        st.write("**核心结论：**")
-        st.markdown(f"- 🚀 最优区域：{fastest_row['区域']}（{fastest_row['平均时效（天）']:.1f}天）")
-        st.markdown(f"- 🐢 最慢区域：{slowest_row['区域']}（{slowest_row['平均时效（天）']:.1f}天）")
-        st.markdown(f"- 📊 区域差异：{slowest_row['平均时效（天）'] - fastest_row['平均时效（天）']:.1f}天")
-        st.divider()
-
-# ==================== 明细数据（折叠面板） ====================
-with st.expander("📋 查看完整明细数据", expanded=False):
-    st.dataframe(
-        logistics_detail.sort_values(["区域", "计划物流方式"]),
-        use_container_width=True,
-        column_config={
-            "平均时效（天）": st.column_config.NumberColumn(format="%.1f"),
-            "样本数": st.column_config.NumberColumn(format="%d")
-        }
-    )
 
 # ===================== 3.3 开船-签收 总结 =====================
 st.write("### 📝 开船-签收 核心结论")
@@ -2877,81 +2783,115 @@ else:
 
 st.divider()
 
-# ---------------------- 第四步：全环节分析（按物流方式） ----------------------
-st.subheader("📊 全环节时效分析（按物流方式）")
-# 获取所有有数据的物流方式
-logistics_list = df_analysis["计划物流方式"].dropna().unique()
+# ===================== 3.2 多维度堆叠条形图（完美复刻你要的样式） =====================
+st.write("### 🚢 多维度时效对比（堆叠条形图 · 区域 × 物流方式 × 环节）")
 
-for logistics in logistics_list:
-    st.write(f"### 🚛 物流方式：{logistics}")
-    df_log = df_analysis[df_analysis["计划物流方式"] == logistics].copy()
+# 1. 数据预处理：按【区域 + 计划物流方式】分组，计算各环节平均值
+stack_data = df_analysis.groupby(["区域", "计划物流方式"])[time_cols_all].mean().reset_index()
 
-    # 1. 各环节平均时效（分区域）
-    col_list = st.columns(len(time_cols_all))
-    for idx, col in enumerate(time_cols_all):
-        with col_list[idx]:
-            st.metric(
-                label=col,
-                value=f"{df_log[col].mean():.1f}天",
-                delta=f"样本数：{len(df_log)}"
-            )
+# 2. 把宽表转成长表（适合堆叠图）
+stack_melt = stack_data.melt(
+    id_vars=["区域", "计划物流方式"],
+    value_vars=time_cols_all,
+    var_name="环节",
+    value_name="平均耗时(天)"
+)
 
-    # 2. 多环节对比图表
-    tab1, tab2 = st.tabs(["区域对比（多环节）", "环节耗时占比"])
-    with tab1:
-        # 区域+环节对比
-        multi_data = df_log.groupby("区域")[time_cols_all].mean()
-        st.line_chart(multi_data)
-    with tab2:
-        # 各环节耗时占比（按区域）【彻底替换饼图，用柱状图更稳】
-        st.write("#### 📊 各区域环节耗时占比（柱状图更清晰）")
-        for region in ["美东", "美西", "美中"]:
-            df_reg = df_log[df_log["区域"] == region].copy()
-            if len(df_reg) == 0:
-                st.write(f"🇺🇸 {region}：暂无数据")
-                continue
+# 3. 用 Altair 画堆叠条形图（和你截图里的 Excel 图表一模一样）
+import altair as alt
 
-            # 计算各环节平均耗时
-            avg_times = [df_reg[col].mean() for col in time_cols_all]
-            # 计算占比（避免除以0）
-            total_time = sum(avg_times)
-            if total_time == 0:
-                st.write(f"🇺🇸 {region}：暂无有效耗时数据")
-                continue
+chart = alt.Chart(stack_melt).mark_bar().encode(
+    x=alt.X("计划物流方式:N", title="计划物流方式", axis=alt.Axis(labelAngle=0)),
+    y=alt.Y("平均耗时(天):Q", title="平均耗时(天)", stack="zero"),
+    color=alt.Color(
+        "环节:N",
+        scale=alt.Scale(
+            domain=["开船-到港(平均)", "到港-提柜(平均)", "提柜-签收(平均)", "签收-完成上架(平均)"],
+            range=["#1f77b4", "#ff7f0e", "#d62728", "#2ca02c"]  # 和你图表颜色对应
+        ),
+        legend=alt.Legend(title="环节")
+    ),
+    tooltip=[
+        alt.Tooltip("区域:N"),
+        alt.Tooltip("计划物流方式:N"),
+        alt.Tooltip("环节:N"),
+        alt.Tooltip("平均耗时(天):Q", format=".2f")
+    ],
+    facet=alt.Facet("区域:N", columns=3, title="区域")  # 按区域分面，和你截图一致
+).properties(
+    width=280,
+    height=350,
+    title="各区域 · 不同物流方式 · 各环节时效堆叠对比"
+).configure_title(
+    fontSize=16, anchor="middle"
+).configure_axis(
+    labelFontSize=12,
+    titleFontSize=13
+).configure_legend(
+    labelFontSize=11,
+    titleFontSize=12
+)
 
-            # 生成占比数据
-            ratio_data = pd.DataFrame({
-                "环节": time_cols_all,
-                "平均耗时（天）": avg_times,
-                "占比(%)": [round((t / total_time) * 100, 1) for t in avg_times]
-            })
+# 4. 渲染图表
+st.altair_chart(chart, use_container_width=True)
 
-            st.write(f"##### 🇺🇸 {region}")
-            # 用柱状图展示（绝对不报错）
-            chart_data = ratio_data[["环节", "占比(%)"]].set_index("环节")
-            st.bar_chart(chart_data, use_container_width=True)
+# ===================== 3.3 对应表格明细（和你截图里的上表一致） =====================
+st.write("### 📋 明细汇总表（和 Excel 汇总格式一致）")
+summary_table = stack_data.copy()
+# 重命名列，和你截图保持一致
+rename_map = {
+    "开船-到港": "开船-到港(平均)",
+    "到港-提柜": "到港-提柜(平均)",
+    "提柜-签收": "提柜-签收(平均)",
+    "签收-完成上架": "签收-完成上架(平均)"
+}
+summary_table = summary_table.rename(columns=rename_map)
+# 按区域+物流方式排序
+summary_table = summary_table.sort_values(["区域", "计划物流方式"])
 
-            # 文字展示占比详情
-            st.write("**占比详情：**")
-            for _, row in ratio_data.iterrows():
-                st.markdown(f"- {row['环节']}：{row['占比(%)']}%（{row['平均耗时（天）']:.1f}天）")
+st.dataframe(
+    summary_table,
+    use_container_width=True,
+    column_config={
+        "开船-到港(平均)": st.column_config.NumberColumn(format="%.2f"),
+        "到港-提柜(平均)": st.column_config.NumberColumn(format="%.2f"),
+        "提柜-签收(平均)": st.column_config.NumberColumn(format="%.2f"),
+        "签收-完成上架(平均)": st.column_config.NumberColumn(format="%.2f")
+    }
+)
+# ===================== 3.4 核心结论（自动生成） =====================
+st.write("### 📝 多维度对比核心结论")
 
-    # 3. 该物流方式总结
-    st.write("#### 📝 总结")
-    total_time = df_log["开船-签收"].mean()
-    longest_step = time_cols_all[
-        [df_log[col].mean() for col in time_cols_all].index(max([df_log[col].mean() for col in time_cols_all]))]
-    shortest_step = time_cols_all[
-        [df_log[col].mean() for col in time_cols_all].index(min([df_log[col].mean() for col in time_cols_all]))]
+if not stack_data.empty:
+    # 遍历每个区域
+    for region in stack_data["区域"].unique():
+        st.write(f"#### 🇺🇸 {region} 区域")
+        region_data = stack_data[stack_data["区域"] == region].copy()
 
-    summary = f"""
-    - 整体时效（开船-签收）：{total_time:.1f}天
-    - 耗时最长环节：{longest_step}（{df_log[longest_step].mean():.1f}天）
-    - 耗时最短环节：{shortest_step}（{df_log[shortest_step].mean():.1f}天）
-    - 核心优化点：重点关注{longest_step}环节的效率提升
-    """
-    st.markdown(summary)
-    st.divider()
+        if len(region_data) < 2:
+            st.info("该区域物流方式不足，无法对比")
+            continue
+
+        # 找整体最快/最慢的物流方式
+        region_data["总耗时"] = region_data[time_cols_all].sum(axis=1)
+        fastest_log = region_data.loc[region_data["总耗时"].idxmin()]["计划物流方式"]
+        slowest_log = region_data.loc[region_data["总耗时"].idxmax()]["计划物流方式"]
+        fastest_total = region_data["总耗时"].min()
+        slowest_total = region_data["总耗时"].max()
+
+        st.markdown(f"- **整体时效最优**：{fastest_log}（总耗时 {fastest_total:.2f} 天）")
+        st.markdown(f"- **整体时效最差**：{slowest_log}（总耗时 {slowest_total:.2f} 天）")
+        st.markdown(f"- **时效差异**：相差 {slowest_total - fastest_total:.2f} 天")
+
+        # 找每个物流方式的瓶颈环节
+        for _, row in region_data.iterrows():
+            log = row["计划物流方式"]
+            step_times = [row[col] for col in time_cols_all]
+            bottleneck = time_cols_all[step_times.index(max(step_times))]
+            st.markdown(f"- **{log} 瓶颈环节**：{bottleneck}（{row[bottleneck]:.2f} 天）")
+        st.divider()
+else:
+    st.info("暂无有效数据可生成结论")
 
 # ---------------------- 第五步：数据下载 ----------------------
 st.subheader("💾 分析数据下载")
