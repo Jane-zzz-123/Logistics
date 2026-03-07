@@ -2783,7 +2783,7 @@ else:
 
 st.divider()
 
-# ===================== 多维度时效对比（极简稳定版 · 绝对不报错） =====================
+# ===================== 多维度时效对比（Plotly专业版 · 颜值拉满不报错） =====================
 st.write("### 🚢 多维度时效对比（区域 × 物流方式 × 环节）")
 
 # 1. 数据预处理
@@ -2792,41 +2792,88 @@ if stack_data.empty:
     st.warning("⚠️ 暂无有效数据可生成图表")
     st.stop()
 
-# 2. 按区域分开展示（避免分面/标签报错）
+# 2. 宽表转长表（Plotly堆叠图专用）
+stack_melt = stack_data.melt(
+    id_vars=["区域", "计划物流方式"],
+    value_vars=time_cols_all,
+    var_name="环节",
+    value_name="平均耗时(天)"
+)
+
+# 3. 导入 Plotly（稳定兼容）
+import plotly.express as px
+import plotly.io as pio
+pio.renderers.default = "notebook_connected"  # 兼容 Streamlit Cloud
+
+# 4. 专业配色（和你Excel一致：蓝→橙→灰→绿）
+color_map = {
+    "开船-到港": "#4472C4",
+    "到港-提柜": "#ED7D31",
+    "提柜-签收": "#A5A5A5",
+    "签收-完成上架": "#70AD47"
+}
+
+# 5. 核心堆叠图：分区域 + 物流方式 + 环节
+fig = px.bar(
+    stack_melt,
+    x="计划物流方式",
+    y="平均耗时(天)",
+    color="环节",
+    facet_col="区域",  # 按区域分面
+    barmode="stack",   # 堆叠模式
+    color_discrete_map=color_map,  # 绑定专业配色
+    labels={"计划物流方式": "计划物流方式", "平均耗时(天)": "平均耗时（天）"},
+    height=350,
+    title="各区域不同物流方式时效环节对比"
+)
+
+# 6. 美化图表（商务风拉满）
+fig.update_layout(
+    title_x=0.5,  # 标题居中
+    font={"size": 12},
+    legend={"title": "时效环节", "orientation": "v", "y": 1},
+    xaxis={"title_standoff": 10},
+    yaxis={"title_standoff": 10},
+    plot_bgcolor="white",  # 白底更清爽
+    paper_bgcolor="white",
+    margin={"l": 40, "r": 40, "t": 40, "b": 40}
+)
+
+# 7. 柱子上显示数值（可选，更直观）
+fig.update_traces(
+    textposition="inside",
+    textfont={"size": 10, "color": "white"},
+    insidetextanchor="middle"
+)
+
+# 8. 渲染图表（绝对不报错）
+st.plotly_chart(fig, use_container_width=True)
+
+# ===================== 配套表格+结论（不变） =====================
+st.write("### 📋 明细汇总表")
+stack_data["开船-签收总耗时"] = stack_data[time_cols_all].sum(axis=1)
+st.dataframe(
+    stack_data.sort_values(["区域", "开船-签收总耗时"]),
+    use_container_width=True,
+    column_config={
+        "区域": st.column_config.TextColumn(width="80px"),
+        "计划物流方式": st.column_config.TextColumn(width="120px"),
+        **{col: st.column_config.NumberColumn(format="%.2f", width="100px") for col in time_cols_all},
+        "开船-签收总耗时": st.column_config.NumberColumn(format="%.2f", width="120px")
+    }
+)
+
+st.write("### 📝 多维度对比结论")
 for region in stack_data["区域"].unique():
-    st.write(f"#### 🇺🇸 {region} 区域")
     region_df = stack_data[stack_data["区域"] == region].copy()
-
-    # 3. 原生堆叠条形图（Streamlit内置，绝对稳定）
-    chart_data = region_df.set_index("计划物流方式")[time_cols_all]
-    st.bar_chart(
-        chart_data,
-        use_container_width=True,
-        height=300
-    )
-
-    # 4. 配套明细表格
-    st.write("##### 📋 时效明细")
-    region_df["开船-签收总耗时"] = region_df[time_cols_all].sum(axis=1)
-    st.dataframe(
-        region_df.sort_values("开船-签收总耗时"),
-        use_container_width=True,
-        column_config={
-            "计划物流方式": st.column_config.TextColumn(width="120px"),
-            **{col: st.column_config.NumberColumn(format="%.2f", width="100px") for col in time_cols_all},
-            "开船-签收总耗时": st.column_config.NumberColumn(format="%.2f", width="120px")
-        }
-    )
-
-    # 5. 简单对比结论
-    if len(region_df) > 0:
-        fastest = region_df.loc[region_df["开船-签收总耗时"].idxmin()]
-        slowest = region_df.loc[region_df["开船-签收总耗时"].idxmax()]
-        st.write("##### 📝 对比结论")
-        st.markdown(f"- 最优物流：{fastest['计划物流方式']}（总耗时 {fastest['开船-签收总耗时']:.2f} 天）")
-        st.markdown(f"- 最差物流：{slowest['计划物流方式']}（总耗时 {slowest['开船-签收总耗时']:.2f} 天）")
-        st.markdown(f"- 时效差距：{slowest['开船-签收总耗时'] - fastest['开船-签收总耗时']:.2f} 天")
-
+    if len(region_df) == 0:
+        continue
+    fastest = region_df.loc[region_df["开船-签收总耗时"].idxmin()]
+    slowest = region_df.loc[region_df["开船-签收总耗时"].idxmax()]
+    st.markdown(f"#### 🇺🇸 {region} 区域")
+    st.markdown(f"- ✅ **最优物流**：{fastest['计划物流方式']}（总耗时 {fastest['开船-签收总耗时']:.2f} 天）")
+    st.markdown(f"- ❌ **最差物流**：{slowest['计划物流方式']}（总耗时 {slowest['开船-签收总耗时']:.2f} 天）")
+    st.markdown(f"- 📊 **时效差距**：{slowest['开船-签收总耗时'] - fastest['开船-签收总耗时']:.2f} 天")
     st.divider()
 
 # ---------------------- 第五步：数据下载 ----------------------
