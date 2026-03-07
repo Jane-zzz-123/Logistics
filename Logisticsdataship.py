@@ -2903,16 +2903,27 @@ for logistics in logistics_list:
         multi_data = df_log.groupby("区域")[time_cols_all].mean()
         st.line_chart(multi_data)
     with tab2:
-        # 各环节耗时占比（按区域）
+        # 各环节耗时占比（按区域）【修复饼图报错】
         for region in ["美东", "美西", "美中"]:
             df_reg = df_log[df_log["区域"] == region].copy()
-            if len(df_reg) > 0:
-                ratio_data = pd.DataFrame({
-                    "环节": time_cols_all,
-                    "平均耗时（天）": [df_reg[col].mean() for col in time_cols_all]
-                })
+            if len(df_reg) == 0:
+                continue
+
+            # 计算各环节平均耗时
+            avg_times = [df_reg[col].mean() for col in time_cols_all]
+            # 过滤掉全0/空的情况（避免饼图报错）
+            if sum(avg_times) == 0:
                 st.write(f"#### 🇺🇸 {region} 环节耗时占比")
-                st.pie_chart(ratio_data.set_index("环节"))
+                st.info("该区域暂无有效耗时数据，无法生成饼图")
+                continue
+
+            # 生成饼图数据
+            ratio_data = pd.DataFrame({
+                "环节": time_cols_all,
+                "平均耗时（天）": avg_times
+            })
+            st.write(f"#### 🇺🇸 {region} 环节耗时占比")
+            st.pie_chart(ratio_data.set_index("环节"))
 
     # 3. 该物流方式总结
     st.write("#### 📝 总结")
