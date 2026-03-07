@@ -930,45 +930,68 @@ else:
         )
 
         # 5. 可视化：时效-累计占比趋势（直观看到阈值对应点）
-        st.markdown("#### 📈 时效-累计占比趋势曲线（红色线=目标阈值）")
+        # 替换原可视化代码块为以下内容
+        st.markdown("#### 📈 时效-累计占比趋势曲线（阈值点标注版）")
         fig = px.line(
             df_sorted,
             x=time_col,
             y="累计占比(%)",
-            title=f"{logistics_type} - 上架完成-发货时间 vs 累计订单占比",
+            title=f"{logistics_type} - 上架完成-发货时间 vs 累计订单占比（准时率）",
             labels={
                 time_col: "上架完成-发货时间(天)",
-                "累计占比(%)": "累计订单占比(%)（准时率）"
+                "累计占比(%)": "累计订单占比(%) = 准时率"
             },
             hover_data={
                 time_col: ":.1f",
                 "累计占比(%)": ":.1f",
                 "累计订单数": ":d"
             },
-            template="simple_white"
+            template="simple_white",
+            line_shape="spline"  # 平滑曲线，替代阶梯状
         )
-        # 添加目标阈值参考线（红色虚线）
+
+        # 1. 红色虚线：目标准时率参考线
         for rate in target_rates:
             fig.add_hline(
                 y=rate,
                 line_dash="dash",
                 line_color="red",
-                annotation_text=f"{rate}%",
+                opacity=0.6,
+                annotation_text=f"{rate}% 目标",
                 annotation_position="right",
-                annotation_font={"size": 10, "color": "red"}
+                annotation_font={"size": 9, "color": "red"}
             )
-        # 标注关键阈值点（90%）
-        rate_90 = next((r for r in analysis_results if r["目标准时率(%)"] == 90), None)
-        if rate_90 and rate_90["对应时效上限(天)"] != "-":
-            fig.add_vline(
-                x=rate_90["对应时效上限(天)"],
-                line_dash="dot",
-                line_color="blue",
-                annotation_text=f"90%准时率→{rate_90['对应时效上限(天)']}天",
-                annotation_position="top",
-                annotation_font={"size": 10, "color": "blue"}
+
+        # 2. 蓝色散点：标注每个目标准时率对应的时效阈值
+        scatter_x = []
+        scatter_y = []
+        scatter_text = []
+        for res in analysis_results:
+            if res["对应时效上限(天)"] != "-":
+                scatter_x.append(res["对应时效上限(天)"])
+                scatter_y.append(res["实际累计占比(%)"])
+                scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
+
+        if scatter_x:
+            fig.add_scatter(
+                x=scatter_x,
+                y=scatter_y,
+                mode="markers+text",
+                text=scatter_text,
+                textposition="top center",
+                marker=dict(color="blue", size=8, symbol="circle"),
+                name="时效阈值点",
+                showlegend=False
             )
-        fig.update_layout(height=400)
+
+        # 3. 美化布局
+        fig.update_layout(
+            height=500,
+            xaxis_title="上架完成-发货时间(天)",
+            yaxis_title="累计订单占比(%) = 准时率",
+            yaxis_range=[0, 105],
+            legend_title="图例"
+        )
         st.plotly_chart(fig, use_container_width=True)
 
         # 6. 业务解读（通俗易懂）
