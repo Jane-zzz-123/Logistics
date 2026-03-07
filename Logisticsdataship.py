@@ -2783,134 +2783,50 @@ else:
 
 st.divider()
 
-# ===================== 高颜值多维度时效对比（专业商务版 · 修复灰色重复） =====================
+# ===================== 多维度时效对比（极简稳定版 · 绝对不报错） =====================
 st.write("### 🚢 多维度时效对比（区域 × 物流方式 × 环节）")
 
-# 1. 数据预处理（保证数据格式正确）
+# 1. 数据预处理
 stack_data = df_analysis.groupby(["区域", "计划物流方式"])[time_cols_all].mean().reset_index()
 if stack_data.empty:
     st.warning("⚠️ 暂无有效数据可生成图表")
     st.stop()
 
-# 2. 宽表转长表（Altair堆叠图专用）
-import altair as alt
-
-stack_melt = stack_data.melt(
-    id_vars=["区域", "计划物流方式"],
-    value_vars=time_cols_all,
-    var_name="环节",
-    value_name="平均耗时(天)"
-)
-
-# 3. 定义专业配色（和Excel商务配色一致）
-color_palette = {
-    "开船-到港": "#4472C4",
-    "到港-提柜": "#ED7D31",
-    "提柜-签收": "#A5A5A5",
-    "签收-完成上架": "#70AD47"
-}
-
-# 4. 核心图表：分区域的堆叠条形图（专业版）
-base = alt.Chart(stack_melt).properties(
-    width=400,  # 加宽图表，更舒展
-    height=300
-)
-
-# 堆叠条形图主体
-bars = base.mark_bar(
-    cornerRadius=4,  # 圆角，更精致
-    stroke="#FFFFFF",
-    strokeWidth=1
-).encode(
-    # X轴：物流方式（横向排列，更清晰）
-    x=alt.X("计划物流方式:N", title="计划物流方式", axis=alt.Axis(labelAngle=0, labelFontSize=12)),
-    # Y轴：耗时（堆叠）
-    y=alt.Y("平均耗时(天):Q", title="平均耗时（天）", stack="zero", axis=alt.Axis(titleFontSize=12)),
-    # 颜色：环节（绑定专业配色 · 修复映射）
-    color=alt.Color(
-        "环节:N",
-        scale=alt.Scale(range=[v for k, v in color_palette.items()]),
-        legend=alt.Legend(title="时效环节", titleFontSize=12, labelFontSize=11, symbolSize=100)
-    ),
-    # 鼠标悬浮提示（精准显示所有信息）
-    tooltip=[
-        alt.Tooltip("区域:N", title="区域"),
-        alt.Tooltip("计划物流方式:N", title="物流方式"),
-        alt.Tooltip("环节:N", title="环节"),
-        alt.Tooltip("平均耗时(天):Q", title="平均耗时", format=".2f")
-    ]
-)
-
-# 数据标签（修复Y轴计算 · 避免重复渲染）
-text = base.mark_text(
-    align="center",
-    baseline="middle",
-    fontSize=10,
-    color="#333333"
-).encode(
-    x="计划物流方式:N",
-    y=alt.Y("平均耗时(天):Q", stack="zero", aggregate="sum"),
-    detail="环节:N",
-    text=alt.Text("平均耗时(天):Q", format=".1f"),
-    yOffset=alt.expr.datum["平均耗时(天)"] / 2
-)
-
-# 按区域分面（每个区域一个图表，横向排列）
-chart = (bars + text).facet(
-    column=alt.Column("区域:N", title="", header=alt.Header(labelFontSize=14, labelFontWeight="bold")),
-).configure_facet(
-    spacing=20  # 区域之间留间距
-).configure_view(
-    stroke=None  # 去掉边框，更清爽
-).properties(
-    title=alt.TitleParams(
-        "各区域不同物流方式时效环节对比",
-        fontSize=16,
-        font="Arial",
-        anchor="middle",
-        offset=10
-    )
-)
-
-# 5. 渲染图表
-st.altair_chart(chart, use_container_width=True)
-
-# 6. 配套分析表格（高颜值版）
-st.write("### 📋 明细汇总表")
-# 计算总耗时（开船-签收）
-stack_data["开船-签收总耗时"] = stack_data[time_cols_all].sum(axis=1)
-# 美化表格
-st.dataframe(
-    stack_data.sort_values(["区域", "开船-签收总耗时"]),
-    use_container_width=True,
-    column_config={
-        "区域": st.column_config.TextColumn(width="80px"),
-        "计划物流方式": st.column_config.TextColumn(width="120px"),
-        **{col: st.column_config.NumberColumn(format="%.2f", width="100px") for col in time_cols_all},
-        "开船-签收总耗时": st.column_config.NumberColumn(format="%.2f", width="120px", help="各环节耗时总和")
-    }
-)
-
-# 7. 自动生成对比结论（业务洞察）
-st.write("### 📝 多维度对比结论")
+# 2. 按区域分开展示（避免分面/标签报错）
 for region in stack_data["区域"].unique():
+    st.write(f"#### 🇺🇸 {region} 区域")
     region_df = stack_data[stack_data["区域"] == region].copy()
-    if len(region_df) == 0:
-        continue
 
-    # 找出该区域最快/最慢物流
-    fastest_log = region_df.loc[region_df["开船-签收总耗时"].idxmin()]
-    slowest_log = region_df.loc[region_df["开船-签收总耗时"].idxmax()]
+    # 3. 原生堆叠条形图（Streamlit内置，绝对稳定）
+    chart_data = region_df.set_index("计划物流方式")[time_cols_all]
+    st.bar_chart(
+        chart_data,
+        use_container_width=True,
+        height=300
+    )
 
-    st.markdown(f"#### 🇺🇸 {region} 区域")
-    st.markdown(f"- **最优物流方式**：{fastest_log['计划物流方式']}（总耗时 {fastest_log['开船-签收总耗时']:.2f} 天）")
-    st.markdown(f"- **最差物流方式**：{slowest_log['计划物流方式']}（总耗时 {slowest_log['开船-签收总耗时']:.2f} 天）")
-    st.markdown(f"- **时效差距**：{slowest_log['开船-签收总耗时'] - fastest_log['开船-签收总耗时']:.2f} 天")
+    # 4. 配套明细表格
+    st.write("##### 📋 时效明细")
+    region_df["开船-签收总耗时"] = region_df[time_cols_all].sum(axis=1)
+    st.dataframe(
+        region_df.sort_values("开船-签收总耗时"),
+        use_container_width=True,
+        column_config={
+            "计划物流方式": st.column_config.TextColumn(width="120px"),
+            **{col: st.column_config.NumberColumn(format="%.2f", width="100px") for col in time_cols_all},
+            "开船-签收总耗时": st.column_config.NumberColumn(format="%.2f", width="120px")
+        }
+    )
 
-    # 找出每个物流方式的瓶颈环节
-    for _, row in region_df.iterrows():
-        bottleneck = max(time_cols_all, key=lambda x: row[x])
-        st.markdown(f"- **{row['计划物流方式']} 瓶颈环节**：{bottleneck}（{row[bottleneck]:.2f} 天）")
+    # 5. 简单对比结论
+    if len(region_df) > 0:
+        fastest = region_df.loc[region_df["开船-签收总耗时"].idxmin()]
+        slowest = region_df.loc[region_df["开船-签收总耗时"].idxmax()]
+        st.write("##### 📝 对比结论")
+        st.markdown(f"- 最优物流：{fastest['计划物流方式']}（总耗时 {fastest['开船-签收总耗时']:.2f} 天）")
+        st.markdown(f"- 最差物流：{slowest['计划物流方式']}（总耗时 {slowest['开船-签收总耗时']:.2f} 天）")
+        st.markdown(f"- 时效差距：{slowest['开船-签收总耗时'] - fastest['开船-签收总耗时']:.2f} 天")
+
     st.divider()
 
 # ---------------------- 第五步：数据下载 ----------------------
