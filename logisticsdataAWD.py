@@ -9,7 +9,7 @@ import base64
 
 # 页面配置（完全保留）
 st.set_page_config(
-    page_title="海运物流交期分析看板",
+    page_title="AWD补货物流交期分析看板",
     page_icon="🚢",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -65,7 +65,7 @@ def get_table_download_link(df, filename, text):
     """生成表格下载链接"""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='海运明细')
+        df.to_excel(writer, index=False, sheet_name='AWD补货明细')
     output.seek(0)
     b64 = base64.b64encode(output.read()).decode()
     href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">{text}</a>'
@@ -76,7 +76,7 @@ def get_table_download_link(df, filename, text):
 def load_data():
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
     try:
-        df_all = pd.read_excel(url, sheet_name="上架完成-海运")  # 全部数据
+        df_all = pd.read_excel(url, sheet_name="上架完成-AWD补货货件")  # 全部数据
     except Exception as e:
         st.error(f"读取数据失败：{str(e)}")
         return pd.DataFrame(), pd.DataFrame()
@@ -135,7 +135,7 @@ if df_all.empty:
     st.stop()
 
 # 2. 顶部筛选按钮
-st.header("海运物流交期分析看板")
+st.header("AWD补货物流交期分析看板")
 data_filter = st.radio(
     "📊 选择数据范围：",
     options=["全部数据", "纯净数据（剔除异常）"],
@@ -155,11 +155,11 @@ else:
     st.info(f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条记录（含 {abnormal_count_total} 条异常数据）")
 
 # 5. 主看板区域
-st.title("🚢 海运分析看板区域")
+st.title("🚢 AWD补货分析看板区域")
 st.divider()
 
 # 6. 当月数据筛选（基于df_selected，不会丢数据）
-st.subheader("🔍 当月海运分析")
+st.subheader("🔍 当月AWD补货分析")
 month_options = sorted(df_selected["到货年月"].unique(), reverse=True)
 if not month_options:
     st.warning("⚠️ 暂无可用的到货年月数据")
@@ -344,13 +344,13 @@ on_time_rate_change = on_time_rate - prev_on_time_rate  # 准时率变化
 
 # 核心结论（先给定性判断）
 if on_time_rate >= 90:
-    core_conclusion = f"{selected_month}海运物流整体表现优秀，准时率达{on_time_rate:.1f}%，远高于行业基准"
+    core_conclusion = f"{selected_month}AWD补货物流整体表现优秀，准时率达{on_time_rate:.1f}%，远高于行业基准"
 elif on_time_rate >= 80:
-    core_conclusion = f"{selected_month}海运物流表现良好，准时率{on_time_rate:.1f}%，整体可控"
+    core_conclusion = f"{selected_month}AWD补货物流表现良好，准时率{on_time_rate:.1f}%，整体可控"
 elif on_time_rate >= 70:
-    core_conclusion = f"{selected_month}海运物流表现一般，准时率{on_time_rate:.1f}%，需关注延期问题"
+    core_conclusion = f"{selected_month}AWD补货物流表现一般，准时率{on_time_rate:.1f}%，需关注延期问题"
 else:
-    core_conclusion = f"{selected_month}海运物流表现较差，准时率仅{on_time_rate:.1f}%，延期风险显著"
+    core_conclusion = f"{selected_month}AWD补货物流表现较差，准时率仅{on_time_rate:.1f}%，延期风险显著"
 
 # 关键数据支撑（精简+业务化）
 data_support = f"""
@@ -380,7 +380,7 @@ if not tips:
 
 # 整合最终总结
 summary_text = f"""
-### {selected_month}海运物流核心分析
+### {selected_month}AWD补货物流核心分析
 {core_conclusion}
 
 {data_support}
