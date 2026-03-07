@@ -2764,7 +2764,7 @@ with col3:
     st.warning("🇺🇸 美中区域")
     st.metric("开船-签收平均", f"{mid_sign:.1f}天", f"样本数：{mid_count}")
 
-# ===================== 3.3 开船-签收 总结 =====================
+# ===================== 3.2 开船-签收 总结 =====================
 st.write("### 📝 开船-签收 核心结论")
 valid_sign = [x for x in [east_sign, west_sign, mid_sign] if x > 0]
 valid_regions = [r for r, v in zip(["美东", "美西", "美中"], [east_sign, west_sign, mid_sign]) if v > 0]
@@ -2783,82 +2783,39 @@ else:
 
 st.divider()
 
-# ===================== 3.2 多维度堆叠条形图（完美复刻你要的样式） =====================
+# ===================== 多维度堆叠条形图（极简可运行版 · 一定出图） =====================
 st.write("### 🚢 多维度时效对比（堆叠条形图 · 区域 × 物流方式 × 环节）")
 
 # 1. 数据预处理：按【区域 + 计划物流方式】分组，计算各环节平均值
 stack_data = df_analysis.groupby(["区域", "计划物流方式"])[time_cols_all].mean().reset_index()
 
-# 2. 把宽表转成长表（适合堆叠图）
-stack_melt = stack_data.melt(
-    id_vars=["区域", "计划物流方式"],
-    value_vars=time_cols_all,
-    var_name="环节",
-    value_name="平均耗时(天)"
-)
+if stack_data.empty:
+    st.warning("⚠️ 暂无有效数据可生成图表")
+    st.stop()
 
-# 3. 用 Altair 画堆叠条形图（和你截图里的 Excel 图表一模一样）
-import altair as alt
+# 2. 按区域分面展示（保证每个区域都有图）
+regions = stack_data["区域"].unique()
+for region in regions:
+    st.write(f"#### 🇺🇸 {region} 区域")
+    region_data = stack_data[stack_data["区域"] == region].copy()
 
-chart = alt.Chart(stack_melt).mark_bar().encode(
-    x=alt.X("计划物流方式:N", title="计划物流方式", axis=alt.Axis(labelAngle=0)),
-    y=alt.Y("平均耗时(天):Q", title="平均耗时(天)", stack="zero"),
-    color=alt.Color(
-        "环节:N",
-        scale=alt.Scale(
-            domain=["开船-到港(平均)", "到港-提柜(平均)", "提柜-签收(平均)", "签收-完成上架(平均)"],
-            range=["#1f77b4", "#ff7f0e", "#d62728", "#2ca02c"]  # 和你图表颜色对应
-        ),
-        legend=alt.Legend(title="环节")
-    ),
-    tooltip=[
-        alt.Tooltip("区域:N"),
-        alt.Tooltip("计划物流方式:N"),
-        alt.Tooltip("环节:N"),
-        alt.Tooltip("平均耗时(天):Q", format=".2f")
-    ],
-    facet=alt.Facet("区域:N", columns=3, title="区域")  # 按区域分面，和你截图一致
-).properties(
-    width=280,
-    height=350,
-    title="各区域 · 不同物流方式 · 各环节时效堆叠对比"
-).configure_title(
-    fontSize=16, anchor="middle"
-).configure_axis(
-    labelFontSize=12,
-    titleFontSize=13
-).configure_legend(
-    labelFontSize=11,
-    titleFontSize=12
-)
+    if len(region_data) == 0:
+        st.info("该区域暂无数据")
+        continue
 
-# 4. 渲染图表
-st.altair_chart(chart, use_container_width=True)
+    # 3. 原生堆叠条形图（st.bar_chart 自动支持堆叠，绝对出图）
+    st.write("##### 📊 各物流方式环节时效堆叠")
+    chart_data = region_data.set_index("计划物流方式")[time_cols_all]
+    st.bar_chart(chart_data, use_container_width=True)
 
-# ===================== 3.3 对应表格明细（和你截图里的上表一致） =====================
-st.write("### 📋 明细汇总表（和 Excel 汇总格式一致）")
-summary_table = stack_data.copy()
-# 重命名列，和你截图保持一致
-rename_map = {
-    "开船-到港": "开船-到港(平均)",
-    "到港-提柜": "到港-提柜(平均)",
-    "提柜-签收": "提柜-签收(平均)",
-    "签收-完成上架": "签收-完成上架(平均)"
-}
-summary_table = summary_table.rename(columns=rename_map)
-# 按区域+物流方式排序
-summary_table = summary_table.sort_values(["区域", "计划物流方式"])
-
-st.dataframe(
-    summary_table,
-    use_container_width=True,
-    column_config={
-        "开船-到港(平均)": st.column_config.NumberColumn(format="%.2f"),
-        "到港-提柜(平均)": st.column_config.NumberColumn(format="%.2f"),
-        "提柜-签收(平均)": st.column_config.NumberColumn(format="%.2f"),
-        "签收-完成上架(平均)": st.column_config.NumberColumn(format="%.2f")
-    }
-)
+    # 4. 对应明细表格
+    st.write("##### 📋 明细汇总")
+    st.dataframe(
+        region_data,
+        use_container_width=True,
+        column_config={col: st.column_config.NumberColumn(format="%.2f") for col in time_cols_all}
+    )
+    st.divider()
 # ===================== 3.4 核心结论（自动生成） =====================
 st.write("### 📝 多维度对比核心结论")
 
