@@ -2863,69 +2863,64 @@ st.dataframe(
     }
 )
 
-st.write("### 📝 多维度对比结论")
-for region in stack_data["区域"].unique():
-    region_df = stack_data[stack_data["区域"] == region].copy()
-    if len(region_df) == 0:
-        continue
+st.write("### 📝 多维度对比结论（全局视角版）")
 
-    # 计算核心数据
-    fastest = region_df.loc[region_df["开船-签收总耗时"].idxmin()]
-    slowest = region_df.loc[region_df["开船-签收总耗时"].idxmax()]
-    gap = slowest["开船-签收总耗时"] - fastest["开船-签收总耗时"]
+# 1. 全局总览（先看整体）
+st.write("#### 🌍 全局总览")
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("平均总耗时", f"{stack_data['开船-签收总耗时'].mean():.2f} 天")
+with col2:
+    st.metric("最快区域", stack_data.loc[stack_data['开船-签收总耗时'].idxmin(), '区域'])
+with col3:
+    st.metric("最慢区域", stack_data.loc[stack_data['开船-签收总耗时'].idxmax(), '区域'])
 
-    # 提取最优/最差物流的各环节平均耗时（精简展示）
-    fastest_detail = f"""
-    开船-到港：{fastest['开船-到港']:.1f}天<br>
-    到港-提柜：{fastest['到港-提柜']:.1f}天<br>
-    提柜-签收：{fastest['提柜-签收']:.1f}天<br>
-    签收-完成：{fastest['签收-完成上架']:.1f}天
-    """
-    slowest_detail = f"""
-    开船-到港：{slowest['开船-到港']:.1f}天<br>
-    到港-提柜：{slowest['到港-提柜']:.1f}天<br>
-    提柜-签收：{slowest['提柜-签收']:.1f}天<br>
-    签收-完成：{slowest['签收-完成上架']:.1f}天
-    """
+# 2. 物流方式对比（核心：哪种物流更好）
+st.write("#### 🚛 物流方式对比")
+log_summary = stack_data.groupby("计划物流方式")["开船-签收总耗时"].mean().reset_index()
+log_summary = log_summary.sort_values("开船-签收总耗时")
 
-    # 一行三列布局
-    col1, col2, col3 = st.columns(3)
+col_list = st.columns(len(log_summary))
+for i, (_, row) in enumerate(log_summary.iterrows()):
+    with col_list[i]:
+        st.metric(
+            label=row["计划物流方式"],
+            value=f"{row['开船-签收总耗时']:.2f} 天",
+            delta="平均总耗时"
+        )
 
-    with col1:
-        st.markdown(f"""
-        <div style='background:#e8f4f8;padding:15px;border-radius:8px;height:100%;'>
-            <div style='color:#2e86ab;font-weight:bold;font-size:14px;margin-bottom:8px;'>✅ 最优物流</div>
-            <div style='font-size:13px;font-weight:bold;'>{fastest['计划物流方式']}</div>
-            <div style='font-size:12px;color:#666;margin:6px 0;'>总耗时：{fastest['开船-签收总耗时']:.2f} 天</div>
-            <div style='font-size:11px;color:#555;line-height:1.4;'>{fastest_detail}</div>
-        </div>
-        """, unsafe_allow_html=True)
+# 3. 环节耗时占比（核心：哪个环节拖后腿）
+st.write("#### 🧩 环节耗时占比（全局）")
+step_avg = stack_data[time_cols_all].mean()
+step_total = step_avg.sum()
+step_ratio = (step_avg / step_total * 100).round(1)
+step_df = pd.DataFrame({
+    "环节": time_cols_all,
+    "平均耗时(天)": step_avg,
+    "占比(%)": step_ratio
+}).sort_values("占比(%)", ascending=False)
 
-    with col2:
-        st.markdown(f"""
-        <div style='background:#fdf2f8;padding:15px;border-radius:8px;height:100%;'>
-            <div style='color:#d9480f;font-weight:bold;font-size:14px;margin-bottom:8px;'>❌ 最差物流</div>
-            <div style='font-size:13px;font-weight:bold;'>{slowest['计划物流方式']}</div>
-            <div style='font-size:12px;color:#666;margin:6px 0;'>总耗时：{slowest['开船-签收总耗时']:.2f} 天</div>
-            <div style='font-size:11px;color:#555;line-height:1.4;'>{slowest_detail}</div>
-        </div>
-        """, unsafe_allow_html=True)
+col_step = st.columns(len(step_df))
+for i, (_, row) in enumerate(step_df.iterrows()):
+    with col_step[i]:
+        st.metric(
+            label=row["环节"],
+            value=f"{row['平均耗时(天)']:.1f}天",
+            delta=f"{row['占比(%)']}%"
+        )
 
-    with col3:
-        st.markdown(f"""
-        <div style='background:#f5f5f5;padding:15px;border-radius:8px;height:100%;text-align:center;'>
-            <div style='color:#26a69a;font-weight:bold;font-size:14px;margin-bottom:8px;'>📊 核心对比</div>
-            <div style='font-size:18px;font-weight:bold;color:#26a69a;'>{gap:.2f} 天</div>
-            <div style='font-size:12px;color:#666;margin:6px 0;'>时效差距</div>
-            <div style='font-size:12px;color:#666;'>{region} 区域</div>
-            <div style='font-size:11px;color:#555;margin-top:8px;'>
-                最快瓶颈：{max(time_cols_all, key=lambda x: fastest[x])}<br>
-                最慢瓶颈：{max(time_cols_all, key=lambda x: slowest[x])}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+# 4. 核心洞察（一句话讲明白）
+st.write("#### 💡 核心洞察")
+fastest_log = log_summary.iloc[0]["计划物流方式"]
+slowest_log = log_summary.iloc[-1]["计划物流方式"]
+bottleneck_step = step_df.iloc[0]["环节"]
 
-    st.divider()
+st.markdown(f"""
+- ✅ **整体趋势**：{stack_data['区域'].unique()} 三大区域中，**{stack_data.loc[stack_data['开船-签收总耗时'].idxmin(), '区域']}** 时效最优，**{stack_data.loc[stack_data['开船-签收总耗时'].idxmax(), '区域']}** 时效最慢
+- 🚀 **最优物流**：**{fastest_log}** 平均总耗时 {log_summary.iloc[0]['开船-签收总耗时']:.2f} 天，是所有方式中效率最高的
+- 🐢 **最差物流**：**{slowest_log}** 平均总耗时 {log_summary.iloc[-1]['开船-签收总耗时']:.2f} 天，效率最低
+- ⚠️ **核心瓶颈**：**{bottleneck_step}** 环节占总耗时 {step_df.iloc[0]['占比(%)']}%，是拖慢整体时效的关键
+""")
 
 # ---------------------- 第五步：数据下载 ----------------------
 st.subheader("💾 分析数据下载")
