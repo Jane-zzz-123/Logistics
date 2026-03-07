@@ -850,7 +850,7 @@ else:
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
 
-# ---------------------- 新增：货代准时率-物流时效分析维度（分组分析版） ----------------------
+# ---------------------- 新增：货代准时率-物流时效分析维度（最终稳定版） ----------------------
 st.divider()
 st.subheader("📦 计划物流方式-准时率对应物流时效分析（上架完成-发货时间）")
 
@@ -972,36 +972,68 @@ else:
             }
         )
 
-        # 6. 可视化：分组对比版（核心优化！）
+        # 6. 可视化：分组对比版（修复核心报错！）
         st.markdown("#### 📈 各计划物流方式时效分布 & 累计准时率对比")
         if is_all_logistics:
-            # 情况A：全部筛选 → 多组对比折线图（推荐）
-            import plotly.express as px
+            # 情况A：全部筛选 → 多组对比折线图（修复Y轴参数）
+            import plotly.graph_objects as go
 
-            fig = px.line(
-                df_analysis,
-                x=time_col,
-                color=logistics_col,
-                title="不同计划物流方式 - 时效分布与累计准时率对比",
-                labels={time_col: "上架完成-发货时间(天)", "count": "订单数"},
-                marginal="box",  # 箱线图展示分布
-                hover_data={logistics_col: True, time_col: ":,.1f"}
-            )
-            # 叠加累计占比（用不同线型区分）
+            fig = go.Figure()
+
+            # 为每个物流方式添加累计占比折线
             for lt in unique_logistics:
                 if lt in group_data:
                     d = group_data[lt]
-                    fig.add_scatter(
-                        x=d[time_col], y=d["累计占比(%)"],
-                        mode="lines", line=dict(dash="dot"), name=f"{lt} - 累计占比(%)"
+                    fig.add_trace(
+                        go.Scatter(
+                            x=d[time_col],
+                            y=d["累计占比(%)"],
+                            name=f"{lt} - 累计准时率",
+                            line=dict(width=2),
+                            hovertemplate=f"{lt}<br>时效：%{{x}}天<br>累计准时率：%{{y:.1f}}%<extra></extra>"
+                        )
                     )
-            # 添加目标阈值线
+
+            # 添加目标准时率参考线
             for rate in target_rates:
-                fig.add_hline(y=rate, line_dash="dash", line_color="red", opacity=0.5, annotation_text=f"{rate}%")
-            fig.update_layout(height=500)
+                fig.add_hline(
+                    y=rate,
+                    line_dash="dash",
+                    line_color="red",
+                    opacity=0.5,
+                    annotation_text=f"{rate}% 目标",
+                    annotation_position="right",
+                    annotation_font={"size": 9, "color": "red"}
+                )
+
+            # 图表样式优化
+            fig.update_layout(
+                height=500,
+                title="不同计划物流方式 - 累计准时率趋势对比",
+                xaxis_title="上架完成-发货时间(天)",
+                yaxis_title="累计占比（准时率）(%)",
+                yaxis_range=[0, 105],
+                legend_title="计划物流方式",
+                template="simple_white"
+            )
             st.plotly_chart(fig, use_container_width=True)
+
+            # 补充：各物流方式时效分布箱线图（可选，更直观对比）
+            st.markdown("#### 📦 各计划物流方式时效分布箱线图")
+            fig_box = px.box(
+                df_analysis,
+                x=logistics_col,
+                y=time_col,
+                title="不同计划物流方式 - 时效分布对比",
+                labels={logistics_col: "计划物流方式", time_col: "上架完成-发货时间(天)"},
+                color=logistics_col,
+                hover_data={logistics_col: True, time_col: ":,.1f"}
+            )
+            fig_box.update_layout(height=400)
+            st.plotly_chart(fig_box, use_container_width=True)
+
         else:
-            # 情况B：单个物流方式 → 之前的柱状图+折线图组合图
+            # 情况B：单个物流方式 → 柱状图+折线图组合图
             logistics_type = unique_logistics[0]
             df_sorted = group_data[logistics_type]
             time_count = df_sorted[time_col].value_counts().sort_index().reset_index()
@@ -1014,14 +1046,25 @@ else:
 
             # 柱状图：时效分布
             fig.add_trace(
-                go.Bar(x=time_count[time_col], y=time_count["订单数"], name="各时效订单数", marker_color="#87CEEB",
-                       opacity=0.7),
+                go.Bar(
+                    x=time_count[time_col],
+                    y=time_count["订单数"],
+                    name="各时效订单数",
+                    marker_color="#87CEEB",
+                    opacity=0.7,
+                    hovertemplate="时效：%{x}天<br>订单数：%{y}单<extra></extra>"
+                ),
                 secondary_y=False
             )
             # 折线图：累计占比
             fig.add_trace(
-                go.Scatter(x=df_sorted[time_col], y=df_sorted["累计占比(%)"], name="累计占比（准时率）",
-                           line=dict(color="red", width=2, shape="spline")),
+                go.Scatter(
+                    x=df_sorted[time_col],
+                    y=df_sorted["累计占比(%)"],
+                    name="累计占比（准时率）",
+                    line=dict(color="red", width=2, shape="spline"),
+                    hovertemplate="时效：%{x}天<br>累计占比：%{y:.1f}%<extra></extra>"
+                ),
                 secondary_y=True
             )
             # 阈值散点
@@ -1035,20 +1078,36 @@ else:
                     scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
             if scatter_x:
                 fig.add_trace(
-                    go.Scatter(x=scatter_x, y=scatter_y, mode="markers+text", text=scatter_text,
-                               textposition="top center", marker=dict(color="darkblue", size=10, symbol="star"),
-                               showlegend=False),
+                    go.Scatter(
+                        x=scatter_x,
+                        y=scatter_y,
+                        mode="markers+text",
+                        text=scatter_text,
+                        textposition="top center",
+                        marker=dict(color="darkblue", size=10, symbol="star"),
+                        showlegend=False,
+                        hovertemplate="目标：%{text}<extra></extra>"
+                    ),
                     secondary_y=True
                 )
             # 参考线
             for rate in target_rates:
-                fig.add_hline(y=rate, line_dash="dash", line_color="orange", opacity=0.5, secondary_y=True,
-                              annotation_text=f"{rate}%", annotation_position="right")
+                fig.add_hline(
+                    y=rate,
+                    line_dash="dash",
+                    line_color="orange",
+                    opacity=0.5,
+                    secondary_y=True,
+                    annotation_text=f"{rate}%",
+                    annotation_position="right"
+                )
             # 样式
             fig.update_layout(
-                height=550, title=f"{logistics_type} - 时效分布 & 累计准时率",
+                height=550,
+                title=f"{logistics_type} - 时效分布 & 累计准时率",
                 xaxis_title="上架完成-发货时间(天)",
-                yaxis=dict(title="订单数"), yaxis2=dict(title="累计占比（准时率）(%)", range=[0, 105]),
+                yaxis=dict(title="订单数"),
+                yaxis2=dict(title="累计占比（准时率）(%)", range=[0, 105]),
                 template="simple_white"
             )
             st.plotly_chart(fig, use_container_width=True)
