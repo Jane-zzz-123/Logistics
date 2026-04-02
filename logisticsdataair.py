@@ -724,7 +724,7 @@ forwarder_delay_col = "提前/延期（货代）"  # 货代延期分类列
 warehouse_delay_col = "提前/延期（仓库）"  # 仓库延期分类列
 # 🔥 按物流口径修正：仅发货-提取属于货代，其余归为其他原因
 forwarder_stage_col =["发货-起飞", "到港-提取"]   # 货代仅负责这一个环节
-other_stage_cols = "提取签收"  # 其他原因环节
+other_stage_cols = "提取-签收"  # 其他原因环节
 warehouse_stage_col = "签收-完成上架"  # 仓库负责环节
 all_stage_cols = forwarder_stage_col + [other_stage_cols] + [warehouse_stage_col]  # 所有环节
 
