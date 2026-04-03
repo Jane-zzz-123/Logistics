@@ -2157,144 +2157,152 @@ else:
 st.markdown("### 📦 各物流方式-不同准时率阈值时效趋势")
 st.divider()
 
-# 1. 数据预处理
-time_col = "上架完成-发货时间"
-target_rates = [75, 80, 85, 90, 95, 100]  # 仅保留这6个阈值
+# 1. 数据预处理（已改为：开船-完成上架）
+time_col = "开船-完成上架"          # 已改成你要的字段
+region_col = "区域"                 # 区域列（用于加权）
+stage1_col = "开船-提柜"            # 不分区 → 普通平均
+stage2_col = "提柜-签收"            # 分区 → 加权
+stage3_col = "签收-完成上架"        # 分区 → 加权
+target_rates = [75, 80, 85, 90, 95, 100]
+
 df_time_analysis = df_filtered_by_logistics.copy()
 
 # 只保留筛选时间范围内的月份
 selected_ym_list = df_filtered["到货年月"].tolist()
 df_time_analysis = df_time_analysis[df_time_analysis["到货年月"].isin(selected_ym_list)].copy()
 
-# 清洗时效列
-df_time_analysis[time_col] = pd.to_numeric(df_time_analysis[time_col], errors="coerce")
+# 清洗所有时效列
+for col in [time_col, stage1_col, stage2_col, stage3_col]:
+    df_time_analysis[col] = pd.to_numeric(df_time_analysis[col], errors="coerce")
+
+# 过滤有效数据
 df_time_analysis = df_time_analysis[
     (df_time_analysis[time_col] > 0) &
     (df_time_analysis["到货年月"].notna()) &
-    (df_time_analysis["物流方式"].notna())
-    ].reset_index(drop=True)
+    (df_time_analysis["物流方式"].notna()) &
+    (df_time_analysis[region_col].notna())
+].reset_index(drop=True)
 
 if len(df_time_analysis) == 0:
-    st.warning("暂无有效时效数据（时效为空/≤0 或 物流方式为空）")
+    st.warning("暂无有效时效数据（时效为空/≤0 或 物流方式/区域为空）")
 else:
-    # 2. 核心计算：按【物流方式+月份+阈值】计算时效上限（新增累计订单数）
+    # ===================== 核心：加权平均函数 =====================
+    def calculate_weighted_by_region(df, col):
+        region_counts = df[region_col].value_counts()
+        total = len(df)
+        weighted_sum = 0.0
+        for region, cnt in region_counts.items():
+            avg_val = df[df[region_col] == region][col].mean()
+            weight = cnt / total
+            weighted_sum += avg_val * weight
+        return round(weighted_sum, 2)
+
+    # ===================== 2. 计算：趋势 + 加权时效 =====================
     trend_results = []
-    # 获取所有需要分析的物流方式（根据筛选条件）
+
+    # 获取需要分析的物流方式
     if selected_logistics == "全部":
         analysis_logistics = sorted(df_time_analysis["物流方式"].unique())
     else:
         analysis_logistics = [selected_logistics]
 
-    # 遍历每个物流方式
     for logistics_type in analysis_logistics:
-        df_logistics = df_time_analysis[df_time_analysis["物流方式"] == logistics_type].copy()
-        # 遍历每个月份
-        for ym in sorted(df_logistics["到货年月"].unique()):
-            df_month = df_logistics[df_logistics["到货年月"] == ym].copy()
-            month_total = len(df_month)
-            if month_total < 1:  # 数据量过少时跳过，避免无意义计算
+        df_log = df_time_analysis[df_time_analysis["物流方式"] == logistics_type].copy()
+        for ym in sorted(df_log["到货年月"].unique()):
+            df_m = df_log[df_log["到货年月"] == ym].copy()
+            month_total = len(df_m)
+            if month_total < 1:
                 continue
 
-            # 按时效升序排序并计算累计占比
-            df_month_sorted = df_month.sort_values(by=time_col, ascending=True).reset_index(drop=True)
-            df_month_sorted["累计订单数"] = range(1, month_total + 1)
-            df_month_sorted["累计占比(%)"] = (df_month_sorted["累计订单数"] / month_total) * 100
+            # 排序 + 累计占比
+            df_sorted = df_m.sort_values(time_col, ascending=True).reset_index(drop=True)
+            df_sorted["累计订单数"] = range(1, month_total + 1)
+            df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / month_total) * 100
 
-            # 关联中文月份名称
+            # 中文月份
             month_cn = monthly_stats[monthly_stats["到货年月"] == ym]["中文月份"].iloc[0]
 
-            # 遍历每个阈值计算时效上限+累计订单数
-            for target_rate in target_rates:
-                df_matched = df_month_sorted[df_month_sorted["累计占比(%)"] >= target_rate]
-                if not df_matched.empty:
-                    min_time = round(df_matched[time_col].min(), 1)  # 保留1位小数
-                    # 新增：计算该阈值下的累计订单数
-                    pass_orders = len(df_month_sorted[df_month_sorted[time_col] <= min_time])
-                    trend_results.append({
-                        "物流方式": logistics_type,
-                        "到货年月": ym,
-                        "中文月份": month_cn,
-                        "准时率阈值(%)": target_rate,
-                        "时效上限(天)": min_time,
-                        "当月总订单数": month_total,  # 新增
-                        "达标累计订单数": pass_orders  # 新增：达到该阈值的累计订单数
-                    })
+            # ===================== 计算加权时效 =====================
+            w1 = round(df_m[stage1_col].mean(), 2)
+            w2 = calculate_weighted_by_region(df_m, stage2_col)
+            w3 = calculate_weighted_by_region(df_m, stage3_col)
+            total_weighted = round(w1 + w2 + w3, 2)
 
-    # 3. 生成折线图（每个物流方式1张图）
+            # 遍历阈值
+            for tr in target_rates:
+                matched = df_sorted[df_sorted["累计占比(%)"] >= tr]
+                if not matched.empty:
+                    min_day = round(matched[time_col].min(), 1)
+                    pass_cnt = len(df_sorted[df_sorted[time_col] <= min_day])
+                else:
+                    min_day = "-"
+                    pass_cnt = 0
+
+                trend_results.append({
+                    "物流方式": logistics_type,
+                    "到货年月": ym,
+                    "中文月份": month_cn,
+                    "准时率阈值(%)": tr,
+                    "开船-完成上架(天)": min_day,
+                    "开船-提柜(平均)": w1,
+                    "提柜-签收(加权)": w2,
+                    "签收-上架(加权)": w3,
+                    "总加权时效": total_weighted,
+                    "当月总订单数": month_total,
+                    "达标订单数": pass_cnt
+                })
+
+    # ===================== 3. 折线图（已更新为 开船-完成上架） =====================
     if trend_results:
         import plotly.graph_objects as go
-        import pandas as pd
-
         df_trend = pd.DataFrame(trend_results)
-        # 按中文月份排序（保证时间顺序）
-        df_trend["年月排序"] = df_trend["中文月份"].apply(
-            lambda x: pd.to_datetime(x.replace("年", "-").replace("月", "-01")))
+        df_trend["年月排序"] = pd.to_datetime(df_trend["中文月份"].str.replace("年","-").str.replace("月","-01"))
         df_trend = df_trend.sort_values("年月排序")
 
-        # 遍历每个物流方式生成独立折线图
-        for logistics_type in analysis_logistics:
-            df_single_log = df_trend[df_trend["物流方式"] == logistics_type].copy()
-            if len(df_single_log) == 0:
+        for lt in analysis_logistics:
+            df_lt = df_trend[df_trend["物流方式"] == lt]
+            if df_lt.empty:
                 continue
 
-            # 创建图表
             fig = go.Figure()
-
-            # 为每个阈值生成一条折线
-            for rate in target_rates:
-                df_rate = df_single_log[df_single_log["准时率阈值(%)"] == rate].copy()
-                if len(df_rate) > 0:
+            for tr in target_rates:
+                df_r = df_lt[df_lt["准时率阈值(%)"] == tr]
+                if not df_r.empty:
                     fig.add_trace(go.Scatter(
-                        x=df_rate["中文月份"],
-                        y=df_rate["时效上限(天)"],
-                        name=f"{rate}%准时率",
-                        mode="lines+markers+text",  # 线+点+文字标注
-                        text=df_rate["时效上限(天)"].astype(str) + "天",  # 折点显示数值
-                        textposition="top center",  # 文字在点上方
-                        marker=dict(size=8),
-                        line=dict(width=2)
+                        x=df_r["中文月份"],
+                        y=df_r["开船-完成上架(天)"],
+                        name=f"{tr}%",
+                        mode="lines+markers+text",
+                        text=df_r["开船-完成上架(天)"].astype(str) + "天",
+                        textposition="top center"
                     ))
 
-            # 图表样式配置
             fig.update_layout(
-                title=f"【{logistics_type}】不同准时率阈值时效趋势",
-                xaxis_title="到货年月",
-                yaxis_title="时效上限（天）",
-                xaxis=dict(tickangle=45),  # 横坐标文字倾斜45度，避免重叠
-                yaxis=dict(gridcolor="#eee"),
-                legend=dict(title="准时率阈值", x=0.02, y=0.98),
+                title=f"【{lt}】开船-完成上架 | 各准时率时效趋势",
+                xaxis_title="月份",
+                yaxis_title="时效（天）",
                 height=500,
-                plot_bgcolor="#fff",
-                margin=dict(b=80)
+                plot_bgcolor="#fff"
             )
-
-            # 显示图表
             st.plotly_chart(fig, use_container_width=True)
             st.divider()
 
-        # 优化：原始数据表格（新增累计订单数）
-        st.markdown("#### 📊 时效趋势原始数据（含累计订单数）")
-        # 选择展示的列（调整顺序，突出核心信息）
-        display_cols = [
+        # ===================== 表格（展示加权 + 时效） =====================
+        st.markdown("#### 📊 时效趋势数据（含区域加权）")
+        show_cols = [
             "物流方式", "中文月份", "准时率阈值(%)",
-            "时效上限(天)", "当月总订单数", "达标累计订单数"
+            "开船-完成上架(天)", "总加权时效",
+            "开船-提柜(平均)", "提柜-签收(加权)", "签收-上架(加权)",
+            "当月总订单数", "达标订单数"
         ]
-        st.dataframe(
-            df_trend[display_cols],
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(df_trend[show_cols], use_container_width=True, hide_index=True)
 
-        # 数据下载（包含累计订单数）
-        csv_trend = df_trend.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            label="📥 下载时效趋势数据",
-            data=csv_trend,
-            file_name=f"物流时效趋势数据_{selected_logistics}.csv",
-            mime="text/csv"
-        )
+        # 下载
+        csv = df_trend.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button("📥 下载时效趋势（含加权）", csv, f"物流时效趋势_加权计算.csv", "text/csv")
+
     else:
-        st.warning("暂无足够数据生成时效趋势图（单月数据量需≥5条）")
+        st.warning("暂无足够数据生成趋势图")
 
 # ---------------------- 货代不同月份趋势分析 ----------------------
 st.markdown("## 🚢 货代不同月份趋势分析")
