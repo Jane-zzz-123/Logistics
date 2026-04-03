@@ -803,6 +803,9 @@ else:
     # --------------------------
     # 5. 统计区域明细
     # --------------------------
+    # --------------------------
+    # 5. 统计区域明细
+    # --------------------------
     st.markdown("### 🗺️ 提柜-签收 区域时效分析（按物流标准+物流方式）")
     region_stats = []
 
@@ -839,42 +842,46 @@ else:
 
     df_stats = pd.DataFrame(region_stats)
 
-    # ====================== 展示：以星转火车 单独分块 ======================
-    if current_method in ["全部", YIXING_SPECIAL_NAME]:
-        df_yx = df_stats[df_stats["物流方式"] == YIXING_SPECIAL_NAME]
-        if not df_yx.empty:
-            st.markdown("### 🚆 以星转火车 专属时效（美东≤4天）")
-            st.dataframe(df_yx, use_container_width=True)
+    # ====================== 修复：判断是否为空 + 确保列存在 ======================
+    if df_stats.empty:
+        st.info("✅ 本月无货代延期订单，无需区域分析")
+    else:
+        # ====================== 展示：以星转火车 单独分块 ======================
+        if current_method in ["全部", YIXING_SPECIAL_NAME]:
+            df_yx = df_stats[df_stats["物流方式"] == YIXING_SPECIAL_NAME]
+            if not df_yx.empty:
+                st.markdown("### 🚆 以星转火车 专属时效（美东≤4天）")
+                st.dataframe(df_yx, use_container_width=True)
 
-    # 常规物流
-    df_normal_method = df_stats[df_stats["物流方式"] != YIXING_SPECIAL_NAME]
-    if not df_normal_method.empty and current_method != YIXING_SPECIAL_NAME:
-        st.markdown("### 🚛 常规物流时效（美西4/美中7/美东9）")
-        st.dataframe(df_normal_method, use_container_width=True)
+        # 常规物流
+        df_normal_method = df_stats[df_stats["物流方式"] != YIXING_SPECIAL_NAME]
+        if not df_normal_method.empty and current_method != YIXING_SPECIAL_NAME:
+            st.markdown("### 🚛 常规物流时效（美西4/美中7/美东9）")
+            st.dataframe(df_normal_method, use_container_width=True)
 
-    # --------------------------
-    # 6. 文字版明细（更直观）
-    # --------------------------
-    st.markdown("### 📌 各区域耗时详情（物流可直接阅读）")
-    for _, row in df_stats.iterrows():
-        m = row["物流方式"]
-        r = row["区域"]
-        avg = row["平均耗时"]
-        std = row["物流标准"]
-        over = row["超时天数"]
+        # --------------------------
+        # 6. 文字版明细（更直观）
+        # --------------------------
+        st.markdown("### 📌 各区域耗时详情（物流可直接阅读）")
+        for _, row in df_stats.iterrows():
+            m = row["物流方式"]
+            r = row["区域"]
+            avg = row["平均耗时"]
+            std = row["物流标准"]
+            over = row["超时天数"]
 
-        if over is None:
-            continue
+            if over is None:
+                continue
 
-        if m == YIXING_SPECIAL_NAME:
-            prefix = "🚆 以星转火车"
-        else:
-            prefix = "🚛 常规"
+            if m == YIXING_SPECIAL_NAME:
+                prefix = "🚆 以星转火车"
+            else:
+                prefix = "🚛 常规"
 
-        if over > 0:
-            st.markdown(f"- {prefix} **{r}**：平均{avg}天，标准{std}，**🔴 超时{over}天**")
-        else:
-            st.markdown(f"- {prefix} **{r}**：平均{avg}天，标准{std}，**✅ 合格**")
+            if over > 0:
+                st.markdown(f"- {prefix} **{r}**：平均{avg}天，标准{std}，**🔴 超时{over}天**")
+            else:
+                st.markdown(f"- {prefix} **{r}**：平均{avg}天，标准{std}，**✅ 合格**")
 
     # --------------------------
     # 7. 优化建议
