@@ -549,7 +549,7 @@ if len(df_detail) > 0:
     for col in detail_cols:
         if col in ["到货年月"]:
             avg_row[col] = "平均值"
-        elif col in ["提前/延期(整体)", "FBA号", "店铺", "仓库", "货代", "物流方式", "提前/延期（货代）",
+        elif col in ["提前/延期(整体)", "FBA号", "店铺","区域", "仓库", "货代", "物流方式", "提前/延期（货代）",
                      "提前/延期（仓库）"]:
             avg_row[col] = "-"
         elif col in int_cols:
