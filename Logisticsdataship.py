@@ -2154,7 +2154,7 @@ else:
                 st.markdown(f"> {summary}")
 
 # ===== 【简化版】多物流方式-多阈值时效趋势折线图（新增累计订单数）=====
-st.markdown("### 📦 各物流方式-不同准时率阈值时效趋势")
+st.markdown("### 📦 各物流方式-不同准时率阈值时效趋势（实际 vs 加权）")
 st.divider()
 
 # 1. 数据预处理（已改为：开船-完成上架）
@@ -2214,7 +2214,7 @@ else:
             if month_total < 1:
                 continue
 
-            # 排序 + 累计占比
+            # 排序 + 累计占比（实际时效用）
             df_sorted = df_m.sort_values(time_col, ascending=True).reset_index(drop=True)
             df_sorted["累计订单数"] = range(1, month_total + 1)
             df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / month_total) * 100
@@ -2228,14 +2228,14 @@ else:
             w3 = calculate_weighted_by_region(df_m, stage3_col)
             total_weighted = round(w1 + w2 + w3, 2)
 
-            # 遍历阈值
+            # 遍历阈值：同时记录实际时效和加权时效
             for tr in target_rates:
                 matched = df_sorted[df_sorted["累计占比(%)"] >= tr]
                 if not matched.empty:
-                    min_day = round(matched[time_col].min(), 1)
-                    pass_cnt = len(df_sorted[df_sorted[time_col] <= min_day])
+                    actual_day = round(matched[time_col].min(), 1)  # 实际时效
+                    pass_cnt = len(df_sorted[df_sorted[time_col] <= actual_day])
                 else:
-                    min_day = "-"
+                    actual_day = "-"
                     pass_cnt = 0
 
                 trend_results.append({
@@ -2243,16 +2243,16 @@ else:
                     "到货年月": ym,
                     "中文月份": month_cn,
                     "准时率阈值(%)": tr,
-                    "开船-完成上架(天)": min_day,
+                    "实际时效(天)": actual_day,       # 新增：实际时效
+                    "加权时效(天)": total_weighted,  # 新增：加权时效
                     "开船-提柜(平均)": w1,
                     "提柜-签收(加权)": w2,
                     "签收-上架(加权)": w3,
-                    "总加权时效": total_weighted,
                     "当月总订单数": month_total,
                     "达标订单数": pass_cnt
                 })
 
-    # ===================== 3. 折线图（已更新为 开船-完成上架） =====================
+    # ===================== 3. 左右双图布局（实际 vs 加权） =====================
     if trend_results:
         import plotly.graph_objects as go
         df_trend = pd.DataFrame(trend_results)
@@ -2264,34 +2264,68 @@ else:
             if df_lt.empty:
                 continue
 
-            fig = go.Figure()
-            for tr in target_rates:
-                df_r = df_lt[df_lt["准时率阈值(%)"] == tr]
-                if not df_r.empty:
-                    fig.add_trace(go.Scatter(
-                        x=df_r["中文月份"],
-                        y=df_r["开船-完成上架(天)"],
-                        name=f"{tr}%",
-                        mode="lines+markers+text",
-                        text=df_r["开船-完成上架(天)"].astype(str) + "天",
-                        textposition="top center"
-                    ))
+            # 创建左右双列布局
+            col_actual, col_weighted = st.columns(2)
 
-            fig.update_layout(
-                title=f"【{lt}】开船-完成上架 | 各准时率时效趋势",
-                xaxis_title="月份",
-                yaxis_title="时效（天）",
-                height=500,
-                plot_bgcolor="#fff"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            st.divider()
+            # ---------------------- 左图：实际时效趋势 ----------------------
+            with col_actual:
+                fig_actual = go.Figure()
+                for tr in target_rates:
+                    df_r = df_lt[df_lt["准时率阈值(%)"] == tr]
+                    if not df_r.empty and df_r["实际时效(天)"].iloc[0] != "-":
+                        fig_actual.add_trace(go.Scatter(
+                            x=df_r["中文月份"],
+                            y=df_r["实际时效(天)"],
+                            name=f"{tr}%准时率",
+                            mode="lines+markers+text",
+                            text=df_r["实际时效(天)"].astype(str) + "天",
+                            textposition="top center",
+                            marker=dict(size=6),
+                            line=dict(width=2)
+                        ))
+                fig_actual.update_layout(
+                    title=f"【{lt}】实际时效趋势（开船-完成上架）",
+                    xaxis_title="月份",
+                    yaxis_title="实际时效（天）",
+                    height=450,
+                    plot_bgcolor="#fff",
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+                )
+                st.plotly_chart(fig_actual, use_container_width=True)
 
-        # ===================== 表格（展示加权 + 时效） =====================
-        st.markdown("#### 📊 时效趋势数据（含区域加权）")
+            # ---------------------- 右图：加权时效趋势 ----------------------
+            with col_weighted:
+                fig_weighted = go.Figure()
+                for tr in target_rates:
+                    df_r = df_lt[df_lt["准时率阈值(%)"] == tr]
+                    if not df_r.empty:
+                        fig_weighted.add_trace(go.Scatter(
+                            x=df_r["中文月份"],
+                            y=df_r["加权时效(天)"],
+                            name=f"{tr}%准时率",
+                            mode="lines+markers+text",
+                            text=df_r["加权时效(天)"].astype(str) + "天",
+                            textposition="top center",
+                            marker=dict(size=6),
+                            line=dict(width=2, dash="dash")  # 虚线区分
+                        ))
+                fig_weighted.update_layout(
+                    title=f"【{lt}】加权时效趋势（区域加权）",
+                    xaxis_title="月份",
+                    yaxis_title="加权时效（天）",
+                    height=450,
+                    plot_bgcolor="#fff",
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
+                )
+                st.plotly_chart(fig_weighted, use_container_width=True)
+
+            st.divider()  # 分隔不同物流方式
+
+        # ===================== 表格（同时展示实际+加权） =====================
+        st.markdown("#### 📊 时效趋势数据（实际 vs 加权）")
         show_cols = [
             "物流方式", "中文月份", "准时率阈值(%)",
-            "开船-完成上架(天)", "总加权时效",
+            "实际时效(天)", "加权时效(天)",
             "开船-提柜(平均)", "提柜-签收(加权)", "签收-上架(加权)",
             "当月总订单数", "达标订单数"
         ]
@@ -2299,7 +2333,7 @@ else:
 
         # 下载
         csv = df_trend.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("📥 下载时效趋势（含加权）", csv, f"物流时效趋势_加权计算.csv", "text/csv")
+        st.download_button("📥 下载时效趋势（含实际+加权）", csv, f"物流时效趋势_实际vs加权.csv", "text/csv")
 
     else:
         st.warning("暂无足够数据生成趋势图")
