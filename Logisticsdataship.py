@@ -2900,7 +2900,7 @@ else:
             warehouse_month_stats["仓库归类"] = warehouse_month_stats["准时率(%)"].apply(lambda x: get_warehouse_category(x)[0])
             warehouse_month_stats["归类颜色"] = warehouse_month_stats["准时率(%)"].apply(lambda x: get_warehouse_category(x)[1])
 
-            # ===================== 安全日期解析（修复核心） =====================
+            # ===================== 安全日期解析 =====================
             def safe_parse_ym(ym):
                 try:
                     s = str(ym).replace("年", "").replace("月", "").replace("-", "")
@@ -2942,7 +2942,8 @@ else:
                         start_month_cn = match["中文月份"].iloc[0]
                     else:
                         start_month_cn = unique_months[0]
-                    end_month_cn = warehouse_month_stats[warehouse_month_stats["年月排序"] == latest_month]["中文月份"].iloc[0]
+                    end_match = warehouse_month_stats[warehouse_month_stats["年月排序"] == latest_month]
+                    end_month_cn = end_match["中文月份"].iloc[0] if not end_match.empty else unique_months[-1]
 
                 if start_month_cn is None or end_month_cn is None:
                     st.markdown("#### 自定义时间范围")
@@ -2952,7 +2953,7 @@ else:
                     with col_end:
                         end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months)-1, key="warehouse_end")
 
-                # ===================== 【修复】安全日期转换 =====================
+                # ===================== 安全日期转换 =====================
                 start_dt = warehouse_month_stats[warehouse_month_stats["中文月份"] == start_month_cn]["年月排序"].iloc[0]
                 end_dt = warehouse_month_stats[warehouse_month_stats["中文月份"] == end_month_cn]["年月排序"].iloc[0]
 
@@ -2997,12 +2998,18 @@ else:
                                 s["平均准时率"] = round(s["平均准时率"],2)
                                 st.dataframe(s, use_container_width=True, hide_index=True)
 
-                    # ===================== 趋势图 =====================
+                    # ===================== 趋势图（已修复空值判断） =====================
                     st.markdown("### 仓库月度趋势分析")
                     search_warehouse = st.text_input("搜索仓库", placeholder="输入仓库名", key="search_warehouse")
-                    unique_warehouses = df_warehouse_filtered["仓库"].unique()
-                    filtered_warehouses = [w for w in unique_warehouses if search_warehouse.strip() in w] if search_warehouse.strip() else unique_warehouses
-                    if filtered_warehouses:
+                    unique_warehouses = df_warehouse_filtered["仓库"].unique().tolist()
+
+                    # 🔥 修复点：确保永远是列表，永远不为空
+                    if search_warehouse.strip():
+                        filtered_warehouses = [w for w in unique_warehouses if search_warehouse.strip() in w]
+                    else:
+                        filtered_warehouses = unique_warehouses.copy()
+
+                    if len(filtered_warehouses) > 0:
                         selected_warehouse = st.selectbox("选择仓库", filtered_warehouses, index=0, key="selected_warehouse")
                         df_trend = df_warehouse_filtered[df_warehouse_filtered["仓库"] == selected_warehouse].sort_values("年月排序")
                         if not df_trend.empty:
@@ -3014,6 +3021,8 @@ else:
                             fig.add_trace(go.Scatter(x=df_trend["中文月份"],y=df_trend["准时率(%)"],name="准时率",yaxis="y2",marker_color="#9f7aea",mode="lines+markers+text"))
                             fig.update_layout(yaxis2=dict(overlaying="y",side="right",range=[0,100]),height=450,barmode="group")
                             st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("暂无匹配仓库数据")
 
                     # ===================== 3. 三列仓库卡片 =====================
                     st.markdown("### 各仓库详细表现（按区域：美东→美中→美西）")
