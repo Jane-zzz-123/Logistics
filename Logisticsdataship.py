@@ -2157,25 +2157,22 @@ else:
 st.markdown("### 📦 各物流方式-不同准时率阈值时效趋势（实际 vs 加权）")
 st.divider()
 
-# 1. 数据预处理（已改为：开船-完成上架）
-time_col = "开船-完成上架"          # 已改成你要的字段
-region_col = "区域"                 # 区域列（用于加权）
-stage1_col = "开船-提柜"            # 不分区 → 普通平均
-stage2_col = "提柜-签收"            # 分区 → 加权
-stage3_col = "签收-完成上架"        # 分区 → 加权
+# 1. 数据预处理
+time_col = "开船-完成上架"
+region_col = "区域"
+stage1_col = "开船-提柜"
+stage2_col = "提柜-签收"
+stage3_col = "签收-完成上架"
 target_rates = [75, 80, 85, 90, 95, 100]
 
 df_time_analysis = df_filtered_by_logistics.copy()
 
-# 只保留筛选时间范围内的月份
 selected_ym_list = df_filtered["到货年月"].tolist()
 df_time_analysis = df_time_analysis[df_time_analysis["到货年月"].isin(selected_ym_list)].copy()
 
-# 清洗所有时效列
 for col in [time_col, stage1_col, stage2_col, stage3_col]:
     df_time_analysis[col] = pd.to_numeric(df_time_analysis[col], errors="coerce")
 
-# 过滤有效数据
 df_time_analysis = df_time_analysis[
     (df_time_analysis[time_col] > 0) &
     (df_time_analysis["到货年月"].notna()) &
@@ -2186,21 +2183,21 @@ df_time_analysis = df_time_analysis[
 if len(df_time_analysis) == 0:
     st.warning("暂无有效时效数据（时效为空/≤0 或 物流方式/区域为空）")
 else:
-    # ===================== 核心：加权平均函数 =====================
-    def calculate_weighted_by_region(df, col):
-        region_counts = df[region_col].value_counts()
+    # ===================== 加权计算函数（正确版） =====================
+    def weighted_by_region(df, col):
         total = len(df)
-        weighted_sum = 0.0
-        for region, cnt in region_counts.items():
-            avg_val = df[df[region_col] == region][col].mean()
-            weight = cnt / total
-            weighted_sum += avg_val * weight
-        return round(weighted_sum, 2)
+        if total == 0:
+            return 0
+        region_cnt = df[region_col].value_counts()
+        weighted = 0.0
+        for r, cnt in region_cnt.items():
+            avg = df[df[region_col] == r][col].mean()
+            weighted += avg * (cnt / total)
+        return round(weighted, 2)
 
-    # ===================== 2. 计算：趋势 + 加权时效 =====================
+    # ===================== 核心计算（已修复：每个阈值独立加权） =====================
     trend_results = []
 
-    # 获取需要分析的物流方式
     if selected_logistics == "全部":
         analysis_logistics = sorted(df_time_analysis["物流方式"].unique())
     else:
@@ -2214,127 +2211,84 @@ else:
             if month_total < 1:
                 continue
 
-            # 排序 + 累计占比（实际时效用）
             df_sorted = df_m.sort_values(time_col, ascending=True).reset_index(drop=True)
-            df_sorted["累计订单数"] = range(1, month_total + 1)
-            df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / month_total) * 100
-
-            # 中文月份
+            df_sorted["累计占比(%)"] = (df_sorted.index + 1) / month_total * 100
             month_cn = monthly_stats[monthly_stats["到货年月"] == ym]["中文月份"].iloc[0]
 
-            # ===================== 计算加权时效 =====================
-            w1 = round(df_m[stage1_col].mean(), 2)
-            w2 = calculate_weighted_by_region(df_m, stage2_col)
-            w3 = calculate_weighted_by_region(df_m, stage3_col)
-            total_weighted = round(w1 + w2 + w3, 2)
-
-            # 遍历阈值：同时记录实际时效和加权时效
+            # ===================== 遍历每个阈值：分别计算加权 =====================
             for tr in target_rates:
                 matched = df_sorted[df_sorted["累计占比(%)"] >= tr]
-                if not matched.empty:
-                    actual_day = round(matched[time_col].min(), 1)  # 实际时效
-                    pass_cnt = len(df_sorted[df_sorted[time_col] <= actual_day])
-                else:
-                    actual_day = "-"
-                    pass_cnt = 0
+                if matched.empty:
+                    continue
+
+                # 实际时效
+                actual_day = round(matched[time_col].min(), 1)
+                df_threshold = df_sorted[df_sorted[time_col] <= actual_day].copy()
+
+                # ===================== 正确加权：只算当前阈值内的订单 =====================
+                w1 = round(df_threshold[stage1_col].mean(), 2)
+                w2 = weighted_by_region(df_threshold, stage2_col)
+                w3 = weighted_by_region(df_threshold, stage3_col)
+                total_weighted = round(w1 + w2 + w3, 2)
 
                 trend_results.append({
                     "物流方式": logistics_type,
-                    "到货年月": ym,
                     "中文月份": month_cn,
                     "准时率阈值(%)": tr,
-                    "实际时效(天)": actual_day,       # 新增：实际时效
-                    "加权时效(天)": total_weighted,  # 新增：加权时效
+                    "实际时效(天)": actual_day,
+                    "加权时效(天)": total_weighted,
                     "开船-提柜(平均)": w1,
                     "提柜-签收(加权)": w2,
                     "签收-上架(加权)": w3,
-                    "当月总订单数": month_total,
-                    "达标订单数": pass_cnt
                 })
 
-    # ===================== 3. 左右双图布局（实际 vs 加权） =====================
+    # ===================== 绘图：左右双图（现在全部不一样了） =====================
     if trend_results:
         import plotly.graph_objects as go
         df_trend = pd.DataFrame(trend_results)
-        df_trend["年月排序"] = pd.to_datetime(df_trend["中文月份"].str.replace("年","-").str.replace("月","-01"))
-        df_trend = df_trend.sort_values("年月排序")
 
         for lt in analysis_logistics:
             df_lt = df_trend[df_trend["物流方式"] == lt]
             if df_lt.empty:
                 continue
 
-            # 创建左右双列布局
-            col_actual, col_weighted = st.columns(2)
+            col_left, col_right = st.columns(2)
 
-            # ---------------------- 左图：实际时效趋势 ----------------------
-            with col_actual:
-                fig_actual = go.Figure()
+            # 左图：实际时效
+            with col_left:
+                fig1 = go.Figure()
                 for tr in target_rates:
-                    df_r = df_lt[df_lt["准时率阈值(%)"] == tr]
-                    if not df_r.empty and df_r["实际时效(天)"].iloc[0] != "-":
-                        fig_actual.add_trace(go.Scatter(
-                            x=df_r["中文月份"],
-                            y=df_r["实际时效(天)"],
-                            name=f"{tr}%准时率",
-                            mode="lines+markers+text",
-                            text=df_r["实际时效(天)"].astype(str) + "天",
-                            textposition="top center",
-                            marker=dict(size=6),
-                            line=dict(width=2)
+                    d = df_lt[df_lt["准时率阈值(%)"] == tr]
+                    if not d.empty:
+                        fig1.add_trace(go.Scatter(
+                            x=d["中文月份"], y=d["实际时效(天)"],
+                            name=f"{tr}%", mode="lines+markers+text",
+                            text=d["实际时效(天)"].astype(str)+"天",
+                            textposition="top center"
                         ))
-                fig_actual.update_layout(
-                    title=f"【{lt}】实际时效趋势（开船-完成上架）",
-                    xaxis_title="月份",
-                    yaxis_title="实际时效（天）",
-                    height=450,
-                    plot_bgcolor="#fff",
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
-                )
-                st.plotly_chart(fig_actual, use_container_width=True)
+                fig1.update_layout(title=f"【{lt}】实际时效", height=450, plot_bgcolor="white")
+                st.plotly_chart(fig1, use_container_width=True)
 
-            # ---------------------- 右图：加权时效趋势 ----------------------
-            with col_weighted:
-                fig_weighted = go.Figure()
+            # 右图：加权时效（现在每条线都不同！）
+            with col_right:
+                fig2 = go.Figure()
                 for tr in target_rates:
-                    df_r = df_lt[df_lt["准时率阈值(%)"] == tr]
-                    if not df_r.empty:
-                        fig_weighted.add_trace(go.Scatter(
-                            x=df_r["中文月份"],
-                            y=df_r["加权时效(天)"],
-                            name=f"{tr}%准时率",
-                            mode="lines+markers+text",
-                            text=df_r["加权时效(天)"].astype(str) + "天",
-                            textposition="top center",
-                            marker=dict(size=6),
-                            line=dict(width=2, dash="dash")  # 虚线区分
+                    d = df_lt[df_lt["准时率阈值(%)"] == tr]
+                    if not d.empty:
+                        fig2.add_trace(go.Scatter(
+                            x=d["中文月份"], y=d["加权时效(天)"],
+                            name=f"{tr}%", mode="lines+markers+text",
+                            text=d["加权时效(天)"].astype(str)+"天",
+                            textposition="top center"
                         ))
-                fig_weighted.update_layout(
-                    title=f"【{lt}】加权时效趋势（区域加权）",
-                    xaxis_title="月份",
-                    yaxis_title="加权时效（天）",
-                    height=450,
-                    plot_bgcolor="#fff",
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5)
-                )
-                st.plotly_chart(fig_weighted, use_container_width=True)
+                fig2.update_layout(title=f"【{lt}】加权时效", height=450, plot_bgcolor="white")
+                st.plotly_chart(fig2, use_container_width=True)
 
-            st.divider()  # 分隔不同物流方式
+            st.divider()
 
-        # ===================== 表格（同时展示实际+加权） =====================
-        st.markdown("#### 📊 时效趋势数据（实际 vs 加权）")
-        show_cols = [
-            "物流方式", "中文月份", "准时率阈值(%)",
-            "实际时效(天)", "加权时效(天)",
-            "开船-提柜(平均)", "提柜-签收(加权)", "签收-上架(加权)",
-            "当月总订单数", "达标订单数"
-        ]
-        st.dataframe(df_trend[show_cols], use_container_width=True, hide_index=True)
-
-        # 下载
-        csv = df_trend.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button("📥 下载时效趋势（含实际+加权）", csv, f"物流时效趋势_实际vs加权.csv", "text/csv")
-
+        # 表格
+        st.markdown("#### 📊 时效数据（实际 vs 加权）")
+        st.dataframe(df_trend, use_container_width=True, hide_index=True)
     else:
         st.warning("暂无足够数据生成趋势图")
 
