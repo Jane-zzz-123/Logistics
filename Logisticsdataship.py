@@ -1772,8 +1772,17 @@ else:
     st.dataframe(warehouse_display, use_container_width=True, hide_index=True)
 
     # ===== 8. 总结（带区域）=====
+    # ===== 8. 总结（分三列：美东 | 美中 | 美西）=====
     st.markdown("### 仓库当月表现总结")
-    summary_text = []
+    col_east, col_mid, col_west = st.columns(3)
+
+    # 按区域分组整理总结文字
+    summary_by_region = {
+        "美东": [],
+        "美中": [],
+        "美西": []
+    }
+
     for _, row in warehouse_stats.iterrows():
         region = row["区域"]
         name = row["仓库"]
@@ -1781,9 +1790,59 @@ else:
         ratio = row["订单量占比(%)"]
         rate = row["准时率(%)"]
         diff = row["准时率差值(%)"]
-        diff_str = f"↑{diff:.1f}%" if diff and diff > 0 else f"↓{abs(diff):.1f}%" if diff and diff < 0 else "持平"
-        summary_text.append(f"- **{name} ({region})**：订单{orders}单（占比{ratio:.1f}%），准时率{rate:.1f}%，环比{diff_str}")
-    st.markdown("\n".join(summary_text), unsafe_allow_html=True)
+        max_duration = row["最长上架时长"]
+
+        # 评级描述
+        if rate >= 90:
+            level_desc = "表现优秀"
+            level_color = "#2e7d32"
+        elif rate >= 80:
+            level_desc = "表现达标"
+            level_color = "#ff9800"
+        else:
+            level_desc = "需重点关注"
+            level_color = "#c62828"
+
+        # 环比描述
+        if pd.notna(diff):
+            if diff > 0:
+                diff_str = f"较上月提升{diff:.1f}个百分点"
+            elif diff < 0:
+                diff_str = f"较上月下降{abs(diff):.1f}个百分点"
+            else:
+                diff_str = "与上月持平"
+        else:
+            diff_str = "无上月数据对比"
+
+        # 组装总结（带颜色）
+        summary_item = f"""
+        <div style='margin-bottom: 8px;'>
+            <b>{name}</b>：<span style='color:{level_color};'>{level_desc}</span>，订单{orders}单（占比{ratio:.1f}%），准时率{rate:.1f}%，{diff_str}，最长上架时长{max_duration:.1f}天。
+        </div>
+        """
+        summary_by_region[region].append(summary_item)
+
+    # 三列渲染
+    with col_east:
+        st.markdown("#### 美东区域")
+        if summary_by_region["美东"]:
+            st.markdown("\n".join(summary_by_region["美东"]), unsafe_allow_html=True)
+        else:
+            st.markdown("暂无美东区域仓库数据")
+
+    with col_mid:
+        st.markdown("#### 美中区域")
+        if summary_by_region["美中"]:
+            st.markdown("\n".join(summary_by_region["美中"]), unsafe_allow_html=True)
+        else:
+            st.markdown("暂无美中区域仓库数据")
+
+    with col_west:
+        st.markdown("#### 美西区域")
+        if summary_by_region["美西"]:
+            st.markdown("\n".join(summary_by_region["美西"]), unsafe_allow_html=True)
+        else:
+            st.markdown("暂无美西区域仓库数据")
 
     # 下载
     csv_data = warehouse_stats.to_csv(index=False, encoding="utf-8-sig")
