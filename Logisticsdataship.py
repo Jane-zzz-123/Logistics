@@ -74,7 +74,7 @@ def get_table_download_link(df, filename, text):
 # ---------------------- 数据加载函数（两份数据逻辑） ----------------------
 @st.cache_data
 def load_data():
-    url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdatanew.xlsx"
+    url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
     try:
         df_all = pd.read_excel(url, sheet_name="上架完成-海运（FBA号）")  # 全部数据
     except Exception as e:
@@ -169,11 +169,11 @@ else:
         f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录（含 {abnormal_count_total} 条异常数据）")
 
 # 5. 主看板区域
-st.title("🚢 FBA空派分析看板区域")
+st.title("🚢 FBA海运分析看板区域")
 st.divider()
 
 # 6. 当月数据筛选（基于 df_selected，不会丢数据）
-st.subheader("🔍 当月空派分析")
+st.subheader("🔍 当月海运分析")
 month_options = sorted(df_selected["到货年月"].unique(), reverse=True)
 if not month_options:
     st.warning("⚠️ 暂无可用的到货年月数据")
@@ -3674,7 +3674,7 @@ df_cost = load_cost_data()
 
 # ====================== 自定义颜色映射 ======================
 color_map = {
-    "空派": "#ff4b4b",        # 红色
+    "红单": "#ff4b4b",        # 红色
     "空派": "#1f77b4",        # 蓝色
     "以星特快": "#2ca02c",    # 绿色
     "以星": "#ff7f0e",        # 橙色
