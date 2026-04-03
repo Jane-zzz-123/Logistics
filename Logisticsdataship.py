@@ -1595,370 +1595,199 @@ st.markdown("### 仓库准时情况分析（签收-完成上架环节）")
 
 # ========== 列名映射字典（根据你的实际列名修改！）==========
 WAREHOUSE_COLUMN_MAPPING = {
-    "仓库列名": "仓库",  # 改成你数据中实际的仓库列名
-    "签收上架时长列名": "签收-完成上架",  # 改成你实际的「签收-完成上架」时长列名
-    # 注：「提前/延期（仓库）」列会自动计算，无需手动映射
+    "仓库列名": "仓库",
+    "区域列名": "区域",        # 确保你的数据有这列：美东/美中/美西
+    "签收上架时长列名": "签收-完成上架",
 }
 
-# 筛选有效数据（仅保留有仓库信息+签收上架时长的行）
+# ========== 固定区域顺序（强制：美西 → 美中 → 美东）==========
+REGION_ORDER = ["美西", "美中", "美东"]
+
+# 筛选有效数据
 df_warehouse_valid = df_current_FBA[
     (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["仓库列名"]].notna() &
      (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["仓库列名"]] != "")) &
-    (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].notna())
-    ].copy()
+    (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].notna()) &
+    (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["区域列名"]].notna())
+].copy()
 
 if len(df_warehouse_valid) == 0:
     st.warning(f"{selected_month}月暂无仓库相关数据")
 else:
-    # ===== 列名校验：避免KeyError =====
-    required_cols = [WAREHOUSE_COLUMN_MAPPING["仓库列名"], WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]]
+    # ===== 列名校验 =====
+    required_cols = [
+        WAREHOUSE_COLUMN_MAPPING["仓库列名"],
+        WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"],
+        WAREHOUSE_COLUMN_MAPPING["区域列名"]
+    ]
     missing_cols = [col for col in required_cols if col not in df_warehouse_valid.columns]
     if missing_cols:
-        st.error(f"缺少仓库分析必要列：{missing_cols}，请检查列名是否正确！")
+        st.error(f"缺少必要列：{missing_cols}")
         st.stop()
 
-    # ===== 1. 核心计算：自动生成「提前/延期（仓库）」列 =====
-    # 规则：时长≤3天=提前/准时，>3天=延期
-    df_warehouse_valid["提前/延期（仓库）"] = df_warehouse_valid[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].apply(
-        lambda x: "提前/准时" if x <= 3 else "延期"
+    # 统一区域名称（避免脏数据）
+    df_warehouse_valid[WAREHOUSE_COLUMN_MAPPING["区域列名"]] = (
+        df_warehouse_valid[WAREHOUSE_COLUMN_MAPPING["区域列名"]]
+        .astype(str)
+        .str.strip()
+        .replace({"East": "美东", "Mid": "美中", "West": "美西"})
     )
 
-    # ===== 2. 仓库核心指标计算 =====
-    warehouse_stats = df_warehouse_valid.groupby(WAREHOUSE_COLUMN_MAPPING["仓库列名"]).agg(
+    # ===== 1. 核心计算 =====
+    df_warehouse_valid["提前/延期（仓库）"] = df_warehouse_valid[
+        WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]
+    ].apply(lambda x: "提前/准时" if x <= 3 else "延期")
+
+    # ===== 2. 仓库统计 =====
+    warehouse_stats = df_warehouse_valid.groupby([
+        WAREHOUSE_COLUMN_MAPPING["仓库列名"],
+        WAREHOUSE_COLUMN_MAPPING["区域列名"]
+    ]).agg(
         总订单数=(WAREHOUSE_COLUMN_MAPPING["仓库列名"], "count"),
         提前准时订单数=("提前/延期（仓库）", lambda x: len(x[x == "提前/准时"])),
         延期订单数=("提前/延期（仓库）", lambda x: len(x[x == "延期"])),
         签收上架时长均值=(WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"], "mean"),
         签收上架时长中位数=(WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"], "median"),
         最长上架时长=(WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"], "max"),
-        最短上架时长=(WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"], "min")
+        最短上架时长=(WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"], "min"),
     ).reset_index()
 
-    # 重命名仓库列，方便后续使用
-    warehouse_stats.rename(columns={WAREHOUSE_COLUMN_MAPPING["仓库列名"]: "仓库"}, inplace=True)
+    warehouse_stats.rename(columns={
+        WAREHOUSE_COLUMN_MAPPING["仓库列名"]: "仓库",
+        WAREHOUSE_COLUMN_MAPPING["区域列名"]: "区域"
+    }, inplace=True)
 
-    # 计算衍生指标（核心）- 统一保留2位小数
+    # 指标计算
     warehouse_stats["准时率(%)"] = round(warehouse_stats["提前准时订单数"] / warehouse_stats["总订单数"] * 100, 2)
     warehouse_stats["订单量占比(%)"] = round(warehouse_stats["总订单数"] / len(df_warehouse_valid) * 100, 2)
     warehouse_stats["延期率(%)"] = round(100 - warehouse_stats["准时率(%)"], 2)
 
-    # ===== 3. 计算上月仓库指标（环比/差值分析）=====
-    # 处理上月数据
+    # ===== 3. 环比（上月）=====
     prev_warehouse_valid = df_prev[
-        (df_prev[WAREHOUSE_COLUMN_MAPPING["仓库列名"]].notna() &
-         (df_prev[WAREHOUSE_COLUMN_MAPPING["仓库列名"]] != "")) &
-        (df_prev[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].notna())
-        ].copy() if not df_prev.empty else pd.DataFrame()
+        (df_prev[WAREHOUSE_COLUMN_MAPPING["仓库列名"]].notna()) &
+        (df_prev[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].notna()) &
+        (df_prev[WAREHOUSE_COLUMN_MAPPING["区域列名"]].notna())
+    ].copy() if not df_prev.empty else pd.DataFrame()
 
-    if len(prev_warehouse_valid) > 0:
-        # 上月数据生成「提前/延期（仓库）」列
+    if not prev_warehouse_valid.empty:
         prev_warehouse_valid["提前/延期（仓库）"] = prev_warehouse_valid[
-            WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].apply(
-            lambda x: "提前/准时" if x <= 3 else "延期"
-        )
-        # 计算上月仓库核心指标
-        prev_warehouse_stats = prev_warehouse_valid.groupby(WAREHOUSE_COLUMN_MAPPING["仓库列名"]).agg(
-            上月提前准时订单数=("提前/延期（仓库）", lambda x: len(x[x == "提前/准时"])),
-            上月总订单数=(WAREHOUSE_COLUMN_MAPPING["仓库列名"], "count")
-        ).reset_index()
-        prev_warehouse_stats.rename(columns={WAREHOUSE_COLUMN_MAPPING["仓库列名"]: "仓库"}, inplace=True)
-        prev_warehouse_stats["上月准时率(%)"] = round(
-            prev_warehouse_stats["上月提前准时订单数"] / prev_warehouse_stats["上月总订单数"] * 100, 2)
-
-        # 合并本月&上月数据
-        warehouse_stats = pd.merge(warehouse_stats, prev_warehouse_stats[["仓库", "上月准时率(%)"]], on="仓库",
-                                   how="left")
-        warehouse_stats["准时率差值(%)"] = round(
-            warehouse_stats["准时率(%)"] - warehouse_stats["上月准时率(%)"].fillna(0), 2)
-
-        # 计算上月订单数（用于表格差值展示）
-        prev_order_stats = prev_warehouse_valid.groupby(WAREHOUSE_COLUMN_MAPPING["仓库列名"]).agg(
+            WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].apply(lambda x: "提前/准时" if x <= 3 else "延期")
+        prev_warehouse_stats = prev_warehouse_valid.groupby([
+            WAREHOUSE_COLUMN_MAPPING["仓库列名"],
+            WAREHOUSE_COLUMN_MAPPING["区域列名"]
+        ]).agg(
             上月总订单数=(WAREHOUSE_COLUMN_MAPPING["仓库列名"], "count"),
             上月提前准时订单数=("提前/延期（仓库）", lambda x: len(x[x == "提前/准时"])),
-            上月延期订单数=("提前/延期（仓库）", lambda x: len(x[x == "延期"]))
+            上月延期订单数=("提前/延期（仓库）", lambda x: len(x[x == "延期"])),
         ).reset_index()
-        prev_order_stats.rename(columns={WAREHOUSE_COLUMN_MAPPING["仓库列名"]: "仓库"}, inplace=True)
-        warehouse_stats = pd.merge(warehouse_stats, prev_order_stats, on="仓库", how="left")
+        prev_warehouse_stats.rename(columns={
+            WAREHOUSE_COLUMN_MAPPING["仓库列名"]: "仓库",
+            WAREHOUSE_COLUMN_MAPPING["区域列名"]: "区域"
+        }, inplace=True)
+        prev_warehouse_stats["上月准时率(%)"] = round(
+            prev_warehouse_stats["上月提前准时订单数"] / prev_warehouse_stats["上月总订单数"] * 100, 2)
+        warehouse_stats = pd.merge(warehouse_stats, prev_warehouse_stats, on=["仓库", "区域"], how="left")
+        warehouse_stats["准时率差值(%)"] = round(warehouse_stats["准时率(%)"] - warehouse_stats["上月准时率(%)"].fillna(0), 2)
     else:
-        # 无上月数据时填充空值
         warehouse_stats["上月准时率(%)"] = None
         warehouse_stats["准时率差值(%)"] = None
         warehouse_stats["上月总订单数"] = None
         warehouse_stats["上月提前准时订单数"] = None
         warehouse_stats["上月延期订单数"] = None
 
-    # ===== 4. 可视化展示（双轴图 + 所有仓库迷你卡片）=====
-    # 4.1 上方：仓库订单量占比 + 准时率 双轴图（全屏宽度）
-    import plotly.graph_objects as go
-
-    fig = go.Figure()
-    # 订单量占比-柱状图
-    fig.add_trace(go.Bar(
-        x=warehouse_stats["仓库"],
-        y=warehouse_stats["订单量占比(%)"],
-        name="订单量占比(%)",
-        yaxis="y1",
-        marker_color="#9f7aea",  # 紫色（和货代的蓝色区分）
-        opacity=0.8,
-        text=warehouse_stats["订单量占比(%)"].apply(lambda x: f"{x:.2f}%"),
-        textposition="auto"
-    ))
-    # 准时率-折线图
-    fig.add_trace(go.Scatter(
-        x=warehouse_stats["仓库"],
-        y=warehouse_stats["准时率(%)"],
-        name="准时率(%)",
-        yaxis="y2",
-        marker_color="#38b2ac",  # 青绿色（和货代的红色区分）
-        mode="lines+markers+text",
-        line=dict(width=3),
-        marker=dict(size=8),
-        text=warehouse_stats["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
-        textposition="top center"
-    ))
-    # 图表样式配置
-    fig.update_layout(
-        title=f"{selected_month} 仓库订单量占比 & 准时率对比（签收-上架）",
-        yaxis=dict(title="订单量占比(%)", side="left", range=[0, 100], color="#9f7aea"),
-        yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100], color="#38b2ac"),
-        xaxis=dict(title="仓库名称", tickangle=0),
-        legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
-        height=400,
-        plot_bgcolor="#ffffff"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # 4.2 下方：所有仓库核心表现迷你卡片（一行3列 + 按优质→合格→异常排序）
-    st.markdown("#### 仓库核心表现")
-
-
-    # 第一步：给仓库数据添加评级标识，用于排序
-    def get_grade_flag(rate):
-        """返回排序标识：优质=0，合格=1，异常=2"""
-        if rate >= 90:
-            return 0
-        elif rate >= 80:
-            return 1
-        else:
-            return 2
-
-
-    # 新增排序列
-    warehouse_stats["评级排序"] = warehouse_stats["准时率(%)"].apply(get_grade_flag)
-    # 按评级排序（优质→合格→异常），同评级按准时率降序
-    warehouse_stats_sorted = warehouse_stats.sort_values(
-        by=["评级排序", "准时率(%)"],
-        ascending=[True, False]
+    # ===== 4. 排序规则：区域(美西→美中→美东) → 订单占比(降序) =====
+    warehouse_stats["区域排序"] = warehouse_stats["区域"].map({v: i for i, v in enumerate(REGION_ORDER)})
+    warehouse_stats = warehouse_stats.sort_values(
+        by=["区域排序", "订单量占比(%)"], ascending=[True, False]
     ).reset_index(drop=True)
 
-    # 第二步：一行3列展示卡片（兼容不足3个的情况）
-    from itertools import zip_longest
+    # ===== 5. 分区域双轴图：美西 | 美中 | 美东 =====
+    st.markdown("#### 各区域仓库订单占比 & 准时率")
+    import plotly.graph_objects as go
+    col_w, col_m, col_e = st.columns(3)
 
-    # 每3个仓库分为一组
-    warehouse_groups = list(zip_longest(*[iter(warehouse_stats_sorted.to_dict('records'))] * 3))
+    for idx, region in enumerate(REGION_ORDER):
+        df_region = warehouse_stats[warehouse_stats["区域"] == region]
+        if df_region.empty:
+            continue
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=df_region["仓库"], y=df_region["订单量占比(%)"], name="订单占比(%)", marker_color="#9f7aea", opacity=0.8))
+        fig.add_trace(go.Scatter(x=df_region["仓库"], y=df_region["准时率(%)"], name="准时率(%)", mode="lines+markers", line=dict(width=3), marker=dict(size=6), marker_color="#38b2ac"))
+        fig.update_layout(
+            title=f"{region}", height=360,
+            yaxis=dict(title="订单占比(%)", range=[0,100], color="#9f7aea"),
+            yaxis2=dict(title="准时率(%)", overlaying="y", side="right", range=[0,100], color="#38b2ac"),
+            xaxis=dict(tickangle=-45 if len(df_region) > 2 else 0),
+            plot_bgcolor="white"
+        )
+        if idx == 0:
+            col_w.plotly_chart(fig, use_container_width=True)
+        elif idx == 1:
+            col_m.plotly_chart(fig, use_container_width=True)
+        else:
+            col_e.plotly_chart(fig, use_container_width=True)
 
-    # 第三步：循环渲染每组的3列卡片
-    for group in warehouse_groups:
-        # 创建3列布局
-        col1, col2, col3 = st.columns(3)
-        cols = [col1, col2, col3]
-
-        # 为每组内的每个仓库渲染卡片
-        for idx, warehouse in enumerate(group):
-            if warehouse is None:  # 处理最后一组不足3个的情况
-                continue
-            with cols[idx]:
-                # 准时率颜色分级：优质≥90% | 合格80-90% | 异常<80%
-                if warehouse["准时率(%)"] >= 90:
-                    card_bg = "#f0f8f0"
-                    rate_color = "#2e7d32"
-                    tag = "优质"
-                    level_desc = "准时率表现优秀"
-                elif warehouse["准时率(%)"] >= 80:
-                    card_bg = "#fff8e1"
-                    rate_color = "#ff9800"
-                    tag = "合格"
-                    level_desc = "准时率表现达标"
+    # ===== 6. 分区域仓库卡片：美西 | 美中 | 美东 =====
+    st.markdown("#### 各区域仓库表现")
+    card_col_w, card_col_m, card_col_e = st.columns(3)
+    for idx, region in enumerate(REGION_ORDER):
+        df_region = warehouse_stats[warehouse_stats["区域"] == region]
+        if df_region.empty:
+            continue
+        target_col = [card_col_w, card_col_m, card_col_e][idx]
+        with target_col:
+            st.markdown(f"##### {region}")
+            for _, row in df_region.iterrows():
+                rate = row["准时率(%)"]
+                if rate >= 90:
+                    bg, tc, tag = "#f0f8f0", "#2e7d32", "优质"
+                elif rate >= 80:
+                    bg, tc, tag = "#fff8e1", "#ff9800", "合格"
                 else:
-                    card_bg = "#fff0f0"
-                    rate_color = "#c62828"
-                    tag = "异常"
-                    level_desc = "准时率表现不达标，需重点关注"
-
-                # 准时率差值样式
-                diff_val = warehouse["准时率差值(%)"]
-                prev_rate = warehouse["上月准时率(%)"]
-                if pd.notna(prev_rate):
-                    if diff_val > 0:
-                        diff_text = f"↑{diff_val:.2f}%"
-                        diff_color = "#2e7d32"
-                    elif diff_val < 0:
-                        diff_text = f"↓{abs(diff_val):.2f}%"
-                        diff_color = "#c62828"
-                    else:
-                        diff_text = "—"
-                        diff_color = "#757575"
-                    prev_rate_text = f"（上月{prev_rate:.2f}%）"
-                else:
-                    diff_text = "—"
-                    diff_color = "#757575"
-                    prev_rate_text = ""
-
-                # 生成仓库迷你卡片（保留原有样式，适配列布局）
+                    bg, tc, tag = "#fff0f0", "#c62828", "异常"
+                diff = row["准时率差值(%)"]
+                pdiff = f"↑{diff:.1f}%" if diff and diff > 0 else f"↓{abs(diff):.1f}%" if diff and diff < 0 else "—"
                 st.markdown(f"""
-                <div style='background-color: {card_bg}; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid {rate_color};'>
-                    <div style='display: flex; justify-content: space-between; align-items: center;'>
-                        <p style='margin: 0; font-weight: bold; font-size: 16px;'>{warehouse['仓库']}</p>
-                        <span style='font-size: 12px; padding: 2px 6px; border-radius: 12px; background: {rate_color}; color: white;'>{tag}</span>
-                    </div>
-                    <p style='margin: 6px 0 0; font-size: 14px;'>
-                        准时率：<span style='color: {rate_color}; font-weight: bold; font-size: 18px;'>{warehouse['准时率(%)']:.2f}%</span>
-                    </p>
-                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>订单：{warehouse['总订单数']}单（{warehouse['订单量占比(%)']:.2f}%）</p>
-                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>差值：<span style='color: {diff_color}; font-weight: bold;'>{diff_text}</span> {prev_rate_text}</p>
-                    <p style='margin: 4px 0 0; font-size: 12px; color: #666;'>最长上架时长：{warehouse['最长上架时长']:.1f}天</p>
+                <div style='background:{bg};padding:10px;border-radius:8px;margin-bottom:8px;border-left:4px solid {tc};'>
+                <div style='font-weight:bold;font-size:15px;'>{row['仓库']}</div>
+                <div style='color:{tc};font-weight:bold;font-size:17px;margin:4px 0;'>{rate:.1f}%</div>
+                <div style='font-size:12px;color:#666;'>订单：{row['总订单数']}单 | 占比 {row['订单量占比(%)']:.1f}%</div>
+                <div style='font-size:12px;color:#666;'>环比：{pdiff}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-    # ===== 5. 仓库详细时效指标表（带上月差值对比）=====
+    # ===== 7. 详细表格（带区域列）=====
     st.markdown("#### 仓库详细时效指标表")
     display_cols = [
-        "仓库", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数", "延期率(%)",
-        "准时率(%)", "上月准时率(%)", "准时率差值(%)",
-        "签收上架时长均值", "最短上架时长", "最长上架时长"
+        "区域", "仓库", "总订单数", "订单量占比(%)", "提前准时订单数", "延期订单数", "延期率(%)",
+        "准时率(%)", "上月准时率(%)", "准时率差值(%)", "签收上架时长均值", "最短上架时长", "最长上架时长"
     ]
     warehouse_display = warehouse_stats[display_cols].copy()
 
+    def fmt(x): return f"{x:.2f}" if pd.notna(x) else ""
+    warehouse_display["签收上架时长均值"] = warehouse_display["签收上架时长均值"].astype(float).round(2).apply(fmt)
+    warehouse_display["最短上架时长"] = warehouse_display["最短上架时长"].astype(float).round(1).apply(lambda x: f"{x:.1f}天")
+    warehouse_display["最长上架时长"] = warehouse_display["最长上架时长"].astype(float).round(1).apply(lambda x: f"{x:.1f}天")
 
-    # 自定义格式化函数（纯文本，[]包裹上月信息）
-    def format_order_col(current_val, prev_val):
-        if pd.notna(prev_val):
-            diff = current_val - prev_val
-            diff_sign = "+" if diff > 0 else "" if diff == 0 else "-"
-            diff_abs = abs(diff)
-            return f"{current_val}  [{diff_sign}{diff_abs} 上月{prev_val}]"
-        else:
-            return f"{current_val}"
+    st.dataframe(warehouse_display, use_container_width=True, hide_index=True)
 
-
-    # 应用订单数列格式化
-    warehouse_display["总订单数"] = warehouse_stats.apply(
-        lambda x: format_order_col(x["总订单数"], x["上月总订单数"]), axis=1
-    )
-    warehouse_display["提前准时订单数"] = warehouse_stats.apply(
-        lambda x: format_order_col(x["提前准时订单数"], x["上月提前准时订单数"]), axis=1
-    )
-    warehouse_display["延期订单数"] = warehouse_stats.apply(
-        lambda x: format_order_col(x["延期订单数"], x["上月延期订单数"]), axis=1
-    )
-
-    # ===================== 强制固定 2 位小数（核心修复） =====================
-    # 强制转为数值 → 四舍五入2位 → 格式化为字符串 "xx.xx"
-    warehouse_display["签收上架时长均值"] = warehouse_stats["签收上架时长均值"].astype(float).round(2)
-    warehouse_display["签收上架时长均值"] = warehouse_display["签收上架时长均值"].apply(lambda x: f"{x:.2f}")
-
-    # 最短/最长也统一格式
-    warehouse_display["最短上架时长"] = warehouse_stats["最短上架时长"].astype(float).round(1).apply(
-        lambda x: f"{x:.1f}天")
-    warehouse_display["最长上架时长"] = warehouse_stats["最长上架时长"].astype(float).round(1).apply(
-        lambda x: f"{x:.1f}天")
-
-    # 百分比列格式化
-    for col in ["订单量占比(%)", "延期率(%)", "准时率(%)", "上月准时率(%)", "准时率差值(%)"]:
-        warehouse_display[col] = warehouse_display[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "")
-
-
-    # 表格高亮规则
-    def highlight_warehouse(row):
-        styles = [""] * len(row)
-        # 准时率差值为负标红
-        if row["准时率差值(%)"] and isinstance(row["准时率差值(%)"], str):
-            val = float(row["准时率差值(%)"].replace("%", ""))
-            if val < 0:
-                styles[display_cols.index(
-                    "准时率差值(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-        # 延期率>20%标红
-        if row["延期率(%)"] and isinstance(row["延期率(%)"], str):
-            val = float(row["延期率(%)"].replace("%", ""))
-            if val > 20:
-                styles[
-                    display_cols.index("延期率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-        # 准时率<80%标红
-        if row["准时率(%)"] and isinstance(row["准时率(%)"], str):
-            val = float(row["准时率(%)"].replace("%", ""))
-            if val < 80:
-                styles[
-                    display_cols.index("准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-        return styles
-
-
-    # 展示表格
-    styled_table = warehouse_display.style.apply(highlight_warehouse, axis=1)
-    st.dataframe(
-        styled_table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # ===== 6. 仓库当月表现总结文字（含评级+颜色）=====
+    # ===== 8. 总结（带区域）=====
     st.markdown("### 仓库当月表现总结")
-    summary_paragraphs = []
+    summary_text = []
     for _, row in warehouse_stats.iterrows():
-        # 基础信息
-        warehouse_name = row["仓库"]
-        order_count = row["总订单数"]
-        order_ratio = row["订单量占比(%)"]
-        on_time_rate = row["准时率(%)"]
-        max_duration = row["最长上架时长"]
-        prev_rate = row["上月准时率(%)"]
-        diff_val = row["准时率差值(%)"]
+        region = row["区域"]
+        name = row["仓库"]
+        orders = row["总订单数"]
+        ratio = row["订单量占比(%)"]
+        rate = row["准时率(%)"]
+        diff = row["准时率差值(%)"]
+        diff_str = f"↑{diff:.1f}%" if diff and diff > 0 else f"↓{abs(diff):.1f}%" if diff and diff < 0 else "持平"
+        summary_text.append(f"- **{name} ({region})**：订单{orders}单（占比{ratio:.1f}%），准时率{rate:.1f}%，环比{diff_str}")
+    st.markdown("\n".join(summary_text), unsafe_allow_html=True)
 
-        # 评级+颜色
-        if on_time_rate >= 90:
-            level_tag = "【优质】"
-            level_color = "#2e7d32"
-            level_desc = "准时率表现优秀"
-        elif on_time_rate >= 80:
-            level_tag = "【合格】"
-            level_color = "#ff9800"
-            level_desc = "准时率表现达标"
-        else:
-            level_tag = "【异常】"
-            level_color = "#c62828"
-            level_desc = "准时率表现不达标，需重点关注"
-
-        # 差值描述
-        if pd.notna(prev_rate):
-            if diff_val > 0:
-                diff_desc = f"较上月提升{diff_val:.2f}个百分点"
-            elif diff_val < 0:
-                diff_desc = f"较上月下降{abs(diff_val):.2f}个百分点"
-            else:
-                diff_desc = "与上月持平"
-        else:
-            diff_desc = "无上月数据对比"
-
-        # 上架时长描述
-        duration_desc = f"最长签收-上架时长为{max_duration:.1f}天"
-
-        # 生成总结
-        summary = f"""
-        - <b>{warehouse_name} <span style='color:{level_color};'>{level_tag}</span></b>：
-          本月承接{order_count}单（占总订单量{order_ratio:.2f}%），{level_desc}，准时率为{on_time_rate:.2f}%，{diff_desc}，{duration_desc}。
-        """
-        summary_paragraphs.append(summary)
-
-    st.markdown("\n".join(summary_paragraphs), unsafe_allow_html=True)
-
-    # ===== 7. 数据下载功能 =====
+    # 下载
     csv_data = warehouse_stats.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button(
-        label="📥 下载仓库分析完整数据",
-        data=csv_data,
-        file_name=f"{selected_month}_仓库准时率分析数据.csv",
-        mime="text/csv",
-        key="warehouse_data_download"
-    )
+    st.download_button("📥 下载仓库分析数据", csv_data, f"{selected_month}_仓库分析.csv", "text/csv")
 # ---------------------- 不同月份整体趋势分析（总订单+准时率） ----------------------
 st.markdown("## 📈 不同月份整体趋势分析")
 st.divider()
