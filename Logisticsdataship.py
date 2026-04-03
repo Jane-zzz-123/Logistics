@@ -2832,7 +2832,7 @@ WAREHOUSE_MONTH_COLUMN_MAPPING = {
     "仓库列名": "仓库",
     "到货年月列名": "到货年月",
     "提前延期列名": "提前/延期（仓库）",
-    "区域列名": "区域",  # 确保你的数据有这列：美东/美中/美西
+    "区域列名": "区域",
 }
 required_warehouse_cols = [
     WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"],
@@ -2890,27 +2890,33 @@ else:
             )
 
             def get_warehouse_category(rate):
-                if rate >= 90: return "优质", "#2e7d32"
-                elif rate >= 80: return "合格", "#ff9800"
-                else: return "异常", "#c62828"
+                if rate >= 90:
+                    return "优质", "#2e7d32"
+                elif rate >= 80:
+                    return "合格", "#ff9800"
+                else:
+                    return "异常", "#c62828"
 
             warehouse_month_stats["仓库归类"] = warehouse_month_stats["准时率(%)"].apply(lambda x: get_warehouse_category(x)[0])
             warehouse_month_stats["归类颜色"] = warehouse_month_stats["准时率(%)"].apply(lambda x: get_warehouse_category(x)[1])
 
+            # ===================== 安全日期解析（修复核心） =====================
             def safe_parse_ym(ym):
                 try:
-                    ym_str = str(ym).replace("年","").replace("月","").replace("-","").strip()
-                    if len(ym_str) == 6: return pd.to_datetime(f"{ym_str[:4]}-{ym_str[4:]}-01")
-                    else: return pd.NaT
-                except: return pd.NaT
+                    s = str(ym).replace("年", "").replace("月", "").replace("-", "")
+                    if len(s) == 6:
+                        return pd.to_datetime(f"{s[:4]}-{s[4:]}-01")
+                    return pd.NaT
+                except:
+                    return pd.NaT
 
             warehouse_month_stats["年月排序"] = warehouse_month_stats["到货年月"].apply(safe_parse_ym)
             warehouse_month_stats = warehouse_month_stats[warehouse_month_stats["年月排序"].notna()].copy()
+            warehouse_month_stats["中文月份"] = warehouse_month_stats["年月排序"].dt.strftime("%Y年%m月")
 
             if len(warehouse_month_stats) == 0:
                 st.warning("无有效仓库月份数据可分析")
             else:
-                warehouse_month_stats["中文月份"] = warehouse_month_stats["年月排序"].dt.strftime("%Y年%m月")
                 unique_months = sorted(warehouse_month_stats["中文月份"].unique())
                 latest_month = warehouse_month_stats["年月排序"].max()
 
@@ -2918,32 +2924,38 @@ else:
                 quick_options = ["自定义时间", "上个月", "近三个月", "近半年", "近一年"]
                 selected_quick = st.selectbox("快捷筛选", options=quick_options, index=0, key="warehouse_quick_filter")
 
-                start_month = end_month = None
+                start_month_cn = end_month_cn = None
                 if selected_quick == "上个月":
-                    start_month = latest_month - pd.DateOffset(months=1)
-                    end_month = latest_month - pd.DateOffset(months=1)
+                    target = latest_month - pd.DateOffset(months=1)
                 elif selected_quick == "近三个月":
-                    start_month = latest_month - pd.DateOffset(months=2)
-                    end_month = latest_month
+                    target = latest_month - pd.DateOffset(months=2)
                 elif selected_quick == "近半年":
-                    start_month = latest_month - pd.DateOffset(months=5)
-                    end_month = latest_month
+                    target = latest_month - pd.DateOffset(months=5)
                 elif selected_quick == "近一年":
-                    start_month = latest_month - pd.DateOffset(months=11)
-                    end_month = latest_month
-
-                month_map = dict(zip(warehouse_month_stats.sort_values("年月排序")["年月排序"], warehouse_month_stats.sort_values("年月排序")["中文月份"]))
-                if start_month and end_month:
-                    start_month_cn = month_map.get(start_month, unique_months[0])
-                    end_month_cn = month_map.get(end_month, unique_months[-1])
+                    target = latest_month - pd.DateOffset(months=11)
                 else:
+                    target = None
+
+                if target is not None:
+                    match = warehouse_month_stats[warehouse_month_stats["年月排序"] == target]
+                    if not match.empty:
+                        start_month_cn = match["中文月份"].iloc[0]
+                    else:
+                        start_month_cn = unique_months[0]
+                    end_month_cn = warehouse_month_stats[warehouse_month_stats["年月排序"] == latest_month]["中文月份"].iloc[0]
+
+                if start_month_cn is None or end_month_cn is None:
                     st.markdown("#### 自定义时间范围")
                     col_start, col_end = st.columns(2)
-                    with col_start: start_month_cn = st.selectbox("开始月份", options=unique_months, index=0, key="warehouse_start")
-                    with col_end: end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months)-1, key="warehouse_end")
+                    with col_start:
+                        start_month_cn = st.selectbox("开始月份", options=unique_months, index=0, key="warehouse_start")
+                    with col_end:
+                        end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months)-1, key="warehouse_end")
 
-                start_dt = pd.to_datetime(start_month_cn + "-01")
-                end_dt = pd.to_datetime(end_month_cn + "-01")
+                # ===================== 【修复】安全日期转换 =====================
+                start_dt = warehouse_month_stats[warehouse_month_stats["中文月份"] == start_month_cn]["年月排序"].iloc[0]
+                end_dt = warehouse_month_stats[warehouse_month_stats["中文月份"] == end_month_cn]["年月排序"].iloc[0]
+
                 df_warehouse_filtered = warehouse_month_stats[
                     (warehouse_month_stats["年月排序"] >= start_dt) &
                     (warehouse_month_stats["年月排序"] <= end_dt)
@@ -2956,7 +2968,7 @@ else:
                 if len(df_warehouse_filtered) == 0:
                     st.warning("所选时间范围内无仓库数据")
                 else:
-                    # ===================== 【1】三列表：月度明细 =====================
+                    # ===================== 1. 三列明细 =====================
                     st.markdown("### 仓库月度核心指标明细（按区域）")
                     col_e, col_m, col_w = st.columns(3)
                     display_cols = ["中文月份", "仓库", "总订单数", "提前准时订单数", "延期订单数", "准时率(%)", "仓库归类"]
@@ -2966,11 +2978,10 @@ else:
                             st.markdown(f"#### {region}")
                             if df_r.empty:
                                 st.info("暂无数据")
-                                continue
-                            df_disp = df_r[display_cols].copy()
-                            st.dataframe(df_disp, use_container_width=True, hide_index=True)
+                            else:
+                                st.dataframe(df_r[display_cols], use_container_width=True, hide_index=True)
 
-                    # ===================== 【2】三列表：归类汇总 =====================
+                    # ===================== 2. 三列汇总 =====================
                     st.markdown("### 仓库归类结果汇总（按区域）")
                     col_es, col_ms, col_ws = st.columns(3)
                     for i, region in enumerate(REGION_ORDER):
@@ -2979,14 +2990,14 @@ else:
                             st.markdown(f"#### {region}")
                             if df_r.empty:
                                 st.info("暂无数据")
-                                continue
-                            s = df_r.groupby(["仓库","仓库归类"]).agg(
-                                涉及月份数=("到货年月","nunique"),累计订单数=("总订单数","sum"),平均准时率=("准时率(%)","mean")
-                            ).reset_index()
-                            s["平均准时率"] = round(s["平均准时率"],2)
-                            st.dataframe(s, use_container_width=True, hide_index=True)
+                            else:
+                                s = df_r.groupby(["仓库","仓库归类"]).agg(
+                                    涉及月份数=("到货年月","nunique"),累计订单数=("总订单数","sum"),平均准时率=("准时率(%)","mean")
+                                ).reset_index()
+                                s["平均准时率"] = round(s["平均准时率"],2)
+                                st.dataframe(s, use_container_width=True, hide_index=True)
 
-                    # ===================== 趋势图（保留不变） =====================
+                    # ===================== 趋势图 =====================
                     st.markdown("### 仓库月度趋势分析")
                     search_warehouse = st.text_input("搜索仓库", placeholder="输入仓库名", key="search_warehouse")
                     unique_warehouses = df_warehouse_filtered["仓库"].unique()
@@ -3004,7 +3015,7 @@ else:
                             fig.update_layout(yaxis2=dict(overlaying="y",side="right",range=[0,100]),height=450,barmode="group")
                             st.plotly_chart(fig, use_container_width=True)
 
-                    # ===================== 【3】三列卡片：各仓库详细表现 =====================
+                    # ===================== 3. 三列仓库卡片 =====================
                     st.markdown("### 各仓库详细表现（按区域：美东→美中→美西）")
                     total_orders = df_warehouse_filtered["总订单数"].sum()
                     wh_summary = []
@@ -3017,9 +3028,14 @@ else:
                         latest = d.sort_values("年月排序", ascending=False).iloc[0]["仓库归类"]
                         avg_days = df_warehouse_month_valid[df_warehouse_month_valid["仓库"] == wh]["签收-完成上架"].mean()
                         wh_summary.append({
-                            "仓库": wh, "区域": region, "综合评级": "优质" if avg_rate>=90 else "合格" if avg_rate>=80 else "异常",
-                            "加权平均准时率": round(avg_rate,2), "累计订单数": total, "订单占比(%)": round(total/total_orders*100,2),
-                            "出现月份数": months, "最新表现": latest, "平均上架时效": round(avg_days,1) if pd.notna(avg_days) else 0
+                            "仓库": wh, "区域": region,
+                            "综合评级": "优质" if avg_rate>=90 else "合格" if avg_rate>=80 else "异常",
+                            "加权平均准时率": round(avg_rate,2),
+                            "累计订单数": total,
+                            "订单占比(%)": round(total/total_orders*100,2),
+                            "出现月份数": months,
+                            "最新表现": latest,
+                            "平均上架时效": round(avg_days,1) if pd.notna(avg_days) else 0
                         })
 
                     df_summary = pd.DataFrame(wh_summary)
@@ -3033,23 +3049,25 @@ else:
                             st.markdown(f"#### {region}")
                             if df_r.empty:
                                 st.info("暂无数据")
-                                continue
-                            for _, row in df_r.iterrows():
-                                color = "#2e7d32" if row["综合评级"] == "优质" else "#ff9800" if row["综合评级"] == "合格" else "#c62828"
-                                st.markdown(f"""
-                                <div style='border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin:8px 0; border-left:4px solid {color};'>
-                                <strong>{row['仓库']}</strong><br>
-                                {row['综合评级']} | 准时率 {row['加权平均准时率']}%<br>
-                                订单：{row['累计订单数']}单 ({row['订单占比(%)']}%)<br>
-                                平均时效：{row['平均上架时效']}天
-                                </div>
-                                """, unsafe_allow_html=True)
+                            else:
+                                for _, row in df_r.iterrows():
+                                    color = "#2e7d32" if row["综合评级"] == "优质" else "#ff9800" if row["综合评级"] == "合格" else "#c62828"
+                                    st.markdown(f"""
+                                    <div style='border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin:8px 0; border-left:4px solid {color};'>
+                                    <strong>{row['仓库']}</strong><br>
+                                    {row['综合评级']} | 准时率 {row['加权平均准时率']}%<br>
+                                    订单：{row['累计订单数']}单 ({row['订单占比(%)']}%)<br>
+                                    平均时效：{row['平均上架时效']}天
+                                    </div>
+                                    """, unsafe_allow_html=True)
 
-                    # ===== 数据下载 =====
+                    # 数据下载
                     st.markdown("### 数据下载")
                     c1,c2 = st.columns(2)
-                    with c1: st.download_button("下载明细", df_warehouse_filtered.to_csv(index=False,encoding="utf-8-sig"), "仓库月度明细.csv")
-                    with c2: st.download_button("下载汇总", df_summary.to_csv(index=False,encoding="utf-8-sig"), "仓库表现汇总.csv")
+                    with c1:
+                        st.download_button("下载明细", df_warehouse_filtered.to_csv(index=False,encoding="utf-8-sig"), "仓库月度明细.csv")
+                    with c2:
+                        st.download_button("下载汇总", df_summary.to_csv(index=False,encoding="utf-8-sig"), "仓库表现汇总.csv")
 
 # ===================== 区域的分析 =====================
 # ======================== 区域+物流方式 时效分析（精准匹配需求版） ========================
