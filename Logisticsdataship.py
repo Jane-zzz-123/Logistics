@@ -718,188 +718,334 @@ st.divider()
 st.subheader("📝 延期订单深度归因分析")
 
 # 请确认以下字段名与你的数据完全一致！
-main_delay_col = "提前/延期(整体)"
-forwarder_delay_col = "提前/延期（货代）"
-warehouse_delay_col = "提前/延期（仓库）"
-region_col = "区域"
-ship_method_col = "物流方式"  # 物流方式列
+main_delay_col = "提前/延期(整体)"  # 总提前/延期列
+forwarder_delay_col = "提前/延期（货代）"  # 货代延期分类列
+warehouse_delay_col = "提前/延期（仓库）"  # 仓库延期分类列
+region_col = "区域"  # 区域列名（请确认与数据一致）
+ship_method_col = "物流方式"  # 物流方式列名（请确认与数据一致）
 
-# 环节定义
-forwarder_stage_cols = ["开船-到港", "到港-提柜", "提柜-签收"]
-warehouse_stage_col = "签收-完成上架"
-all_stage_cols = forwarder_stage_cols + [warehouse_stage_col]
-signoff_stage = "提柜-签收"
+# 环节字段定义（货代负责环节：开船-到港、到港-提柜、提柜-签收）
+forwarder_stage_cols = [
+    "开船-到港",
+    "到港-提柜",
+    "提柜-签收"
+]
+warehouse_stage_col = "签收-完成上架"  # 仓库负责的环节（单独列）
+all_stage_cols = forwarder_stage_cols + [warehouse_stage_col]  # 所有环节
+signoff_stage = "提柜-签收"  # 重点细分区域的环节
 
-# ====================== 核心规则：区域标准 ======================
-# 常规物流（非以星转火车）
+# 核心规则：区域正常标准（自动适配以星转火车）
+# 常规物流（非以星转火车）标准
 NORMAL_REGION_THRESHOLD = {
-    "美西": 4,
-    "美中": 7,
-    "美东": 9,
-    "未知区域": 6
+    "美西": 4,  # 美西≤4天正常
+    "美中": 7,  # 美中≤7天正常
+    "美东": 9,  # 美东≤9天正常
+    "未知区域": 6  # 无区域信息时默认阈值
 }
-# 以星转火车 专属规则
-YIXING_REGION_THRESHOLD = {
-    "美东": 4  # 只有美东，≤4天
-}
+# 以星转火车 专属规则（仅美东≤4天）
 YIXING_SPECIAL_NAME = "以星转火车"
+YIXING_REGION_THRESHOLD = {
+    "美东": 4,
+    "未知区域": 4  # 以星转火车若出现未知区域，仍按4天标准
+}
 
-# 1.1 清洗字段
-df_current[main_delay_col] = df_current[main_delay_col].fillna("未知").astype(str).str.strip()
-df_current[forwarder_delay_col] = df_current[forwarder_delay_col].fillna("未知").astype(str).str.strip()
-df_current[warehouse_delay_col] = df_current[warehouse_delay_col].fillna("未知").astype(str).str.strip()
-df_current[region_col] = df_current[region_col].fillna("未知区域").astype(str).str.strip()
-df_current[ship_method_col] = df_current[ship_method_col].fillna("其他").astype(str).str.strip()
+# 1.1 基础字段清洗（统一格式，避免筛选错误）
+df_current[main_delay_col] = df_current[main_delay_col].fillna("未知").apply(
+    lambda x: x.strip() if isinstance(x, str) else "未知")
+df_current[forwarder_delay_col] = df_current[forwarder_delay_col].fillna("未知").apply(
+    lambda x: x.strip() if isinstance(x, str) else "未知")
+df_current[warehouse_delay_col] = df_current[warehouse_delay_col].fillna("未知").apply(
+    lambda x: x.strip() if isinstance(x, str) else "未知")
+# 区域字段清洗（统一名称，匹配阈值字典）
+df_current[region_col] = df_current[region_col].fillna("未知区域").apply(
+    lambda x: x.strip() if isinstance(x, str) else "未知区域")
+# 区域名称校准（确保与阈值字典匹配，如数据中是“美国东部”自动转为“美东”）
+df_current[region_col] = df_current[region_col].replace({
+    "美国东部": "美东",
+    "美国西部": "美西",
+    "美国中部": "美中",
+    "东部": "美东",
+    "西部": "美西",
+    "中部": "美中"
+})
+# 物流方式字段清洗
+df_current[ship_method_col] = df_current[ship_method_col].fillna("其他").apply(
+    lambda x: x.strip() if isinstance(x, str) else "其他")
 
-# 1.2 数值化
+# 1.2 环节字段数值化（确保均值计算准确）
 for col in all_stage_cols:
-    df_current[col] = pd.to_numeric(df_current[col], errors="coerce").fillna(0)
+    df_current[col] = pd.to_numeric(df_current[col], errors="coerce").fillna(0.0)
 
 # --------------------------
-# 2. 数据集筛选
+# 2. 严格按业务逻辑筛选数据集
 # --------------------------
+# 2.1 正常订单集：总状态=提前/准时
 df_normal = df_current[df_current[main_delay_col] == "提前/准时"].copy()
+# 2.2 货代延期订单集：总状态=延期 + 货代状态=延期
 df_forwarder_delay = df_current[
     (df_current[main_delay_col] == "延期") &
     (df_current[forwarder_delay_col] == "延期")
-].copy()
+    ].copy()
+# 2.3 仓库延期订单集：总状态=延期 + 仓库状态=延期
 df_warehouse_delay = df_current[
     (df_current[main_delay_col] == "延期") &
     (df_current[warehouse_delay_col] == "延期")
-].copy()
-
-total_delay = len(df_forwarder_delay) + len(df_warehouse_delay)
+    ].copy()
+# 2.4 总延期订单数（用于占比计算）
+df_total_delay = df_current[df_current[main_delay_col] == "延期"].copy()
+total_delay = len(df_total_delay)
 total_normal = len(df_normal)
 total_current = len(df_current)
 
 # --------------------------
-# 3. 无延期
+# 3. 无延期订单时的展示
 # --------------------------
 if total_delay == 0:
-    st.success("✅ 本月无延期订单，各环节时效均符合预期！")
+    st.success("✅ 本月无延期订单，各物流环节时效均符合预期！")
+    # 仅展示正常订单的各环节均值（按区域+物流方式细分，含标准标注）
+    st.markdown("### 📈 各环节耗时均值（仅正常订单，含物流标准）")
+    # 按物流方式+区域分组计算正常订单各环节均值
+    normal_mean_by_method_region = df_normal.groupby([ship_method_col, region_col])[all_stage_cols].mean().round(
+        2).reset_index()
+    for _, row in normal_mean_by_method_region.iterrows():
+        method = row[ship_method_col]
+        region = row[region_col]
+        # 确定当前物流方式+区域的标准
+        if method == YIXING_SPECIAL_NAME:
+            signoff_std = YIXING_REGION_THRESHOLD.get(region, 4)
+            method_prefix = "🚆"
+        else:
+            signoff_std = NORMAL_REGION_THRESHOLD.get(region, 6)
+            method_prefix = "🚛"
+        # 展示该物流方式+区域的均值
+        st.markdown(f"#### {method_prefix} {method} - {region}")
+        st.markdown(f"- **{signoff_stage}**：{float(row[signoff_stage])} 天（物流标准≤{signoff_std}天）")
+        # 展示其他货代环节
+        for stage in forwarder_stage_cols:
+            if stage != signoff_stage:
+                st.markdown(f"- **{stage}**：{float(row[stage])} 天")
+        # 展示仓库环节
+        st.markdown(f"- **{warehouse_stage_col}**：{float(row[warehouse_stage_col])} 天")
 else:
     # --------------------------
-    # 4. 获取当前筛选的物流方式
+    # 4. 统计核心数据（含物流方式+区域细分）
     # --------------------------
-    current_method = st.session_state.get("selected_method", "全部")
+    forwarder_count = int(len(df_forwarder_delay))
+    warehouse_count = int(len(df_warehouse_delay))
 
-    # ====================== 关键逻辑：按物流方式拆分数据集 ======================
-    if current_method == YIXING_SPECIAL_NAME:
-        df_analysis = df_forwarder_delay[df_forwarder_delay[ship_method_col] == YIXING_SPECIAL_NAME].copy()
-        threshold_dict = YIXING_REGION_THRESHOLD
-        st.info(f"✅ 当前模式：【以星转火车】专属分析 → 美东≤4天")
+    # 计算占比（纯Python原生计算，防错）
+    forwarder_pct = round((forwarder_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
+    warehouse_pct = round((warehouse_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
+    normal_pct = round((total_normal / total_current) * 100, 1) if total_current > 0 else 0.0
+    delay_pct = round((total_delay / total_current) * 100, 1) if total_current > 0 else 0.0
 
-    elif current_method == "全部":
-        df_analysis = df_forwarder_delay.copy()
-        threshold_dict = NORMAL_REGION_THRESHOLD
-        st.info(f"✅ 当前模式：【全部物流】→ 常规标准（美西4/美中7/美东9）+ 以星转火车单独展示")
+    # 重点统计：提柜-签收环节（按物流方式+区域细分）
+    # 筛选提柜-签收环节有数据的货代延期订单
+    df_forwarder_signoff = df_forwarder_delay[df_forwarder_delay[signoff_stage] > 0].copy()
+    # 按物流方式+区域分组统计
+    signoff_stats = []
+    if not df_forwarder_signoff.empty:
+        for method in df_forwarder_signoff[ship_method_col].unique():
+            df_method = df_forwarder_signoff[df_forwarder_signoff[ship_method_col] == method]
+            for region in df_method[region_col].unique():
+                df_region = df_method[df_method[region_col] == region]
+                total_region = len(df_region)
+                if total_region == 0:
+                    continue
+                # 确定当前物流方式+区域的正常标准
+                if method == YIXING_SPECIAL_NAME:
+                    std = YIXING_REGION_THRESHOLD.get(region, 4)
+                else:
+                    std = NORMAL_REGION_THRESHOLD.get(region, 6)
+                # 计算该组的核心指标
+                avg_days = round(df_region[signoff_stage].mean(), 2)
+                max_days = round(df_region[signoff_stage].max(), 2)
+                # 统计超时情况（按物流标准判断）
+                over_threshold = len(df_region[df_region[signoff_stage] > std])
+                over_rate = round((over_threshold / total_region) * 100, 1) if total_region > 0 else 0.0
+                over_days = round(avg_days - std, 1) if std != 999 else None
+                # 加入统计结果
+                signoff_stats.append({
+                    "物流方式": method,
+                    "区域": region,
+                    "延期订单数": total_region,
+                    "物流标准（提柜-签收）": f"≤{std}天",
+                    "平均耗时": avg_days,
+                    "最大耗时": max_days,
+                    "超时订单数": over_threshold,
+                    "超时率": f"{over_rate}%",
+                    "超时时长（平均）": f"{over_days}天" if over_days is not None else "无标准"
+                })
+    # 转为DataFrame用于展示
+    signoff_stats_df = pd.DataFrame(signoff_stats)
 
+    # --------------------------
+    # 5. 基础数据汇总（含物流标准说明）
+    # --------------------------
+    st.markdown(f"""
+    ### 📊 基础数据
+    - 当月总订单数：{total_current} 单
+    - 正常订单数：{total_normal} 单（占比 {normal_pct}%）
+    - 延期订单数：{total_delay} 单（占比 {delay_pct}%）
+    - 货代原因延期：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）
+    - 仓库原因延期：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）
+
+    #### 📌 提柜-签收环节物流标准
+    - 常规物流：美西≤4天 | 美中≤7天 | 美东≤9天
+    - 以星转火车（专属）：美东≤4天
+    """)
+
+    # --------------------------
+    # 6. 提柜-签收环节细分统计（物流方式+区域，统一表格展示）
+    # --------------------------
+    st.markdown("### 🗺️ 提柜-签收环节延期细分统计（物流方式+区域）")
+    if not signoff_stats_df.empty:
+        st.dataframe(
+            signoff_stats_df,
+            use_container_width=True,
+            column_config={
+                "物流方式": st.column_config.TextColumn("物流方式"),
+                "区域": st.column_config.TextColumn("区域"),
+                "延期订单数": st.column_config.NumberColumn("延期订单数"),
+                "物流标准（提柜-签收）": st.column_config.TextColumn("物流标准"),
+                "平均耗时": st.column_config.NumberColumn("平均耗时（天）", format="%.2f"),
+                "最大耗时": st.column_config.NumberColumn("最大耗时（天）", format="%.2f"),
+                "超时订单数": st.column_config.NumberColumn("超时订单数"),
+                "超时率": st.column_config.TextColumn("超时率"),
+                "超时时长（平均）": st.column_config.TextColumn("超时时长（平均）")
+            }
+        )
     else:
-        df_analysis = df_forwarder_delay[df_forwarder_delay[ship_method_col] != YIXING_SPECIAL_NAME].copy()
-        threshold_dict = NORMAL_REGION_THRESHOLD
-
-    df_analysis = df_analysis[df_analysis[signoff_stage] > 0].copy()
+        st.markdown("- 暂无提柜-签收环节的延期细分数据")
 
     # --------------------------
-    # 5. 统计区域明细
+    # 7. 各环节耗时均值对比（正常 vs 延期，按物流方式+区域）
     # --------------------------
-    # --------------------------
-    # 5. 统计区域明细
-    # --------------------------
-    st.markdown("### 🗺️ 提柜-签收 区域时效分析（按物流标准+物流方式）")
-    region_stats = []
+    st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
+    # 预计算正常订单的各环节均值（按物流方式+区域）
+    normal_mean_by_method_region = df_normal.groupby([ship_method_col, region_col])[all_stage_cols].mean().round(2)
+    # 预计算货代延期订单的各环节均值（按物流方式+区域）
+    forwarder_delay_mean_by_method_region = df_forwarder_delay.groupby([ship_method_col, region_col])[
+        forwarder_stage_cols].mean().round(2) if forwarder_count > 0 else None
+    warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean().round(2) if warehouse_count > 0 else None
+    abnormal_threshold_days = 3  # 其他环节超时判断阈值（超过正常均值3天为严重超时）
 
-    for region in df_analysis[region_col].unique():
-        df_r = df_analysis[df_analysis[region_col] == region]
-        method_in_group = df_r[ship_method_col].unique()
-
-        for m in method_in_group:
-            df_m = df_r[df_r[ship_method_col] == m]
-            cnt = len(df_m)
-            avg = round(df_m[signoff_stage].mean(), 2)
-            max_d = round(df_m[signoff_stage].max(), 2)
-
-            if m == YIXING_SPECIAL_NAME:
-                std = YIXING_REGION_THRESHOLD.get(region, 999)
+    # 7.1 货代环节展示（按物流方式+区域分组）
+    st.markdown("#### 🔹 货代负责环节（开船-到港 → 提柜-签收）")
+    if forwarder_count > 0 and forwarder_delay_mean_by_method_region is not None:
+        # 遍历所有有延期数据的物流方式+区域组合
+        for (method, region), delay_means in forwarder_delay_mean_by_method_region.iterrows():
+            # 获取该物流方式+区域的正常均值（无则用全局正常均值）
+            if (method, region) in normal_mean_by_method_region.index:
+                normal_means = normal_mean_by_method_region.loc[(method, region)]
             else:
-                std = threshold_dict.get(region, 999)
+                normal_means = df_normal[forwarder_stage_cols].mean().round(2)
+            # 确定物流方式前缀和提柜-签收标准
+            if method == YIXING_SPECIAL_NAME:
+                method_prefix = "🚆"
+                signoff_std = YIXING_REGION_THRESHOLD.get(region, 4)
+            else:
+                method_prefix = "🚛"
+                signoff_std = NORMAL_REGION_THRESHOLD.get(region, 6)
+            # 展示该物流方式+区域的对比数据
+            st.markdown(f"##### {method_prefix} {method} - {region}")
+            for stage in forwarder_stage_cols:
+                n_mean = float(normal_means[stage]) if stage in normal_means.index else 0.0
+                d_mean = float(delay_means[stage]) if stage in delay_means.index else 0.0
+                diff_days = round(d_mean - n_mean, 1)  # 与正常均值的差值
 
-            over_days = round(avg - std, 1) if std != 999 else None
-            over_cnt = len(df_m[df_m[signoff_stage] > std]) if std != 999 else None
-            over_rate = round((over_cnt / cnt) * 100, 1) if cnt and over_cnt is not None else None
-
-            region_stats.append({
-                "物流方式": m,
-                "区域": region,
-                "延期单数": cnt,
-                "物流标准": f"≤{std}天" if std != 999 else "不适用",
-                "平均耗时": avg,
-                "最大耗时": max_d,
-                "超时天数": over_days,
-                "超时单数": over_cnt,
-                "超时率": over_rate
-            })
-
-    df_stats = pd.DataFrame(region_stats)
-
-    # ====================== 修复：判断是否为空 + 确保列存在 ======================
-    if df_stats.empty:
-        st.info("✅ 本月无货代延期订单，无需区域分析")
+                # 提柜-签收环节：按物流标准判断，其他环节按差值判断
+                if stage == signoff_stage:
+                    # 提柜-签收：用物流标准判断
+                    std_diff = round(d_mean - signoff_std, 1)
+                    if std_diff >= 1:
+                        st.markdown(
+                            f"- **{stage}**：正常标准≤{signoff_std}天 | 延期均值 **:red[{d_mean} 天]** | **:red[超时 {std_diff} 天]**")
+                    elif std_diff < 0:
+                        faster_days = round(abs(std_diff), 1)
+                        st.markdown(
+                            f"- **{stage}**：正常标准≤{signoff_std}天 | 延期均值 {d_mean} 天 | ✅ 符合标准（快于标准 {faster_days} 天）")
+                    else:
+                        st.markdown(f"- **{stage}**：正常标准≤{signoff_std}天 | 延期均值 {d_mean} 天 | ✅ 符合标准")
+                else:
+                    # 其他货代环节：用与正常均值的差值判断
+                    if diff_days >= abnormal_threshold_days:
+                        st.markdown(
+                            f"- **{stage}**：正常均值 {n_mean} 天 | 延期均值 **:red[{d_mean} 天]** | **:red[严重超时，慢了 {diff_days} 天]**")
+                    elif diff_days > 0:
+                        st.markdown(f"- **{stage}**：正常均值 {n_mean} 天 | 延期均值 {d_mean} 天 | 慢了 {diff_days} 天")
+                    else:
+                        faster_days = round(abs(diff_days), 1)
+                        st.markdown(
+                            f"- **{stage}**：正常均值 {n_mean} 天 | 延期均值 {d_mean} 天 | ✅ 比正常还快 {faster_days} 天")
     else:
-        # ====================== 展示：以星转火车 单独分块 ======================
-        if current_method in ["全部", YIXING_SPECIAL_NAME]:
-            df_yx = df_stats[df_stats["物流方式"] == YIXING_SPECIAL_NAME]
-            if not df_yx.empty:
-                st.markdown("### 🚆 以星转火车 专属时效（美东≤4天）")
-                st.dataframe(df_yx, use_container_width=True)
+        st.markdown("- 无货代延期订单数据")
 
-        # 常规物流
-        df_normal_method = df_stats[df_stats["物流方式"] != YIXING_SPECIAL_NAME]
-        if not df_normal_method.empty and current_method != YIXING_SPECIAL_NAME:
-            st.markdown("### 🚛 常规物流时效（美西4/美中7/美东9）")
-            st.dataframe(df_normal_method, use_container_width=True)
+    # 7.2 仓库环节展示（整体）
+    st.markdown("#### 🔹 仓库负责环节（签收-完成上架）")
+    n_mean = df_normal[warehouse_stage_col].mean().round(2) if len(df_normal) > 0 else 0.0
+    if warehouse_count > 0 and warehouse_delay_mean is not None:
+        d_mean = float(warehouse_delay_mean)
+        diff_days = round(d_mean - n_mean, 1)
 
-        # --------------------------
-        # 6. 文字版明细（更直观）
-        # --------------------------
-        st.markdown("### 📌 各区域耗时详情（物流可直接阅读）")
-        for _, row in df_stats.iterrows():
-            m = row["物流方式"]
-            r = row["区域"]
-            avg = row["平均耗时"]
-            std = row["物流标准"]
-            over = row["超时天数"]
-
-            if over is None:
-                continue
-
-            if m == YIXING_SPECIAL_NAME:
-                prefix = "🚆 以星转火车"
-            else:
-                prefix = "🚛 常规"
-
-            if over > 0:
-                st.markdown(f"- {prefix} **{r}**：平均{avg}天，标准{std}，**🔴 超时{over}天**")
-            else:
-                st.markdown(f"- {prefix} **{r}**：平均{avg}天，标准{std}，**✅ 合格**")
+        if diff_days >= abnormal_threshold_days:
+            st.markdown(
+                f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 延期均值 **:red[{d_mean} 天]** | **:red[严重超时，慢了 {diff_days} 天]**")
+        elif diff_days > 0:
+            st.markdown(
+                f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 延期均值 {d_mean} 天 | 慢了 {diff_days} 天")
+        else:
+            faster_days = round(abs(diff_days), 1)
+            st.markdown(
+                f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 延期均值 {d_mean} 天 | ✅ 比正常还快 {faster_days} 天")
+    else:
+        st.markdown(f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 无仓库延期订单")
 
     # --------------------------
-    # 7. 优化建议
+    # 8. 针对性优化建议（基于物流方式+区域）
     # --------------------------
     st.markdown("### 💡 优化建议")
-    suggests = []
-    for _, row in df_stats.iterrows():
-        if row["超时天数"] and row["超时天数"] >= 1:
-            m = row["物流方式"]
-            r = row["区域"]
-            over = row["超时天数"]
-            suggests.append(f"• {m} {r} 超时 {over} 天")
-
-    if suggests:
-        for s in suggests:
-            st.warning(s)
-    else:
-        st.success("✅ 所有区域均符合物流标准！")
+    suggestions = []
+    # 货代环节建议（含物流方式+区域）
+    if not signoff_stats_df.empty:
+        for _, row in signoff_stats_df.iterrows():
+            method = row["物流方式"]
+            region = row["区域"]
+            over_days = row["超时时长（平均）"]
+            over_rate = row["超时率"]
+            # 仅针对超时≥1天的情况提建议
+            if over_days and isinstance(over_days, str) and over_days.replace("天", "").strip() != "" and float(
+                    over_days.replace("天", "")) >= 1:
+                suggestions.append(
+                    f"⚠️ {method} - {region}：提柜-签收环节超时{over_days}，超时率{over_rate}，需按标准（{row['物流标准（提柜-签收）']}）优化。")
+    # 其他货代环节建议
+    if forwarder_count > 0 and forwarder_delay_mean_by_method_region is not None:
+        for (method, region), delay_means in forwarder_delay_mean_by_method_region.iterrows():
+            if (method, region) in normal_mean_by_method_region.index:
+                normal_means = normal_mean_by_method_region.loc[(method, region)]
+            else:
+                normal_means = df_normal[forwarder_stage_cols].mean().round(2)
+            for stage in forwarder_stage_cols:
+                if stage == signoff_stage:
+                    continue  # 提柜-签收已单独提建议
+                n_mean = float(normal_means[stage]) if stage in normal_means.index else 0.0
+                d_mean = float(delay_means[stage]) if stage in delay_means.index else 0.0
+                diff_days = round(d_mean - n_mean, 1)
+                if diff_days >= abnormal_threshold_days:
+                    suggestions.append(f"⚠️ {method} - {region}：{stage}环节严重超时{diff_days}天，需重点优化。")
+    # 仓库环节建议
+    if warehouse_count > 0 and warehouse_delay_mean is not None:
+        n_mean = df_normal[warehouse_stage_col].mean().round(2) if len(df_normal) > 0 else 0.0
+        d_mean = float(warehouse_delay_mean)
+        diff_days = round(d_mean - n_mean, 1)
+        if diff_days >= abnormal_threshold_days:
+            suggestions.append(f"⚠️ 仓库环节：{warehouse_stage_col}严重超时{diff_days}天，需紧急优化仓内操作流程。")
+    # 无异常时的正向建议
+    if not suggestions:
+        suggestions.append("💡 各环节均符合物流标准或无严重超时，整体表现稳定。")
+    # 展示建议
+    for idx, suggestion in enumerate(suggestions, 1):
+        st.markdown(f"{idx}. {suggestion}")
 
 # ---------------------- 下面是你原来的后续模块 ----------------------
 st.divider()
