@@ -1817,10 +1817,20 @@ else:
                     bg, tc, tag = "#fff0f0", "#c62828", "异常"
                 diff = row["准时率差值(%)"]
                 pdiff = f"↑{diff:.1f}%" if diff and diff > 0 else f"↓{abs(diff):.1f}%" if diff and diff < 0 else "—"
+
+                # 新增：平均时长 & 最长时长
+                avg_days = row.get("平均签收-完成上架(天)", 0)
+                max_days = row.get("最长签收-完成上架(天)", 0)
+
+                # 新增：年月标题（你可以自己改文字，我先留通用版）
+                rate_title = "本月准时率"  # 想改成“2025年12月准时率”直接在这里改
+
                 st.markdown(f"""
                 <div style='background:{bg};padding:10px;border-radius:8px;margin-bottom:8px;border-left:4px solid {tc};'>
                 <div style='font-weight:bold;font-size:15px;'>{row['仓库']}</div>
-                <div style='color:{tc};font-weight:bold;font-size:17px;margin:4px 0;'>{rate:.1f}%</div>
+                <div style='color:{tc};font-weight:bold;font-size:17px;margin:4px 0;'>{rate_title}：{rate:.1f}%</div>
+                <div style='font-size:12px;color:#666;margin-bottom:3px;'>平均时长：{avg_days:.1f} 天</div>
+                <div style='font-size:12px;color:#666;margin-bottom:3px;'>最长时长：{max_days:.1f} 天</div>
                 <div style='font-size:12px;color:#666;'>订单：{row['总订单数']}单 | 占比 {row['订单量占比(%)']:.1f}%</div>
                 <div style='font-size:12px;color:#666;'>环比：{pdiff}</div>
                 </div>
