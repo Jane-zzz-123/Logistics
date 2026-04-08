@@ -883,17 +883,19 @@ else:
     # 5. 基础数据汇总（含物流标准说明）
     # --------------------------
     st.markdown(f"""
-    ### 📊 基础数据
-    - 当月总订单数：{total_current} 单
-    - 正常订单数：{total_normal} 单（占比 {normal_pct}%）
-    - 延期订单数：{total_delay} 单（占比 {delay_pct}%）
-    - 货代原因延期：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）
-    - 仓库原因延期：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）
+        ### 📊 基础数据
+        - 当月总订单数：{total_current} 单
+        - 正常订单数：{total_normal} 单（占比 {normal_pct}%）
+        - 延期订单数：{total_delay} 单（占比 {delay_pct}%）
+        - 货代原因延期：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）
+        - 仓库原因延期：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）
 
-    #### 📌 提柜-签收环节物流标准
-    - 常规物流：美西≤4天 | 美中≤7天 | 美东≤9天
-    - 以星转火车（专属）：美东≤4天
-    """)
+        #### 📌 提柜-签收环节物流标准
+        - 常规物流：美西≤6天 | 美中≤10天 | 美东≤11天
+        - 以星转火车（专属）：美东≤4天
+        #### 📌 仓库环节物流标准
+        - 签收-完成上架：≤3天
+        """)
 
     # --------------------------
     # 6. 提柜-签收环节细分统计（物流方式+区域，统一表格展示）
@@ -929,6 +931,7 @@ else:
         forwarder_stage_cols].mean().round(2) if forwarder_count > 0 else None
     warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean().round(2) if warehouse_count > 0 else None
     abnormal_threshold_days = 3  # 其他环节超时判断阈值（超过正常均值3天为严重超时）
+    WAREHOUSE_STANDARD = 3  # 仓库签收-完成上架统一标准：3天
 
     # 7.1 货代环节展示（按物流方式+区域分组）
     st.markdown("#### 🔹 货代负责环节（开船-到港 → 提柜-签收）")
@@ -946,7 +949,8 @@ else:
                 signoff_std = YIXING_REGION_THRESHOLD.get(region, 4)
             else:
                 method_prefix = "🚛"
-                signoff_std = NORMAL_REGION_THRESHOLD.get(region, 6)
+                # 常规物流提柜-签收新标准：美西6/美中10/美东11
+                signoff_std = {"美西": 6, "美中": 10, "美东": 11}.get(region, 6)
             # 展示该物流方式+区域的对比数据
             st.markdown(f"##### {method_prefix} {method} - {region}")
             for stage in forwarder_stage_cols:
@@ -981,28 +985,31 @@ else:
     else:
         st.markdown("- 无货代延期订单数据")
 
-    # 7.2 仓库环节展示（整体）
+    # 7.2 仓库环节展示（整体）- 核心修改：与3天标准对比
     st.markdown("#### 🔹 仓库负责环节（签收-完成上架）")
+    # 正常订单均值仅展示，不参与仓库延期判断
     n_mean = df_normal[warehouse_stage_col].mean().round(2) if len(df_normal) > 0 else 0.0
     if warehouse_count > 0 and warehouse_delay_mean is not None:
         d_mean = float(warehouse_delay_mean)
-        diff_days = round(d_mean - n_mean, 1)
+        # 核心修改：计算与3天标准的差值，替代原与正常均值的差值
+        std_diff = round(d_mean - WAREHOUSE_STANDARD, 1)
 
-        if diff_days >= abnormal_threshold_days:
+        if std_diff >= 1:
             st.markdown(
-                f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 延期均值 **:red[{d_mean} 天]** | **:red[严重超时，慢了 {diff_days} 天]**")
-        elif diff_days > 0:
+                f"- **{warehouse_stage_col}**：标准≤{WAREHOUSE_STANDARD}天 | 延期均值 **:red[{d_mean} 天]** | **:red[超时 {std_diff} 天]** | 正常订单均值{n_mean}天")
+        elif std_diff < 0:
+            faster_days = round(abs(std_diff), 1)
             st.markdown(
-                f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 延期均值 {d_mean} 天 | 慢了 {diff_days} 天")
+                f"- **{warehouse_stage_col}**：标准≤{WAREHOUSE_STANDARD}天 | 延期均值 {d_mean} 天 | ✅ 符合标准（快于标准 {faster_days} 天） | 正常订单均值{n_mean}天")
         else:
-            faster_days = round(abs(diff_days), 1)
             st.markdown(
-                f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 延期均值 {d_mean} 天 | ✅ 比正常还快 {faster_days} 天")
+                f"- **{warehouse_stage_col}**：标准≤{WAREHOUSE_STANDARD}天 | 延期均值 {d_mean} 天 | ✅ 符合标准 | 正常订单均值{n_mean}天")
     else:
-        st.markdown(f"- **{warehouse_stage_col}**：正常均值 {n_mean} 天 | 无仓库延期订单")
+        st.markdown(
+            f"- **{warehouse_stage_col}**：标准≤{WAREHOUSE_STANDARD}天 | 无仓库延期订单 | 正常订单均值{n_mean}天")
 
     # --------------------------
-    # 8. 针对性优化建议（基于物流方式+区域）
+    # 8. 针对性优化建议（基于物流方式+区域）- 同步修改仓库建议判断逻辑
     # --------------------------
     st.markdown("### 💡 优化建议")
     suggestions = []
@@ -1033,13 +1040,14 @@ else:
                 diff_days = round(d_mean - n_mean, 1)
                 if diff_days >= abnormal_threshold_days:
                     suggestions.append(f"⚠️ {method} - {region}：{stage}环节严重超时{diff_days}天，需重点优化。")
-    # 仓库环节建议
+    # 仓库环节建议 - 核心修改：按3天标准判断严重超时
     if warehouse_count > 0 and warehouse_delay_mean is not None:
-        n_mean = df_normal[warehouse_stage_col].mean().round(2) if len(df_normal) > 0 else 0.0
         d_mean = float(warehouse_delay_mean)
-        diff_days = round(d_mean - n_mean, 1)
-        if diff_days >= abnormal_threshold_days:
-            suggestions.append(f"⚠️ 仓库环节：{warehouse_stage_col}严重超时{diff_days}天，需紧急优化仓内操作流程。")
+        std_diff = round(d_mean - WAREHOUSE_STANDARD, 1)
+        # 仓库严重超时：与3天标准比，超时≥3天
+        if std_diff >= abnormal_threshold_days:
+            suggestions.append(
+                f"⚠️ 仓库环节：{warehouse_stage_col}标准≤{WAREHOUSE_STANDARD}天，实际延期均值{d_mean}天，严重超时{std_diff}天，需紧急优化仓内操作流程。")
     # 无异常时的正向建议
     if not suggestions:
         suggestions.append("💡 各环节均符合物流标准或无严重超时，整体表现稳定。")
