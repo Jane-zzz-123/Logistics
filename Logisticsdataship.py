@@ -1818,15 +1818,12 @@ else:
                 diff = row["准时率差值(%)"]
                 pdiff = f"↑{diff:.1f}%" if diff and diff > 0 else f"↓{abs(diff):.1f}%" if diff and diff < 0 else "—"
 
-                # ✅ 修复：使用你真实存在的列名
+                # 修复：使用真实列名获取平均/最长时长
                 avg_days = row.get("签收上架时长均值", 0)
                 max_days = row.get("最长上架时长", 0)
 
-                # 自动年月
-                from datetime import datetime
-
-                current_month = datetime.now().strftime("%Y年%m月")
-                rate_title = f"{current_month}准时率"
+                # 默认显示「当月准时率」（无需自动生成年月）
+                rate_title = "当月准时率"
 
                 st.markdown(f"""
                 <div style='background:{bg};padding:10px;border-radius:8px;margin-bottom:8px;border-left:4px solid {tc};'>
