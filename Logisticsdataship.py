@@ -1181,12 +1181,6 @@ else:
                 df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / total_cnt) * 100
                 group_data[method] = df_sorted
 
-                # 加权时效计算
-                w1 = round(df_m[stage1_col].mean(), 2)
-                w2 = calculate_weighted_by_region(df_m, stage2_col)
-                w3 = calculate_weighted_by_region(df_m, stage3_col)
-                total_weighted = round(w1 + w2 + w3, 2)
-
                 # 目标占比匹配
                 for tr in target_rates:
                     match = df_sorted[df_sorted["累计占比(%)"] >= tr]
@@ -1194,8 +1188,17 @@ else:
                         t = match[time_col].min()
                         real_r = match[match[time_col]==t]["累计占比(%)"].iloc[0]
                         pass_cnt = len(df_sorted[df_sorted[time_col] <= t])
+                        # 只取达标订单
+                        df_pass = df_sorted[df_sorted[time_col] <= t].copy()
                     else:
                         t, real_r, pass_cnt = "-", "-", 0
+                        df_pass = df_m.copy()
+
+                    # ====================== ✅ 修复：每个准时率都重新计算加权 ======================
+                    w1 = round(df_pass[stage1_col].mean(), 2)
+                    w2 = calculate_weighted_by_region(df_pass, stage2_col)
+                    w3 = calculate_weighted_by_region(df_pass, stage3_col)
+                    total_weighted = round(w1 + w2 + w3, 2)
 
                     all_results.append({
                         "物流方式": method,
@@ -1219,19 +1222,22 @@ else:
                 df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / total_cnt) * 100
                 group_data[method] = df_sorted
 
-                w1 = round(df_m[stage1_col].mean(), 2)
-                w2 = calculate_weighted_by_region(df_m, stage2_col)
-                w3 = calculate_weighted_by_region(df_m, stage3_col)
-                total_weighted = round(w1 + w2 + w3, 2)
-
                 for tr in target_rates:
                     match = df_sorted[df_sorted["累计占比(%)"] >= tr]
                     if not match.empty:
                         t = match[time_col].min()
                         real_r = match[match[time_col]==t]["累计占比(%)"].iloc[0]
                         pass_cnt = len(df_sorted[df_sorted[time_col] <= t])
+                        df_pass = df_sorted[df_sorted[time_col] <= t].copy()
                     else:
                         t, real_r, pass_cnt = "-", "-", 0
+                        df_pass = df_m.copy()
+
+                    # ====================== ✅ 修复：每个准时率都重新计算加权 ======================
+                    w1 = round(df_pass[stage1_col].mean(), 2)
+                    w2 = calculate_weighted_by_region(df_pass, stage2_col)
+                    w3 = calculate_weighted_by_region(df_pass, stage3_col)
+                    total_weighted = round(w1 + w2 + w3, 2)
 
                     all_results.append({
                         "物流方式": method,
