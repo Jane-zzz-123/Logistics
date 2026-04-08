@@ -3339,11 +3339,11 @@ fig.update_traces(
 # 8. 渲染图表（绝对不报错）
 st.plotly_chart(fig, use_container_width=True)
 
-# ===================== 配套表格+结论（不变） =====================
+# ===================== 配套表格+结论（已移除总耗时） =====================
 st.write("### 📋 明细汇总表")
-stack_data["开船-签收总耗时"] = stack_data[time_cols_all].sum(axis=1)
+# 已删除：开船-签收总耗时
 st.dataframe(
-    stack_data.sort_values(["区域", "开船-签收总耗时"]),
+    stack_data.sort_values(["区域"]),
     use_container_width=True,
     column_config={
         "区域": st.column_config.TextColumn(width="80px"),
