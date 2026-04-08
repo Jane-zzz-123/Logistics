@@ -901,7 +901,67 @@ else:
     # --------------------------
     # 6. 提柜-签收环节细分统计（物流方式+区域，统一表格展示）
     # --------------------------
+    # --------------------------
+    # 6. 提柜-签收环节延期细分统计（物流方式+区域）
+    # 【已修复：只统计真正超时的订单】
+    # --------------------------
     st.markdown("### 🗺️ 提柜-签收环节延期细分统计（物流方式+区域）")
+
+    # 只统计【真正超时】的订单（货代延期 + 大于区域标准天数）
+    df_real_overdue = []
+    for idx, row in df_forwarder_delay.iterrows():
+        method = row[ship_method_col]
+        region = row[region_col]
+        days = row[signoff_stage]
+
+        # 获取当前标准
+        if method == YIXING_SPECIAL_NAME:
+            std = YIXING_REGION_THRESHOLD.get(region, 4)
+        else:
+            std = NORMAL_REGION_THRESHOLD.get(region, 6)
+
+        # 只保留真正超时
+        if days > std:
+            df_real_overdue.append(row)
+
+    df_real_overdue = pd.DataFrame(df_real_overdue)
+
+    # 开始分组统计
+    signoff_stats = []
+    if not df_real_overdue.empty:
+        for method in df_real_overdue[ship_method_col].unique():
+            df_method = df_real_overdue[df_real_overdue[ship_method_col] == method]
+            for region in df_method[region_col].unique():
+                df_region = df_method[df_method[region_col] == region]
+                total_region = len(df_region)
+                if total_region == 0:
+                    continue
+
+                if method == YIXING_SPECIAL_NAME:
+                    std = YIXING_REGION_THRESHOLD.get(region, 4)
+                else:
+                    std = NORMAL_REGION_THRESHOLD.get(region, 6)
+
+                avg_days = round(df_region[signoff_stage].mean(), 2)
+                max_days = round(df_region[signoff_stage].max(), 2)
+                over_threshold = len(df_region[df_region[signoff_stage] > std])
+                over_rate = round((over_threshold / total_region) * 100, 1) if total_region > 0 else 0.0
+                over_days = round(avg_days - std, 1)
+
+                signoff_stats.append({
+                    "物流方式": method,
+                    "区域": region,
+                    "延期订单数": total_region,  # 现在这个 = 真正超时数
+                    "物流标准（提柜-签收）": f"≤{std}天",
+                    "平均耗时": avg_days,
+                    "最大耗时": max_days,
+                    "超时订单数": over_threshold,
+                    "超时率": f"{over_rate}%",
+                    "超时时长（平均）": f"{over_days}天"
+                })
+
+    signoff_stats_df = pd.DataFrame(signoff_stats)
+
     if not signoff_stats_df.empty:
         st.dataframe(
             signoff_stats_df,
@@ -909,7 +969,7 @@ else:
             column_config={
                 "物流方式": st.column_config.TextColumn("物流方式"),
                 "区域": st.column_config.TextColumn("区域"),
-                "延期订单数": st.column_config.NumberColumn("延期订单数"),
+                "延期订单数": st.column_config.NumberColumn("超时订单数（真正超时）"),
                 "物流标准（提柜-签收）": st.column_config.TextColumn("物流标准"),
                 "平均耗时": st.column_config.NumberColumn("平均耗时（天）", format="%.2f"),
                 "最大耗时": st.column_config.NumberColumn("最大耗时（天）", format="%.2f"),
@@ -919,7 +979,7 @@ else:
             }
         )
     else:
-        st.markdown("- 暂无提柜-签收环节的延期细分数据")
+        st.markdown("- 暂无真正超时数据")
 
     # --------------------------
     # 7. 各环节耗时均值对比（正常 vs 延期，按物流方式+区域）
