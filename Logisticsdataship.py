@@ -3348,64 +3348,10 @@ st.dataframe(
     column_config={
         "区域": st.column_config.TextColumn(width="80px"),
         "物流方式": st.column_config.TextColumn(width="120px"),
-        **{col: st.column_config.NumberColumn(format="%.2f", width="100px") for col in time_cols_all},
-        "开船-签收总耗时": st.column_config.NumberColumn(format="%.2f", width="120px")
+        **{col: st.column_config.NumberColumn(format="%.2f", width="100px") for col in time_cols_all}
     }
 )
-st.write("### 📝 多维度时效分析（分区域对比）")
 
-# 定义三大区域（确保顺序：美东→美中→美西）
-regions = ["美东", "美中", "美西"]
-# 过滤出有数据的区域
-valid_regions = [r for r in regions if r in stack_data["区域"].unique()]
-
-# 一行三列布局（即使某区域无数据，也留空列，保持布局）
-col1, col2, col3 = st.columns(3)
-col_map = {"美东": col1, "美中": col2, "美西": col3}
-
-# 逐个区域填充分析内容
-for region in regions:
-    with col_map[region]:
-        st.markdown(f"#### 🌍 {region} 区域")
-
-        # 过滤该区域数据
-        region_df = stack_data[stack_data["区域"] == region].copy()
-        if len(region_df) == 0:
-            st.info("暂无该区域数据")
-            continue
-
-        # 遍历该区域所有物流方式
-        for _, log_row in region_df.iterrows():
-            log_name = log_row["物流方式"]
-            total_time = log_row["开船-签收总耗时"]
-            # 计算瓶颈环节
-            bottleneck = max(time_cols_all, key=lambda x: log_row[x])
-            bottleneck_days = log_row[bottleneck]
-            bottleneck_ratio = (bottleneck_days / total_time * 100)
-
-            # 输出该物流方式的分析
-            st.markdown(f"""
-**🚛 {log_name}**
-- 总耗时：{total_time:.2f} 天
-- 开船-到港：{log_row['开船-到港']:.1f} 天
-- 到港-提柜：{log_row['到港-提柜']:.1f} 天
-- 提柜-签收：{log_row['提柜-签收']:.1f} 天
-- 签收-完成：{log_row['签收-完成上架']:.1f} 天
-- ⚠️ 瓶颈：{bottleneck}（{bottleneck_days:.1f}天/{bottleneck_ratio:.1f}%）
-            """)
-            st.divider()
-
-        # 该区域内物流对比总结
-        if len(region_df) > 1:
-            fastest = region_df.loc[region_df["开船-签收总耗时"].idxmin()]["物流方式"]
-            slowest = region_df.loc[region_df["开船-签收总耗时"].idxmax()]["物流方式"]
-            gap = region_df["开船-签收总耗时"].max() - region_df["开船-签收总耗时"].min()
-            st.markdown(f"""
-**📊 区域总结**
-- 最快物流：{fastest}
-- 最慢物流：{slowest}
-- 时效差距：{gap:.2f} 天
-            """)
 
 # ---------------------- 第五步：数据下载 ----------------------
 st.subheader("💾 分析数据下载")
