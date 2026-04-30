@@ -3423,10 +3423,10 @@ with st.container():
             key="hot_region"
         )
 
-# ---------------------- 独立取数（只受上面3个筛选控制，不联动上面任何东西） ----------------------
+# ---------------------- 独立取数 ----------------------
 df_hotmap = df_selected.copy()
 
-# 多选月份筛选（已修复）
+# 多选月份筛选
 if selected_month_hot:
     df_hotmap = df_hotmap[df_hotmap["到货年月"].isin(selected_month_hot)]
 
@@ -3436,10 +3436,9 @@ if selected_log_hot != "全部":
 if selected_region_hot != "全部":
     df_hotmap = df_hotmap[df_hotmap["区域"] == selected_region_hot]
 
-# 只保留有效区域
 df_hotmap = df_hotmap[df_hotmap["区域"].isin(["美东", "美西", "美中"])]
 
-# 清洗耗时字段
+# 清洗（整数天数）
 for col in ["开船-提柜", "提柜-签收"]:
     if col in df_hotmap.columns:
         df_hotmap[col] = pd.to_numeric(df_hotmap[col], errors="coerce")
@@ -3451,7 +3450,7 @@ if df_hotmap.empty:
     st.warning("⚠️ 当前筛选条件下无数据")
     st.stop()
 
-# ---------------------- 渐变色（清晰商务橙） ----------------------
+# ---------------------- 渐变色 ----------------------
 def color_gradient(val):
     if val == 0:
         return "background-color: #fff7e6; color:black"
@@ -3469,13 +3468,15 @@ def color_gradient(val):
         return "background-color: #e66a00; color:white"
 
 # ==========================================
-# 图表 1：开船 - 提柜 耗时分布
+# 图表 1：开船-提柜（整数天 1:1 显示）
 # ==========================================
 st.markdown("### 🔸 开船-提柜 耗时分布占比")
-bins = list(range(0, 21)) + [999]
-labels = [str(i) for i in range(1, 21)] + ['21+']
 
-df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=False)
+# 完全按整数天数：1=1, 2=2...15=15, 16=16...20=20, 21+=21+
+bins = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,999]
+labels = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21+']
+
+df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=True)
 cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
 pct = cross.div(cross.sum(axis=1), axis=0) * 100
 pct = pct.round(0).astype(int)
@@ -3490,13 +3491,14 @@ styled = pct.style \
 st.dataframe(styled, use_container_width=True)
 
 # ==========================================
-# 图表 2：提柜 - 签收 耗时分布
+# 图表 2：提柜-签收（整数天 1:1 显示）
 # ==========================================
 st.markdown("### 🔸 提柜-签收 耗时分布占比")
-bins2 = list(range(0, 16)) + [999]
-labels2 = [str(i) for i in range(1, 16)] + ['16+']
 
-df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins2, labels=labels2, right=False)
+bins2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
+labels2 = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
+
+df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins=bins2, labels=labels2, right=True)
 cross2 = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间2'], dropna=False)
 pct2 = cross2.div(cross2.sum(axis=1), axis=0) * 100
 pct2 = pct2.round(0).astype(int)
