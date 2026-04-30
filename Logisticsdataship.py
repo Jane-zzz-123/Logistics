@@ -3386,17 +3386,15 @@ st.download_button(
 )
 
 # ======================================================================================
-# 📊 独立模块：渠道耗时分布占比表（自带独立筛选器，数据100%准确）
-# 数据源：df_selected（去重货件，和主看板完全一致）
+# 📊 独立模块：渠道耗时分布占比表（终极无报错版）
 # ======================================================================================
 st.subheader("📊 渠道耗时分布占比表")
 st.divider()
 
-# ---------------------- 【独立筛选器】就在这里，不用往上划 ----------------------
+# ---------------------- 独立筛选器（月份多选，默认最新月） ----------------------
 with st.container():
     col1, col2, col3 = st.columns(3)
     with col1:
-        # 独立年月筛选 → 支持多选，默认最新1个月
         months_list = sorted(df_selected["到货年月"].dropna().unique(), reverse=True)
         selected_month_hot = st.multiselect(
             "📅 选择月份（可多选）",
@@ -3405,7 +3403,6 @@ with st.container():
             key="hot_month"
         )
     with col2:
-        # 独立物流方式筛选
         logistics_list = ["全部"] + sorted([str(x) for x in df_selected["物流方式"].dropna().unique() if x])
         selected_log_hot = st.selectbox(
             "🚛 渠道（物流方式）",
@@ -3414,7 +3411,6 @@ with st.container():
             key="hot_logistics"
         )
     with col3:
-        # 独立区域筛选
         region_list = ["全部", "美东", "美西", "美中"]
         selected_region_hot = st.selectbox(
             "🌎 区域",
@@ -3423,26 +3419,20 @@ with st.container():
             key="hot_region"
         )
 
-# ---------------------- 独立取数 ----------------------
+# ---------------------- 数据筛选 ----------------------
 df_hotmap = df_selected.copy()
-
-# 多选月份筛选
 if selected_month_hot:
     df_hotmap = df_hotmap[df_hotmap["到货年月"].isin(selected_month_hot)]
-
 if selected_log_hot != "全部":
     df_hotmap = df_hotmap[df_hotmap["物流方式"] == selected_log_hot]
-
 if selected_region_hot != "全部":
     df_hotmap = df_hotmap[df_hotmap["区域"] == selected_region_hot]
-
 df_hotmap = df_hotmap[df_hotmap["区域"].isin(["美东", "美西", "美中"])]
 
-# 清洗（整数天数）
+# 清洗数据
 for col in ["开船-提柜", "提柜-签收"]:
     if col in df_hotmap.columns:
         df_hotmap[col] = pd.to_numeric(df_hotmap[col], errors="coerce")
-
 df_hotmap = df_hotmap.dropna(subset=["开船-提柜", "提柜-签收"])
 df_hotmap = df_hotmap[(df_hotmap["开船-提柜"] >= 0) & (df_hotmap["提柜-签收"] >= 0)]
 
@@ -3468,18 +3458,20 @@ def color_gradient(val):
         return "background-color: #e66a00; color:white"
 
 # ==========================================
-# 图表 1：开船-提柜 → 你要的区间：13,14,15...28,29+
+# 图表1：开船-提柜 13~29+
 # ==========================================
 st.markdown("### 🔸 开船-提柜 耗时分布占比")
-
-# ✅ 完全按你要求：13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29+
 bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
 labels = ['13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
 
 df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=True)
 cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
+
+# 🔥 修复报错核心代码
 pct = cross.div(cross.sum(axis=1), axis=0) * 100
-pct = pct.round(0).astype(int)
+pct = pct.fillna(0)
+pct = pct.round().astype("Int64")  # 支持空值的整型
+
 pct["票数"] = cross.sum(axis=1)
 pct["合计票数"] = cross.sum().sum()
 
@@ -3491,17 +3483,20 @@ styled = pct.style \
 st.dataframe(styled, use_container_width=True)
 
 # ==========================================
-# 图表 2：提柜-签收（保持不变）
+# 图表2：提柜-签收
 # ==========================================
 st.markdown("### 🔸 提柜-签收 耗时分布占比")
-
 bins2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,999]
 labels2 = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17+']
 
 df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins2, labels=labels2, right=True)
 cross2 = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间2'], dropna=False)
+
+# 🔥 修复报错核心代码
 pct2 = cross2.div(cross2.sum(axis=1), axis=0) * 100
-pct2 = pct2.round(0).astype(int)
+pct2 = pct2.fillna(0)
+pct2 = pct2.round().astype("Int64")
+
 pct2["票数"] = cross2.sum(axis=1)
 pct2["合计票数"] = cross2.sum().sum()
 
