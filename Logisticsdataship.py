@@ -2944,12 +2944,15 @@ if not df_hotmap.empty:
         total = cross.loc[method].sum()
         row_display = {}
 
+        # 🔥 修复：把物流方式加进去
+        row_display["物流方式"] = method
+
         for i, col in enumerate(labels):
             cnt = cross.loc[method, col]
             pct_val = (cnt / total * 100) if total > 0 else 0
             weighted_val = label_values[i] * (cnt / total) if total > 0 else 0
 
-            # 🔥 核心格式：占比两位小数% + 加权值两位小数
+            # 格式：占比两位小数% + 加权值两位小数
             cell_text = f"{pct_val:.2f}%\n{weighted_val:.2f}"
             row_display[col] = cell_text
 
