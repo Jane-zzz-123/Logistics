@@ -2795,13 +2795,13 @@ else:
 
 
 # ======================================================================================
-# 📦 物流环节时效分析（耗时分布 + 准时率时效）
-# 独立筛选器 | 不联动上方 | 干净精简版
+# 📦 物流环节时效分析（耗时分布 + 准时率时效）【完整四合一】
+# 筛选器共用 → 准时率表格 → 三个环节分布
 # ======================================================================================
 st.divider()
 st.subheader("📦 物流环节时效分析（耗时分布 + 准时率时效）")
 
-# ====================== 【独立筛选器】 ======================
+# ====================== 【独立筛选器】三个环节 + 准时率 共用 ======================
 with st.container():
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -2821,7 +2821,7 @@ with st.container():
             key="hot_logistics"
         )
     with col3:
-        region_list = ["全部", "美东", "美西", "欧线", "其他"]
+        region_list = ["全部", "美东", "美西", "美中"]
         selected_region_hot = st.selectbox(
             "🌎 区域",
             options=region_list,
@@ -2830,20 +2830,25 @@ with st.container():
         )
 
 # ====================== 统一筛选数据 ======================
-df_current = df_selected.copy()
+def filter_df(df, month_col="到货年月"):
+    df = df.copy()
+    if selected_month_hot:
+        df = df[df[month_col].isin(selected_month_hot)]
+    if selected_log_hot != "全部" and "物流方式" in df.columns:
+        df = df[df["物流方式"] == selected_log_hot]
+    if selected_region_hot != "全部" and "区域" in df.columns:
+        df = df[df["区域"] == selected_region_hot]
+    df = df.reset_index(drop=True)
+    return df
 
-if selected_month_hot:
-    df_current = df_current[df_current["到货年月"].isin(selected_month_hot)]
+df_current = filter_df(df_selected)       # 准时率 + 开船提柜 + 提柜签收
+df_current_FBA = filter_df(df_selected_FBA) # 签收-上架
 
-if selected_log_hot != "全部":
-    df_current = df_current[df_current["物流方式"] == selected_log_hot]
+import math
 
-if selected_region_hot != "全部":
-    df_current = df_current[df_current["区域"] == selected_region_hot]
-
-df_current = df_current[df_current["区域"].notna() & df_current["物流方式"].notna()].reset_index(drop=True)
-
-# ====================== 物流方式-准时率-时效分析（仅保留表格） ======================
+# ==============================================
+# 【你要的准时率时效表格】放在最上面
+# ==============================================
 st.markdown("### 📊 各物流方式 - 准时率 - 时效（含加权）")
 
 target_rates = [75, 80, 85, 90, 95, 100]
@@ -2922,112 +2927,179 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ====================== A. 环节耗时分布占比（带加权平均 + 优化格式） ======================
-st.markdown("### 🔸 开船-提柜 耗时分布占比 & 加权平均")
+# ==============================================
+# 1. 开船 - 提柜（按物流方式）df_selected
+# ==============================================
+st.markdown("### 🔸 开船-提柜 耗时分布（按物流方式）")
+bins1  = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
+labels1= ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
+vals1  = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+col1   = "开船-提柜"
 
-# 区间：10,11,12,13,14...28,29+
-bins = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
-labels = ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
-label_values = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+df1 = df_current.copy()
+df1[col1] = pd.to_numeric(df1[col1], errors="coerce")
+df1 = df1.dropna(subset=[col1])
+df1 = df1[df1[col1] >= 0]
 
-df_hotmap = df_current.copy()
-df_hotmap["开船-提柜"] = pd.to_numeric(df_hotmap["开船-提柜"], errors="coerce")
-df_hotmap = df_hotmap.dropna(subset=["开船-提柜"])
-df_hotmap = df_hotmap[df_hotmap["开船-提柜"] >= 0]
-
-if not df_hotmap.empty:
-    df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=True)
-    cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
-
-    # 1. 计算数据和颜色
-    all_rows = []
+if not df1.empty:
+    df1['区间'] = pd.cut(df1[col1], bins=bins1, labels=labels1, right=True)
+    cross = pd.crosstab(df1['物流方式'], df1['区间'], dropna=False)
     total_all = cross.sum().sum()
-    for method in cross.index:
-        total = cross.loc[method].sum()
-        if total == 0:
-            continue
-
-        row = {"物流方式": method}
-        weighted_sum = 0
-
-        for i, col in enumerate(labels):
-            cnt = cross.loc[method, col]
-            pct_val = (cnt / total * 100)
-            weighted_val = label_values[i] * (pct_val / 100)
-            weighted_sum += weighted_val
-
-            # 计算背景色
-            if pct_val == 0:
-                bg_color = "#fff7e6"
-                text_color = "black"
-            elif pct_val < 10:
-                bg_color = "#ffe2b3"
-                text_color = "black"
-            elif pct_val < 20:
-                bg_color = "#ffc880"
-                text_color = "black"
-            elif pct_val < 30:
-                bg_color = "#ffad4d"
-                text_color = "black"
-            elif pct_val < 40:
-                bg_color = "#ff941a"
-                text_color = "white"
-            else:
-                bg_color = "#e66a00"
-                text_color = "white"
-
-            # 单元格HTML
-            cell_html = f"""
-            <div style="text-align:center; background-color:{bg_color}; color:{text_color}; padding:3px; font-size:12px; line-height:1.3;">
-                <b>{pct_val:.2f}%</b><br>
-                <span style="font-size:11px;">{weighted_val:.2f}</span>
-            </div>
-            """
-            row[col] = cell_html
-
-        # 关键：加权平均耗时挪到前面，合计票数保留
-        row["加权平均耗时(天)"] = math.ceil(weighted_sum)
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels1):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals1[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
         row["票数"] = total
-        row["合计票数"] = total_all
-        all_rows.append(row)
+        row["合计"] = total_all
+        rows.append(row)
 
-    # 2. 生成HTML表格
-    # 调整列顺序：物流方式 + 加权平均耗时 + 各天数 + 票数 + 合计票数
-    col_order = ["物流方式", "加权平均耗时(天)"] + labels + ["票数", "合计票数"]
-    header = "".join([f"<th>{col}</th>" for col in col_order])
-    body = ""
-    for r in all_rows:
-        cells = []
-        for col in col_order:
-            if col in ["物流方式", "加权平均耗时(天)", "票数", "合计票数"]:
-                cells.append(f"<td style='text-align:center; padding:3px; font-size:12px;'>{r[col]}</td>")
+    order = ["分组","加权耗时"]+labels1+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
             else:
-                cells.append(f"<td style='padding:0;'>{r[col]}</td>")
-        body += f"<tr>{''.join(cells)}</tr>"
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
 
-    html_table = f"""
-    <style>
-        table {{
-            width:100%;
-            border-collapse: collapse;
-            font-family: sans-serif;
-        }}
-        th, td {{
-            border:1px solid #ddd;
-            padding:4px;
-            text-align:center;
-            font-size:12px;
-        }}
-        th {{
-            background-color:#f0f0f0;
-            font-weight: bold;
-        }}
-    </style>
-    <table>{header}{body}</table>
-    """
-    st.markdown(html_table, unsafe_allow_html=True)
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
 else:
-    st.warning("⚠️ 暂无开船-提柜数据")
+    st.warning("暂无开船-提柜数据")
+
+# ==============================================
+# 2. 提柜 - 签收（按区域）df_selected
+# ==============================================
+st.markdown("### 🔸 提柜-签收 耗时分布（按区域）")
+bins2  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
+labels2= ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
+vals2  = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+col2   = "提柜-签收"
+
+df2 = df_current.copy()
+df2[col2] = pd.to_numeric(df2[col2], errors="coerce")
+df2 = df2.dropna(subset=[col2])
+df2 = df2[df2[col2] >= 0]
+
+if not df2.empty:
+    df2['区间'] = pd.cut(df2[col2], bins=bins2, labels=labels2, right=True)
+    cross = pd.crosstab(df2['区域'], df2['区间'], dropna=False)
+    total_all = cross.sum().sum()
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels2):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals2[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
+        row["票数"] = total
+        row["合计"] = total_all
+        rows.append(row)
+
+    order = ["分组","加权耗时"]+labels2+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
+            else:
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
+
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
+else:
+    st.warning("暂无提柜-签收数据")
+
+# ==============================================
+# 3. 签收-完成上架（按区域）df_selected_FBA
+# ==============================================
+st.markdown("### 🔸 签收-完成上架 耗时分布（按区域 - FBA）")
+bins3  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
+labels3= ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
+vals3  = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+col3   = "签收-完成上架"
+
+df3 = df_current_FBA.copy()
+df3[col3] = pd.to_numeric(df3[col3], errors="coerce")
+df3 = df3.dropna(subset=[col3])
+df3 = df3[df3[col3] >= 0]
+
+if not df3.empty:
+    df3['区间'] = pd.cut(df3[col3], bins=bins3, labels=labels3, right=True)
+    cross = pd.crosstab(df3['区域'], df3['区间'], dropna=False)
+    total_all = cross.sum().sum()
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels3):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals3[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
+        row["票数"] = total
+        row["合计"] = total_all
+        rows.append(row)
+
+    order = ["分组","加权耗时"]+labels3+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
+            else:
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
+
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
+else:
+    st.warning("暂无签收-完成上架数据")
 
 
 
