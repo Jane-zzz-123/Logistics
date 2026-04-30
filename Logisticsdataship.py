@@ -2921,12 +2921,13 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ====================== A. 环节耗时分布占比 ======================
-st.markdown("### 🔸 开船-提柜 耗时分布占比")
+# ====================== A. 环节耗时分布占比（带加权平均） ======================
+st.markdown("### 🔸 开船-提柜 耗时分布占比 & 加权平均")
 
-# 天数区间：13 14 15 ... 28 29+
-bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
-labels = ['13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
+# 你要的最新区间：10,11,12,13,14...28,29+
+bins = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
+labels = ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
+label_values = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
 
 df_hotmap = df_current.copy()
 df_hotmap["开船-提柜"] = pd.to_numeric(df_hotmap["开船-提柜"], errors="coerce")
@@ -2938,8 +2939,26 @@ if not df_hotmap.empty:
     cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
     pct = cross.div(cross.sum(axis=1), axis=0) * 100
     pct = pct.fillna(0).round().astype("Int64")
+
+    # 1. 计算加权平均：天数 × 占比（小数形式）
+    weighted_results = []
+    for idx, method in enumerate(cross.index):
+        order_counts = cross.loc[method]
+        if order_counts.sum() == 0:
+            weighted_avg = 0
+        else:
+            # 每个天数的占比（0-1）
+            pcts = order_counts / order_counts.sum()
+            # 天数 × 占比
+            weighted_sum = sum(label_values[i] * pcts.iloc[i] for i in range(len(label_values)))
+            # ROUNDUP 向上取整
+            weighted_avg = math.ceil(weighted_sum)
+        weighted_results.append(weighted_avg)
+
+    # 2. 把加权结果加进表格
     pct["票数"] = cross.sum(axis=1)
     pct["合计票数"] = cross.sum().sum()
+    pct["加权平均耗时(天)"] = weighted_results  # 新增列
 
     def color_gradient(val):
         if val == 0:
@@ -2958,7 +2977,7 @@ if not df_hotmap.empty:
     styled = pct.style \
         .applymap(color_gradient, subset=labels) \
         .format("{:>2.0f}%", subset=labels) \
-        .format("{}", subset=["票数", "合计票数"])
+        .format("{}", subset=["票数", "合计票数", "加权平均耗时(天)"])
     st.dataframe(styled, use_container_width=True)
 else:
     st.warning("⚠️ 暂无开船-提柜数据")
