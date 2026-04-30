@@ -1323,20 +1323,30 @@ if all_results:
         st.dataframe(df_90[show_cols], use_container_width=True)
 
     st.markdown("##### 📋 详细解读")
-    for m in unique_logistics:
-        rows = [r for r in all_results if r["物流方式"]==m]
-        if not rows: continue
-        r90 = next((x for x in rows if x["目标准时率(%)"]==90), None)
-        if r90:
-            msg = f"""
-            **{m}**<br>
-            • 90%准时率：≤{r90['开船-完成上架(天)']}天<br>
-            • 加权总时效：{r90['总加权时效']}天<br>
-            • 开船-提柜：{r90['开船-提柜(平均)']}天（平均）<br>
-            • 提柜-签收：{r90['提柜-签收(加权)']}天（区域加权）<br>
-            • 签收-上架：{r90['签收-上架(加权)']}天（区域加权）
-            """
-            st.markdown(msg, unsafe_allow_html=True)
+    # ========== 改成一行四列布局 ==========
+    # 按物流方式分组，循环生成四列卡片
+    logistics_list = [m for m in unique_logistics if any(r["物流方式"]==m for r in all_results)]
+    # 每4个一组分行
+    for i in range(0, len(logistics_list), 4):
+        cols = st.columns(4)  # 一行4列
+        group = logistics_list[i:i+4]
+        for idx, m in enumerate(group):
+            rows = [r for r in all_results if r["物流方式"]==m]
+            r90 = next((x for x in rows if x["目标准时率(%)"]==90), None)
+            if r90:
+                with cols[idx]:
+                    st.markdown(f"""
+<div style="border:1px solid #e0e0e0; padding:12px; border-radius:8px; background:#f9f9f9;">
+<b style="color:#2c3e50;">{m}</b><br>
+90%准时率：≤{r90['开船-完成上架(天)']}天<br>
+加权总时效：{r90['总加权时效']}天<br>
+开船-提柜：{r90['开船-提柜(平均)']}天<br>
+提柜-签收：{r90['提柜-签收(加权)']}天<br>
+签收-上架：{r90['签收-上架(加权)']}天
+</div>
+""", unsafe_allow_html=True)
+    # ====================================
+
 else:
     st.info("ℹ️ 暂无结论")
 
