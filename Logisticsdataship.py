@@ -3407,7 +3407,7 @@ with st.container():
     with col2:
         # 独立物流方式筛选
         logistics_list = ["全部"] + sorted([str(x) for x in df_selected["物流方式"].dropna().unique() if x])
-        selected_log_hot = st.selectbox(
+        selected_log_hot = selectbox(
             "🚛 渠道（物流方式）",
             options=logistics_list,
             index=0,
@@ -3468,13 +3468,13 @@ def color_gradient(val):
         return "background-color: #e66a00; color:white"
 
 # ==========================================
-# 图表 1：开船-提柜（整数天 1:1 显示）
+# 图表 1：开船-提柜 → 你要的区间：13,14,15...28,29+
 # ==========================================
 st.markdown("### 🔸 开船-提柜 耗时分布占比")
 
-# 完全按整数天数：1=1, 2=2...15=15, 16=16...20=20, 21+=21+
-bins = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,999]
-labels = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21+']
+# ✅ 完全按你要求：13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29+
+bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
+labels = ['13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
 
 df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=True)
 cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
@@ -3491,14 +3491,14 @@ styled = pct.style \
 st.dataframe(styled, use_container_width=True)
 
 # ==========================================
-# 图表 2：提柜-签收（整数天 1:1 显示）
+# 图表 2：提柜-签收（保持不变）
 # ==========================================
 st.markdown("### 🔸 提柜-签收 耗时分布占比")
 
-bins2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
-labels2 = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
+bins2 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,999]
+labels2 = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17+']
 
-df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins=bins2, labels=labels2, right=True)
+df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins2, labels=labels2, right=True)
 cross2 = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间2'], dropna=False)
 pct2 = cross2.div(cross2.sum(axis=1), axis=0) * 100
 pct2 = pct2.round(0).astype(int)
