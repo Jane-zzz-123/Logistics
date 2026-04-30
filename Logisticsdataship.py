@@ -3385,63 +3385,132 @@ st.download_button(
     mime="text/csv"
 )
 
-# ===================== 新增：开船-提柜耗时分布热力表 =====================
-st.markdown("### 📊 开船-提柜耗时分布（按物流方式）")
+# ====================== 独立模块：环节耗时分布热力表（不依赖前面筛选器） ======================
+st.subheader("📊 环节耗时分布热力表（独立筛选）")
+st.divider()
 
-# 1. 数据预处理：提取目标列，过滤极端值
-df_dist = df_analysis[["物流方式", "到港-提柜"]].copy()
-df_dist = df_dist.dropna(subset=["物流方式", "到港-提柜"])
-df_dist["到港-提柜"] = pd.to_numeric(df_dist["到港-提柜"], errors="coerce")
-df_dist = df_dist.dropna(subset=["到港-提柜"])
-df_dist = df_dist[df_dist["到港-提柜"] >= 0]  # 保留非负数据
+# 1. 独立筛选器（只控制本模块数据）
+col_a, col_b, col_c = st.columns(3)
+with col_a:
+    heatmap_months = st.multiselect(
+        "📅 选择到货年月",
+        options=sorted(df_selected["到货年月"].dropna().unique(), reverse=True),
+        default=None,
+        placeholder="可多选，默认全部",
+        key="heatmap_months"
+    )
+with col_b:
+    heatmap_logistics = st.selectbox(
+        "🚛 选择物流方式",
+        options=["全部"] + list(df_selected["物流方式"].dropna().unique()),
+        index=0,
+        key="heatmap_logistics"
+    )
+with col_c:
+    heatmap_region = st.selectbox(
+        "🌎 选择区域",
+        options=["全部", "美东", "美西", "美中"],
+        index=0,
+        key="heatmap_region"
+    )
 
-if df_dist.empty:
-    st.info("ℹ️ 暂无开船-提柜耗时数据可展示")
-else:
-    # 2. 分箱：和你图里一样，按天数分箱（13-29+）
-    bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,200]
-    labels = ["13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29+"]
-    df_dist["耗时区间"] = pd.cut(df_dist["到港-提柜"], bins=bins, labels=labels, right=True)
+# 2. 独立数据筛选逻辑（完全独立，不影响前面的分析）
+df_heat = df_selected.copy()
 
-    # 3. 计算每个物流方式下各区间的占比
-    # 先算数量分布
-    count_pivot = pd.crosstab(df_dist["物流方式"], df_dist["耗时区间"], dropna=False)
-    # 转成百分比
-    pct_pivot = count_pivot.div(count_pivot.sum(axis=1), axis=0) * 100
-    pct_pivot = pct_pivot.fillna(0).round(0).astype(int)
+# 年月筛选（不选则默认全部）
+if heatmap_months:
+    df_heat = df_heat[df_heat["到货年月"].isin(heatmap_months)]
+# 物流方式筛选
+if heatmap_logistics != "全部":
+    df_heat = df_heat[df_heat["物流方式"] == heatmap_logistics]
+# 区域筛选
+if heatmap_region != "全部":
+    df_heat = df_heat[df_heat["区域"] == heatmap_region]
 
-    # 4. 准备显示数据：带数量和合计
-    display_df = pct_pivot.copy()
-    display_df["票数"] = count_pivot.sum(axis=1)
-    display_df["合计票数"] = display_df["票数"].sum()
+# 只保留有效区域数据
+df_heat = df_heat[df_heat["区域"].isin(["美东", "美西", "美中"])].copy()
 
-    # 5. 定义渐变颜色（和你图中绿阶一致：0%浅绿→高%深绿）
-    def color_by_percent(val):
-        if val == 0:
-            return "background-color: #f0f9e6;"  # 0% 最浅
-        elif val < 10:
-            return "background-color: #e5f5e0;"
-        elif val < 20:
-            return "background-color: #c7e9c0;"
-        elif val < 30:
-            return "background-color: #a1d99b;"
-        elif val < 40:
-            return "background-color: #74c476;"
-        elif val < 50:
-            return "background-color: #41ab5d;"
-        else:
-            return "background-color: #238b45;"  # 50%+ 最深
+# 清洗目标环节数据
+环节列 = ["到港-提柜", "提柜-签收"]  # 你要的两个环节
+for col in 环节列:
+    if col in df_heat.columns:
+        df_heat[col] = pd.to_numeric(df_heat[col], errors="coerce")
+df_heat = df_heat.dropna(subset=环节列).copy()
+df_heat = df_heat[(df_heat[环节列] >= 0).all(axis=1)].copy()
 
-    # 6. 应用样式并展示
-    styled_df = display_df.style \
-        .applymap(color_by_percent, subset=labels) \
-        .format("{:.0f}%", subset=labels) \
-        .format("{}", subset=["票数", "合计票数"])
+if df_heat.empty:
+    st.warning("⚠️ 所选条件下暂无有效数据，请调整筛选条件")
+    st.stop()
 
-    st.dataframe(styled_df, use_container_width=True)
+# 3. 定义你之前选的橙色渐变（占比越高颜色越深，对比强）
+def get_color(val):
+    if val == 0:
+        return "background-color: #FFF7E6;"
+    elif val < 10:
+        return "background-color: #FFE2B3;"
+    elif val < 20:
+        return "background-color: #FFC880;"
+    elif val < 30:
+        return "background-color: #FFAD4D;"
+    elif val < 40:
+        return "background-color: #FF941A;"
+    elif val < 50:
+        return "background-color: #FF7A00;"
+    else:
+        return "background-color: #E66A00;"
 
-    # 7. 补充说明
-    st.caption("说明：表格颜色越深代表该物流方式在对应耗时区间的订单占比越高，0%为最浅绿色，占比越高颜色越深。")
+# ------------------- 表1：开船-提柜（对应你之前的图） -------------------
+st.markdown("#### 📈 到港-提柜 耗时分布（按物流方式）")
+
+# 分箱规则（和你原图完全一致：13-29+）
+bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,200]
+labels = ["13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29+"]
+
+df_heat["耗时区间_到港提柜"] = pd.cut(df_heat["到港-提柜"], bins=bins, labels=labels, right=True)
+
+# 计算数量和占比
+count_pivot1 = pd.crosstab(df_heat["物流方式"], df_heat["耗时区间_到港提柜"], dropna=False)
+pct_pivot1 = count_pivot1.div(count_pivot1.sum(axis=1), axis=0) * 100
+pct_pivot1 = pct_pivot1.fillna(0).round(0).astype(int)
+
+# 加合计列
+pct_pivot1["票数"] = count_pivot1.sum(axis=1)
+pct_pivot1["合计票数"] = pct_pivot1["票数"].sum()
+
+# 应用样式
+styled1 = pct_pivot1.style \
+    .applymap(get_color, subset=labels) \
+    .format("{:.0f}%", subset=labels) \
+    .format("{}", subset=["票数", "合计票数"])
+
+st.dataframe(styled1, use_container_width=True)
+st.caption("说明：颜色越深代表该物流方式在对应耗时区间的订单占比越高，0%为最浅橙色。")
+
+st.divider()
+
+# ------------------- 表2：提柜-签收 耗时分布 -------------------
+st.markdown("#### 📈 提柜-签收 耗时分布（按物流方式）")
+
+# 分箱规则（可以根据业务调整，这里给你默认用10-30+的区间，你也可以改成和上面一样）
+bins2 = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,300]
+labels2 = ["10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26+"]
+
+df_heat["耗时区间_提柜签收"] = pd.cut(df_heat["提柜-签收"], bins=bins2, labels=labels2, right=True)
+
+count_pivot2 = pd.crosstab(df_heat["物流方式"], df_heat["耗时区间_提柜签收"], dropna=False)
+pct_pivot2 = count_pivot2.div(count_pivot2.sum(axis=1), axis=0) * 100
+pct_pivot2 = pct_pivot2.fillna(0).round(0).astype(int)
+
+pct_pivot2["票数"] = count_pivot2.sum(axis=1)
+pct_pivot2["合计票数"] = pct_pivot2["票数"].sum()
+
+styled2 = pct_pivot2.style \
+    .applymap(get_color, subset=labels2) \
+    .format("{:.0f}%", subset=labels2) \
+    .format("{}", subset=["票数", "合计票数"])
+
+st.dataframe(styled2, use_container_width=True)
+st.caption("说明：颜色越深代表该物流方式在对应耗时区间的订单占比越高，0%为最浅橙色。")
 
 st.title("📊 物流成本分析")
 
