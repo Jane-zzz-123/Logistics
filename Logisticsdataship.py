@@ -2922,7 +2922,7 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ====================== A. 环节耗时分布占比（带加权平均 + 单元格内上下两行） ======================
+# ====================== A. 环节耗时分布占比（带加权平均 + 优化格式） ======================
 st.markdown("### 🔸 开船-提柜 耗时分布占比 & 加权平均")
 
 # 区间：10,11,12,13,14...28,29+
@@ -2941,6 +2941,7 @@ if not df_hotmap.empty:
 
     # 1. 计算数据和颜色
     all_rows = []
+    total_all = cross.sum().sum()
     for method in cross.index:
         total = cross.loc[method].sum()
         if total == 0:
@@ -2975,29 +2976,33 @@ if not df_hotmap.empty:
                 bg_color = "#e66a00"
                 text_color = "white"
 
-            # 🔥 关键：用HTML实现上下两行显示
+            # 单元格HTML
             cell_html = f"""
-            <div style="text-align:center; background-color:{bg_color}; color:{text_color}; padding:5px;">
+            <div style="text-align:center; background-color:{bg_color}; color:{text_color}; padding:3px; font-size:12px; line-height:1.3;">
                 <b>{pct_val:.2f}%</b><br>
-                <small>{weighted_val:.2f}</small>
+                <span style="font-size:11px;">{weighted_val:.2f}</span>
             </div>
             """
             row[col] = cell_html
 
-        row["票数"] = total
+        # 关键：加权平均耗时挪到前面，合计票数保留
         row["加权平均耗时(天)"] = math.ceil(weighted_sum)
+        row["票数"] = total
+        row["合计票数"] = total_all
         all_rows.append(row)
 
     # 2. 生成HTML表格
-    header = "".join([f"<th>{col}</th>" for col in ["物流方式"] + labels + ["票数", "加权平均耗时(天)"]])
+    # 调整列顺序：物流方式 + 加权平均耗时 + 各天数 + 票数 + 合计票数
+    col_order = ["物流方式", "加权平均耗时(天)"] + labels + ["票数", "合计票数"]
+    header = "".join([f"<th>{col}</th>" for col in col_order])
     body = ""
     for r in all_rows:
         cells = []
-        cells.append(f"<td>{r['物流方式']}</td>")
-        for col in labels:
-            cells.append(f"<td>{r[col]}</td>")
-        cells.append(f"<td style='text-align:center;'>{r['票数']}</td>")
-        cells.append(f"<td style='text-align:center;'>{r['加权平均耗时(天)']}</td>")
+        for col in col_order:
+            if col in ["物流方式", "加权平均耗时(天)", "票数", "合计票数"]:
+                cells.append(f"<td style='text-align:center; padding:3px; font-size:12px;'>{r[col]}</td>")
+            else:
+                cells.append(f"<td style='padding:0;'>{r[col]}</td>")
         body += f"<tr>{''.join(cells)}</tr>"
 
     html_table = f"""
@@ -3005,14 +3010,17 @@ if not df_hotmap.empty:
         table {{
             width:100%;
             border-collapse: collapse;
+            font-family: sans-serif;
         }}
         th, td {{
             border:1px solid #ddd;
-            padding:5px;
+            padding:4px;
             text-align:center;
+            font-size:12px;
         }}
         th {{
             background-color:#f0f0f0;
+            font-weight: bold;
         }}
     </style>
     <table>{header}{body}</table>
