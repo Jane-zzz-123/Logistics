@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from io import BytesIO
 import base64
+import math
 
 # 页面配置（完全保留）
 st.set_page_config(
