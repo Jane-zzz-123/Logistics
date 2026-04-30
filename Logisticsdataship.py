@@ -2949,16 +2949,11 @@ if not df_hotmap.empty:
             pct_val = (cnt / total * 100) if total > 0 else 0
             weighted_val = label_values[i] * (cnt / total) if total > 0 else 0
 
-            # 🔥 关键：用HTML实现上下两行，占比加粗放大，加权值缩小变灰
-            cell_html = f"""
-            <div style="text-align:center;">
-                <div style="font-weight:bold; font-size:1.1em;">{pct_val:.2f}%</div>
-                <div style="font-size:0.8em; color:#666;">{weighted_val:.2f}</div>
-            </div>
-            """
-            row_display[col] = cell_html
+            # 纯文本两行显示（最安全、不报错）
+            cell_text = f"{pct_val:.2f}%\n{weighted_val:.2f}"
+            row_display[col] = cell_text
 
-        # 计算加权平均
+        # 加权平均
         pcts = cross.loc[method] / total if total > 0 else pd.Series([0]*len(labels))
         weighted_sum = sum(label_values[i] * pcts.iloc[i] for i in range(len(label_values)))
         row_display["票数"] = total
@@ -2968,24 +2963,18 @@ if not df_hotmap.empty:
     final_table = pd.DataFrame(detail_data).set_index("物流方式")
     final_table["合计票数"] = cross.sum().sum()
 
-    # 渐变颜色（依然只看占比）
+    # 渐变颜色
     def color_gradient(val):
         try:
-            # 从HTML里提取占比数值
-            import re
-            match = re.search(r"(\d+\.\d+)%", val)
-            if match:
-                v = float(match.group(1))
-            else:
-                v = 0
+            v = float(str(val).split('\n')[0].replace('%',''))
         except:
-            v = 0
+            return ""
         if v == 0:
-            return "background-color: #fff7e6;"
+            return "background-color: #fff7e6; color:black;"
         elif v < 10:
-            return "background-color: #ffe2b3;"
+            return "background-color: #ffe2b3; color:black;"
         elif v < 20:
-            return "background-color: #ffc880;"
+            return "background-color: #ffc880; color:black;"
         elif v < 30:
             return "background-color: #ffad4d; color:white;"
         elif v < 40:
@@ -2998,8 +2987,8 @@ if not df_hotmap.empty:
         .format("{}", subset=labels) \
         .format("{:.0f}", subset=["票数", "合计票数", "加权平均耗时(天)"])
 
-    # 🔥 开启 unsafe_allow_html=True，让单元格里的HTML生效
-    st.dataframe(styled, use_container_width=True, height=500, unsafe_allow_html=True)
+    # 🔥 修复：去掉错误参数，100%不报错
+    st.dataframe(styled, use_container_width=True, height=500)
 
 else:
     st.warning("⚠️ 暂无开船-提柜数据")
