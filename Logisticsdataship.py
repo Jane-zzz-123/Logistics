@@ -2922,7 +2922,7 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ====================== A. 环节耗时分布占比（带加权平均 + 单元格内美化） ======================
+# ====================== A. 环节耗时分布占比（带加权平均 + 单元格内上下两行） ======================
 st.markdown("### 🔸 开船-提柜 耗时分布占比 & 加权平均")
 
 # 区间：10,11,12,13,14...28,29+
@@ -2939,57 +2939,85 @@ if not df_hotmap.empty:
     df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=True)
     cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
 
-    detail_data = []
+    # 1. 计算数据和颜色
+    all_rows = []
     for method in cross.index:
         total = cross.loc[method].sum()
-        row_display = {"物流方式": method}
+        if total == 0:
+            continue
+
+        row = {"物流方式": method}
+        weighted_sum = 0
 
         for i, col in enumerate(labels):
             cnt = cross.loc[method, col]
-            pct_val = (cnt / total * 100) if total > 0 else 0
-            weighted_val = label_values[i] * (cnt / total) if total > 0 else 0
+            pct_val = (cnt / total * 100)
+            weighted_val = label_values[i] * (pct_val / 100)
+            weighted_sum += weighted_val
 
-            # 纯文本两行显示（最安全、不报错）
-            cell_text = f"{pct_val:.2f}%\n{weighted_val:.2f}"
-            row_display[col] = cell_text
+            # 计算背景色
+            if pct_val == 0:
+                bg_color = "#fff7e6"
+                text_color = "black"
+            elif pct_val < 10:
+                bg_color = "#ffe2b3"
+                text_color = "black"
+            elif pct_val < 20:
+                bg_color = "#ffc880"
+                text_color = "black"
+            elif pct_val < 30:
+                bg_color = "#ffad4d"
+                text_color = "black"
+            elif pct_val < 40:
+                bg_color = "#ff941a"
+                text_color = "white"
+            else:
+                bg_color = "#e66a00"
+                text_color = "white"
 
-        # 加权平均
-        pcts = cross.loc[method] / total if total > 0 else pd.Series([0]*len(labels))
-        weighted_sum = sum(label_values[i] * pcts.iloc[i] for i in range(len(label_values)))
-        row_display["票数"] = total
-        row_display["加权平均耗时(天)"] = math.ceil(weighted_sum) if total > 0 else 0
-        detail_data.append(row_display)
+            # 🔥 关键：用HTML实现上下两行显示
+            cell_html = f"""
+            <div style="text-align:center; background-color:{bg_color}; color:{text_color}; padding:5px;">
+                <b>{pct_val:.2f}%</b><br>
+                <small>{weighted_val:.2f}</small>
+            </div>
+            """
+            row[col] = cell_html
 
-    final_table = pd.DataFrame(detail_data).set_index("物流方式")
-    final_table["合计票数"] = cross.sum().sum()
+        row["票数"] = total
+        row["加权平均耗时(天)"] = math.ceil(weighted_sum)
+        all_rows.append(row)
 
-    # 渐变颜色
-    def color_gradient(val):
-        try:
-            v = float(str(val).split('\n')[0].replace('%',''))
-        except:
-            return ""
-        if v == 0:
-            return "background-color: #fff7e6; color:black;"
-        elif v < 10:
-            return "background-color: #ffe2b3; color:black;"
-        elif v < 20:
-            return "background-color: #ffc880; color:black;"
-        elif v < 30:
-            return "background-color: #ffad4d; color:white;"
-        elif v < 40:
-            return "background-color: #ff941a; color:white;"
-        else:
-            return "background-color: #e66a00; color:white;"
+    # 2. 生成HTML表格
+    header = "".join([f"<th>{col}</th>" for col in ["物流方式"] + labels + ["票数", "加权平均耗时(天)"]])
+    body = ""
+    for r in all_rows:
+        cells = []
+        cells.append(f"<td>{r['物流方式']}</td>")
+        for col in labels:
+            cells.append(f"<td>{r[col]}</td>")
+        cells.append(f"<td style='text-align:center;'>{r['票数']}</td>")
+        cells.append(f"<td style='text-align:center;'>{r['加权平均耗时(天)']}</td>")
+        body += f"<tr>{''.join(cells)}</tr>"
 
-    styled = final_table.style \
-        .applymap(color_gradient, subset=labels) \
-        .format("{}", subset=labels) \
-        .format("{:.0f}", subset=["票数", "合计票数", "加权平均耗时(天)"])
-
-    # 🔥 修复：去掉错误参数，100%不报错
-    st.dataframe(styled, use_container_width=True, height=500)
-
+    html_table = f"""
+    <style>
+        table {{
+            width:100%;
+            border-collapse: collapse;
+        }}
+        th, td {{
+            border:1px solid #ddd;
+            padding:5px;
+            text-align:center;
+        }}
+        th {{
+            background-color:#f0f0f0;
+        }}
+    </style>
+    <table>{header}{body}</table>
+    """
+    st.markdown(html_table, unsafe_allow_html=True)
 else:
     st.warning("⚠️ 暂无开船-提柜数据")
 
