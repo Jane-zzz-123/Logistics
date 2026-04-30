@@ -3385,6 +3385,64 @@ st.download_button(
     mime="text/csv"
 )
 
+# ===================== 新增：开船-提柜耗时分布热力表 =====================
+st.markdown("### 📊 开船-提柜耗时分布（按物流方式）")
+
+# 1. 数据预处理：提取目标列，过滤极端值
+df_dist = df_analysis[["物流方式", "到港-提柜"]].copy()
+df_dist = df_dist.dropna(subset=["物流方式", "到港-提柜"])
+df_dist["到港-提柜"] = pd.to_numeric(df_dist["到港-提柜"], errors="coerce")
+df_dist = df_dist.dropna(subset=["到港-提柜"])
+df_dist = df_dist[df_dist["到港-提柜"] >= 0]  # 保留非负数据
+
+if df_dist.empty:
+    st.info("ℹ️ 暂无开船-提柜耗时数据可展示")
+else:
+    # 2. 分箱：和你图里一样，按天数分箱（13-29+）
+    bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,200]
+    labels = ["13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29+"]
+    df_dist["耗时区间"] = pd.cut(df_dist["到港-提柜"], bins=bins, labels=labels, right=True)
+
+    # 3. 计算每个物流方式下各区间的占比
+    # 先算数量分布
+    count_pivot = pd.crosstab(df_dist["物流方式"], df_dist["耗时区间"], dropna=False)
+    # 转成百分比
+    pct_pivot = count_pivot.div(count_pivot.sum(axis=1), axis=0) * 100
+    pct_pivot = pct_pivot.fillna(0).round(0).astype(int)
+
+    # 4. 准备显示数据：带数量和合计
+    display_df = pct_pivot.copy()
+    display_df["票数"] = count_pivot.sum(axis=1)
+    display_df["合计票数"] = display_df["票数"].sum()
+
+    # 5. 定义渐变颜色（和你图中绿阶一致：0%浅绿→高%深绿）
+    def color_by_percent(val):
+        if val == 0:
+            return "background-color: #f0f9e6;"  # 0% 最浅
+        elif val < 10:
+            return "background-color: #e5f5e0;"
+        elif val < 20:
+            return "background-color: #c7e9c0;"
+        elif val < 30:
+            return "background-color: #a1d99b;"
+        elif val < 40:
+            return "background-color: #74c476;"
+        elif val < 50:
+            return "background-color: #41ab5d;"
+        else:
+            return "background-color: #238b45;"  # 50%+ 最深
+
+    # 6. 应用样式并展示
+    styled_df = display_df.style \
+        .applymap(color_by_percent, subset=labels) \
+        .format("{:.0f}%", subset=labels) \
+        .format("{}", subset=["票数", "合计票数"])
+
+    st.dataframe(styled_df, use_container_width=True)
+
+    # 7. 补充说明
+    st.caption("说明：表格颜色越深代表该物流方式在对应耗时区间的订单占比越高，0%为最浅绿色，占比越高颜色越深。")
+
 st.title("📊 物流成本分析")
 
 # 1. 加载成本数据
