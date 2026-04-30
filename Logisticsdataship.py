@@ -2843,7 +2843,7 @@ if selected_region_hot != "全部":
 
 df_current = df_current[df_current["区域"].notna() & df_current["物流方式"].notna()].reset_index(drop=True)
 
-# ====================== B. 物流方式-准时率-时效分析（仅保留表格） ======================
+# ====================== 物流方式-准时率-时效分析（仅保留表格） ======================
 st.markdown("### 📊 各物流方式 - 准时率 - 时效（含加权）")
 
 target_rates = [75, 80, 85, 90, 95, 100]
@@ -2922,10 +2922,10 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ====================== A. 环节耗时分布占比（带加权平均） ======================
+# ====================== A. 环节耗时分布占比（带加权平均 + 单元格内明细） ======================
 st.markdown("### 🔸 开船-提柜 耗时分布占比 & 加权平均")
 
-# 你要的最新区间：10,11,12,13,14...28,29+
+# 区间：10,11,12,13,14...28,29+
 bins = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
 labels = ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
 label_values = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
@@ -2938,50 +2938,61 @@ df_hotmap = df_hotmap[df_hotmap["开船-提柜"] >= 0]
 if not df_hotmap.empty:
     df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=True)
     cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
-    pct = cross.div(cross.sum(axis=1), axis=0) * 100
-    pct = pct.fillna(0).round().astype("Int64")
 
-    # 1. 计算加权平均：天数 × 占比（小数形式）
-    weighted_results = []
-    for idx, method in enumerate(cross.index):
-        order_counts = cross.loc[method]
-        if order_counts.sum() == 0:
-            weighted_avg = 0
-        else:
-            # 每个天数的占比（0-1）
-            pcts = order_counts / order_counts.sum()
-            # 天数 × 占比
-            weighted_sum = sum(label_values[i] * pcts.iloc[i] for i in range(len(label_values)))
-            # ROUNDUP 向上取整
-            weighted_avg = math.ceil(weighted_sum)
-        weighted_results.append(weighted_avg)
+    detail_data = []
+    for method in cross.index:
+        total = cross.loc[method].sum()
+        row_display = {}
 
-    # 2. 把加权结果加进表格
-    pct["票数"] = cross.sum(axis=1)
-    pct["合计票数"] = cross.sum().sum()
-    pct["加权平均耗时(天)"] = weighted_results  # 新增列
+        for i, col in enumerate(labels):
+            cnt = cross.loc[method, col]
+            pct_val = (cnt / total * 100) if total > 0 else 0
+            weighted_val = label_values[i] * (cnt / total) if total > 0 else 0
 
+            # 🔥 核心格式：占比两位小数% + 加权值两位小数
+            cell_text = f"{pct_val:.2f}%\n{weighted_val:.2f}"
+            row_display[col] = cell_text
+
+        # 加权平均
+        pcts = cross.loc[method] / total if total > 0 else pd.Series([0]*len(labels))
+        weighted_sum = sum(v * pcts.iloc[i] for i, v in enumerate(label_values))
+        row_display["票数"] = total
+        row_display["加权平均耗时(天)"] = math.ceil(weighted_sum) if total > 0 else 0
+        detail_data.append(row_display)
+
+    final_table = pd.DataFrame(detail_data).set_index("物流方式")
+    final_table["合计票数"] = cross.sum().sum()
+
+    # 渐变颜色
     def color_gradient(val):
-        if val == 0:
-            return "background-color: #fff7e6; color:black"
-        elif val < 10:
-            return "background-color: #ffe2b3; color:black"
-        elif val < 20:
-            return "background-color: #ffc880; color:black"
-        elif val < 30:
-            return "background-color: #ffad4d; color:black"
-        elif val < 40:
-            return "background-color: #ff941a; color:white"
+        try:
+            v = float(str(val).split('\n')[0].replace('%',''))
+        except:
+            return ""
+        if v == 0:
+            return "background-color: #fff7e6; color:black;"
+        elif v < 10:
+            return "background-color: #ffe2b3; color:black;"
+        elif v < 20:
+            return "background-color: #ffc880; color:black;"
+        elif v < 30:
+            return "background-color: #ffad4d; color:white;"
+        elif v < 40:
+            return "background-color: #ff941a; color:white;"
         else:
-            return "background-color: #e66a00; color:white"
+            return "background-color: #e66a00; color:white;"
 
-    styled = pct.style \
+    styled = final_table.style \
         .applymap(color_gradient, subset=labels) \
-        .format("{:>2.0f}%", subset=labels) \
-        .format("{}", subset=["票数", "合计票数", "加权平均耗时(天)"])
-    st.dataframe(styled, use_container_width=True)
+        .format("{}", subset=labels) \
+        .format("{:.0f}", subset=["票数", "合计票数", "加权平均耗时(天)"])
+
+    st.dataframe(styled, use_container_width=True, height=500)
+
 else:
     st.warning("⚠️ 暂无开船-提柜数据")
+
+
 
 st.title("📊 物流成本分析")
 
