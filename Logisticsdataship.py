@@ -3431,7 +3431,7 @@ if heatmap_region != "全部":
 df_heat = df_heat[df_heat["区域"].isin(["美东", "美西", "美中"])].copy()
 
 # 清洗目标环节数据
-环节列 = ["到港-提柜", "提柜-签收"]  # 你要的两个环节
+环节列 = ["开船-提柜", "提柜-签收"]  # 你要的两个环节
 for col in 环节列:
     if col in df_heat.columns:
         df_heat[col] = pd.to_numeric(df_heat[col], errors="coerce")
@@ -3460,16 +3460,16 @@ def get_color(val):
         return "background-color: #E66A00;"
 
 # ------------------- 表1：开船-提柜（对应你之前的图） -------------------
-st.markdown("#### 📈 到港-提柜 耗时分布（按物流方式）")
+st.markdown("#### 📈 开船-提柜 耗时分布（按物流方式）")
 
 # 分箱规则（和你原图完全一致：13-29+）
 bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,200]
 labels = ["13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29+"]
 
-df_heat["耗时区间_到港提柜"] = pd.cut(df_heat["到港-提柜"], bins=bins, labels=labels, right=True)
+df_heat["耗时区间_开船提柜"] = pd.cut(df_heat["开船-提柜"], bins=bins, labels=labels, right=True)
 
 # 计算数量和占比
-count_pivot1 = pd.crosstab(df_heat["物流方式"], df_heat["耗时区间_到港提柜"], dropna=False)
+count_pivot1 = pd.crosstab(df_heat["物流方式"], df_heat["耗时区间_开船提柜"], dropna=False)
 pct_pivot1 = count_pivot1.div(count_pivot1.sum(axis=1), axis=0) * 100
 pct_pivot1 = pct_pivot1.fillna(0).round(0).astype(int)
 
