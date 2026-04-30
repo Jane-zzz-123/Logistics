@@ -3385,132 +3385,127 @@ st.download_button(
     mime="text/csv"
 )
 
-# ====================== 独立模块：环节耗时分布热力表（不依赖前面筛选器） ======================
-st.subheader("📊 环节耗时分布热力表（独立筛选）")
+# ======================================================================================
+# 📊 独立模块：渠道耗时分布占比表（自带独立筛选器，不联动上方，数据100%准确）
+# 数据源：df_selected（去重货件，和主看板完全一致）
+# ======================================================================================
+st.subheader("📊 渠道耗时分布占比表")
 st.divider()
 
-# 1. 独立筛选器（只控制本模块数据）
-col_a, col_b, col_c = st.columns(3)
-with col_a:
-    heatmap_months = st.multiselect(
-        "📅 选择到货年月",
-        options=sorted(df_selected["到货年月"].dropna().unique(), reverse=True),
-        default=None,
-        placeholder="可多选，默认全部",
-        key="heatmap_months"
-    )
-with col_b:
-    heatmap_logistics = st.selectbox(
-        "🚛 选择物流方式",
-        options=["全部"] + list(df_selected["物流方式"].dropna().unique()),
-        index=0,
-        key="heatmap_logistics"
-    )
-with col_c:
-    heatmap_region = st.selectbox(
-        "🌎 选择区域",
-        options=["全部", "美东", "美西", "美中"],
-        index=0,
-        key="heatmap_region"
-    )
+# ---------------------- 【独立筛选器】就在这里，不用往上划 ----------------------
+with st.container():
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        # 独立年月筛选
+        months_list = sorted(df_selected["到货年月"].dropna().unique(), reverse=True)
+        selected_month_hot = st.selectbox(
+            "📅 选择月份",
+            options=months_list,
+            index=0,
+            key="hot_month"
+        )
+    with col2:
+        # 独立物流方式筛选
+        logistics_list = ["全部"] + sorted([str(x) for x in df_selected["物流方式"].dropna().unique() if x])
+        selected_log_hot = st.selectbox(
+            "🚛 渠道（物流方式）",
+            options=logistics_list,
+            index=0,
+            key="hot_logistics"
+        )
+    with col3:
+        # 独立区域筛选
+        region_list = ["全部", "美东", "美西", "美中"]
+        selected_region_hot = st.selectbox(
+            "🌎 区域",
+            options=region_list,
+            index=0,
+            key="hot_region"
+        )
 
-# 2. 独立数据筛选逻辑（完全独立，不影响前面的分析）
-df_heat = df_selected.copy()
+# ---------------------- 独立取数（只受上面3个筛选控制，不联动上面任何东西） ----------------------
+df_hotmap = df_selected.copy()
 
-# 年月筛选（不选则默认全部）
-if heatmap_months:
-    df_heat = df_heat[df_heat["到货年月"].isin(heatmap_months)]
-# 物流方式筛选
-if heatmap_logistics != "全部":
-    df_heat = df_heat[df_heat["物流方式"] == heatmap_logistics]
-# 区域筛选
-if heatmap_region != "全部":
-    df_heat = df_heat[df_heat["区域"] == heatmap_region]
+# 只应用本模块的筛选
+df_hotmap = df_hotmap[df_hotmap["到货年月"] == selected_month_hot]
 
-# 只保留有效区域数据
-df_heat = df_heat[df_heat["区域"].isin(["美东", "美西", "美中"])].copy()
+if selected_log_hot != "全部":
+    df_hotmap = df_hotmap[df_hotmap["物流方式"] == selected_log_hot]
 
-# 清洗目标环节数据
-环节列 = ["开船-提柜", "提柜-签收"]  # 你要的两个环节
-for col in 环节列:
-    if col in df_heat.columns:
-        df_heat[col] = pd.to_numeric(df_heat[col], errors="coerce")
-df_heat = df_heat.dropna(subset=环节列).copy()
-df_heat = df_heat[(df_heat[环节列] >= 0).all(axis=1)].copy()
+if selected_region_hot != "全部":
+    df_hotmap = df_hotmap[df_hotmap["区域"] == selected_region_hot]
 
-if df_heat.empty:
-    st.warning("⚠️ 所选条件下暂无有效数据，请调整筛选条件")
+# 只保留有效区域
+df_hotmap = df_hotmap[df_hotmap["区域"].isin(["美东", "美西", "美中"])]
+
+# 清洗耗时字段
+for col in ["开船-提柜", "提柜-签收"]:
+    if col in df_hotmap.columns:
+        df_hotmap[col] = pd.to_numeric(df_hotmap[col], errors="coerce")
+
+df_hotmap = df_hotmap.dropna(subset=["开船-提柜", "提柜-签收"])
+df_hotmap = df_hotmap[(df_hotmap["开船-提柜"] >= 0) & (df_hotmap["提柜-签收"] >= 0)]
+
+if df_hotmap.empty:
+    st.warning("⚠️ 当前筛选条件下无数据")
     st.stop()
 
-# 3. 定义你之前选的橙色渐变（占比越高颜色越深，对比强）
-def get_color(val):
+# ---------------------- 渐变色（你要的清晰商务橙） ----------------------
+def color_gradient(val):
     if val == 0:
-        return "background-color: #FFF7E6;"
+        return "background-color: #fff7e6; color:black"
     elif val < 10:
-        return "background-color: #FFE2B3;"
+        return "background-color: #ffe2b3; color:black"
     elif val < 20:
-        return "background-color: #FFC880;"
+        return "background-color: #ffc880; color:black"
     elif val < 30:
-        return "background-color: #FFAD4D;"
+        return "background-color: #ffad4d; color:black"
     elif val < 40:
-        return "background-color: #FF941A;"
+        return "background-color: #ff941a; color:white"
     elif val < 50:
-        return "background-color: #FF7A00;"
+        return "background-color: #ff7a00; color:white"
     else:
-        return "background-color: #E66A00;"
+        return "background-color: #e66a00; color:white"
 
-# ------------------- 表1：开船-提柜（对应你之前的图） -------------------
-st.markdown("#### 📈 开船-提柜 耗时分布（按物流方式）")
+# ==========================================
+# 图表 1：开船 - 提柜 耗时分布
+# ==========================================
+st.markdown("### 🔸 开船-提柜 耗时分布占比")
+bins = list(range(0, 21)) + [999]
+labels = [str(i) for i in range(1, 21)] + ['21+']
 
-# 分箱规则（和你原图完全一致：13-29+）
-bins = [12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,200]
-labels = ["13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29+"]
+df_hotmap['区间'] = pd.cut(df_hotmap['开船-提柜'], bins=bins, labels=labels, right=False)
+cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False)
+pct = cross.div(cross.sum(axis=1), axis=0) * 100
+pct = pct.round(0).astype(int)
+pct["票数"] = cross.sum(axis=1)
 
-df_heat["耗时区间_开船提柜"] = pd.cut(df_heat["开船-提柜"], bins=bins, labels=labels, right=True)
+styled = pct.style \
+    .applymap(color_gradient, subset=labels) \
+    .format("{:>2.0f}%", subset=labels) \
+    .format("{}", subset=["票数"])
 
-# 计算数量和占比
-count_pivot1 = pd.crosstab(df_heat["物流方式"], df_heat["耗时区间_开船提柜"], dropna=False)
-pct_pivot1 = count_pivot1.div(count_pivot1.sum(axis=1), axis=0) * 100
-pct_pivot1 = pct_pivot1.fillna(0).round(0).astype(int)
+st.dataframe(styled, use_container_width=True)
 
-# 加合计列
-pct_pivot1["票数"] = count_pivot1.sum(axis=1)
-pct_pivot1["合计票数"] = pct_pivot1["票数"].sum()
+# ==========================================
+# 图表 2：提柜 - 签收 耗时分布
+# ==========================================
+st.markdown("### 🔸 提柜-签收 耗时分布占比")
+bins2 = list(range(0, 16)) + [999]
+labels2 = [str(i) for i in range(1, 16)] + ['16+']
 
-# 应用样式
-styled1 = pct_pivot1.style \
-    .applymap(get_color, subset=labels) \
-    .format("{:.0f}%", subset=labels) \
-    .format("{}", subset=["票数", "合计票数"])
+df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins=bins2, labels=labels2, right=False)
+cross2 = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间2'], dropna=False)
+pct2 = cross2.div(cross2.sum(axis=1), axis=0) * 100
+pct2 = pct2.round(0).astype(int)
+pct2["票数"] = cross2.sum(axis=1)
 
-st.dataframe(styled1, use_container_width=True)
-st.caption("说明：颜色越深代表该物流方式在对应耗时区间的订单占比越高，0%为最浅橙色。")
-
-st.divider()
-
-# ------------------- 表2：提柜-签收 耗时分布 -------------------
-st.markdown("#### 📈 提柜-签收 耗时分布（按物流方式）")
-
-# 分箱规则（可以根据业务调整，这里给你默认用10-30+的区间，你也可以改成和上面一样）
-bins2 = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,300]
-labels2 = ["10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26+"]
-
-df_heat["耗时区间_提柜签收"] = pd.cut(df_heat["提柜-签收"], bins=bins2, labels=labels2, right=True)
-
-count_pivot2 = pd.crosstab(df_heat["物流方式"], df_heat["耗时区间_提柜签收"], dropna=False)
-pct_pivot2 = count_pivot2.div(count_pivot2.sum(axis=1), axis=0) * 100
-pct_pivot2 = pct_pivot2.fillna(0).round(0).astype(int)
-
-pct_pivot2["票数"] = count_pivot2.sum(axis=1)
-pct_pivot2["合计票数"] = pct_pivot2["票数"].sum()
-
-styled2 = pct_pivot2.style \
-    .applymap(get_color, subset=labels2) \
-    .format("{:.0f}%", subset=labels2) \
-    .format("{}", subset=["票数", "合计票数"])
+styled2 = pct2.style \
+    .applymap(color_gradient, subset=labels2) \
+    .format("{:>2.0f}%", subset=labels2) \
+    .format("{}", subset=["票数"])
 
 st.dataframe(styled2, use_container_width=True)
-st.caption("说明：颜色越深代表该物流方式在对应耗时区间的订单占比越高，0%为最浅橙色。")
 
 st.title("📊 物流成本分析")
 
