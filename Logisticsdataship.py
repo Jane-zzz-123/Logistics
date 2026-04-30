@@ -1698,6 +1698,311 @@ else:
     # 下载
     csv_data = warehouse_stats.to_csv(index=False, encoding="utf-8-sig")
     st.download_button("📥 下载仓库分析数据", csv_data, f"{selected_month}_仓库分析.csv", "text/csv")
+
+# ======================================================================================
+# ======================================================================================
+# 📦 物流环节时效分析（耗时分布 + 准时率时效）【完整四合一 · 无报错最终版】
+# ======================================================================================
+st.divider()
+st.subheader("📦 物流环节时效分析（耗时分布 + 准时率时效）")
+
+# ====================== 【独立筛选器】三个环节 + 准时率 共用 ======================
+with st.container():
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        months_list = sorted(df_selected["到货年月"].dropna().unique(), reverse=True)
+        selected_month_hot = st.multiselect(
+            "📅 选择月份（可多选）",
+            options=months_list,
+            default=months_list[:1] if len(months_list) > 0 else None,
+            key="hot_month"
+        )
+    with col2:
+        logistics_list = ["全部"] + sorted([str(x) for x in df_selected["物流方式"].dropna().unique() if x])
+        selected_log_hot = st.selectbox(
+            "🚛 渠道（物流方式）",
+            options=logistics_list,
+            index=0,
+            key="hot_logistics"
+        )
+    with col3:
+        region_list = ["全部", "美东", "美西", "美中"]
+        selected_region_hot = st.selectbox(
+            "🌎 区域",
+            options=region_list,
+            index=0,
+            key="hot_region"
+        )
+
+# ====================== 统一筛选数据 ======================
+def filter_df(df, month_col="到货年月"):
+    df = df.copy()
+    if selected_month_hot:
+        df = df[df[month_col].isin(selected_month_hot)]
+    if selected_log_hot != "全部" and "物流方式" in df.columns:
+        df = df[df["物流方式"] == selected_log_hot]
+    if selected_region_hot != "全部" and "区域" in df.columns:
+        df = df[df["区域"] == selected_region_hot]
+    df = df.reset_index(drop=True)
+    return df
+
+df_current = filter_df(df_selected)
+df_current_FBA = filter_df(df_selected_FBA)
+
+import math
+
+# ==============================================
+# 【准时率时效表格】
+# ==============================================
+st.markdown("### 📊 各物流方式 - 准时率 - 时效（含加权）")
+
+target_rates = [75, 80, 85, 90, 95, 100]
+time_col = "开船-完成上架"
+logistics_col = "物流方式"
+region_col = "区域"
+stage1_col = "开船-提柜"
+stage2_col = "提柜-签收"
+stage3_col = "签收-完成上架"
+
+all_results = []
+required_cols = [time_col, logistics_col, region_col, stage1_col, stage2_col, stage3_col]
+missing_cols = [col for col in required_cols if col not in df_current.columns]
+
+if missing_cols:
+    st.warning(f"缺失字段：{missing_cols}")
+else:
+    df_analysis = df_current.copy()
+    for col in [time_col, stage1_col, stage2_col, stage3_col]:
+        df_analysis[col] = pd.to_numeric(df_analysis[col], errors="coerce").fillna(0)
+    df_analysis = df_analysis[(df_analysis[time_col] > 0)].reset_index(drop=True)
+
+    if not df_analysis.empty:
+        unique_logistics = df_analysis[logistics_col].unique()
+
+        def calculate_weighted_by_region(df, col):
+            region_counts = df[region_col].value_counts()
+            total = len(df)
+            weighted = 0.0
+            for region, cnt in region_counts.items():
+                avg = df[df[region_col] == region][col].mean()
+                weighted += avg * (cnt / total)
+            return round(weighted, 2)
+
+        for method in unique_logistics:
+            df_m = df_analysis[df_analysis[logistics_col] == method].copy()
+            total_cnt = len(df_m)
+            if total_cnt < 1:
+                continue
+
+            df_sorted = df_m.sort_values(time_col, ascending=True).reset_index(drop=True)
+            df_sorted["累计占比(%)"] = (df_sorted.reset_index().index + 1) / total_cnt * 100
+
+            for tr in target_rates:
+                match = df_sorted[df_sorted["累计占比(%)"] >= tr]
+                if not match.empty:
+                    t = match[time_col].min()
+                    real_r = match[match[time_col]==t]["累计占比(%)"].iloc[0]
+                    pass_cnt = len(df_sorted[df_sorted[time_col] <= t])
+                    df_pass = df_sorted[df_sorted[time_col] <= t].copy()
+                else:
+                    t, real_r, pass_cnt = "-", "-", 0
+                    df_pass = df_m.copy()
+
+                w1 = round(df_pass[stage1_col].mean(), 2)
+                w2 = calculate_weighted_by_region(df_pass, stage2_col)
+                w3 = calculate_weighted_by_region(df_pass, stage3_col)
+                total_weighted = round(w1 + w2 + w3, 2)
+
+                all_results.append({
+                    "物流方式": method,
+                    "目标准时率(%)": tr,
+                    "实际占比(%)": round(real_r,1) if real_r != "-" else "-",
+                    "开船-完成上架(天)": round(t,1) if t != "-" else "-",
+                    "达标订单数": pass_cnt,
+                    "总单数": total_cnt,
+                    "开船-提柜(平均)": w1,
+                    "提柜-签收(加权)": w2,
+                    "签收-上架(加权)": w3,
+                    "总加权时效": total_weighted
+                })
+
+if all_results:
+    df_results = pd.DataFrame(all_results)
+    st.dataframe(df_results, use_container_width=True, height=400)
+else:
+    st.info("ℹ️ 暂无准时率时效数据")
+
+# ==============================================
+# 1. 开船 - 提柜（按物流方式）✅ 修复完成
+# ==============================================
+st.markdown("### 🔸 开船-提柜 耗时分布（按物流方式）")
+bins1  = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
+labels1= ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
+vals1  = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+col1   = "开船-提柜"
+
+df1 = df_current.copy()
+df1[col1] = pd.to_numeric(df1[col1], errors="coerce")
+df1 = df1.dropna(subset=[col1])
+df1 = df1[df1[col1] >= 0]
+
+if not df1.empty:
+    df1['区间'] = pd.cut(df1[col1], bins=bins1, labels=labels1, right=True)
+    cross = pd.crosstab(df1['物流方式'], df1['区间'], dropna=False)
+    total_all = cross.sum().sum()
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels1):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals1[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
+        row["票数"] = total
+        row["合计"] = total_all
+        rows.append(row)
+
+    order = ["分组","加权耗时"]+labels1+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
+            else:
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
+
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
+else:
+    st.warning("暂无开船-提柜数据")
+
+# ==============================================
+# 2. 提柜 - 签收（按区域）✅ 彻底修复报错
+# ==============================================
+st.markdown("### 🔸 提柜-签收 耗时分布（按区域）")
+bins2  = [-1, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
+labels2= ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
+vals2  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+col2   = "提柜-签收"
+
+df2 = df_current.copy()
+df2[col2] = pd.to_numeric(df2[col2], errors="coerce").fillna(0)
+df2 = df2[df2[col2] >= 0]
+
+if not df2.empty:
+    df2['区间'] = pd.cut(df2[col2], bins=bins2, labels=labels2, right=True)
+    cross = pd.crosstab(df2['区域'], df2['区间'], dropna=False)
+    total_all = cross.sum().sum()
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels2):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals2[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
+        row["票数"] = total
+        row["合计"] = total_all
+        rows.append(row)
+
+    order = ["分组","加权耗时"]+labels2+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
+            else:
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
+
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
+else:
+    st.warning("暂无提柜-签收数据")
+
+# ==============================================
+# 3. 签收-完成上架（按区域 + FBA）✅ 彻底修复
+# ==============================================
+st.markdown("### 🔸 签收-完成上架 耗时分布（按区域 - FBA号）")
+bins3  = [-1, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
+labels3= ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
+vals3  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+col3   = "签收-完成上架"
+
+df3 = df_current_FBA.copy()
+df3[col3] = pd.to_numeric(df3[col3], errors="coerce").fillna(0)
+df3 = df3[df3[col3] >= 0]
+
+if not df3.empty:
+    df3['区间'] = pd.cut(df3[col3], bins=bins3, labels=labels3, right=True)
+    cross = pd.crosstab(df3['区域'], df3['区间'], dropna=False)
+    total_all = cross.sum().sum()
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels3):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals3[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
+        row["票数"] = total
+        row["合计"] = total_all
+        rows.append(row)
+
+    order = ["分组","加权耗时"]+labels3+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
+            else:
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
+
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
+else:
+    st.warning("暂无签收-完成上架数据")
 # ---------------------- 不同月份整体趋势分析（总订单+准时率） ----------------------
 st.markdown("## 📈 不同月份整体趋势分析")
 st.divider()
@@ -2791,315 +3096,6 @@ else:
                         st.download_button("下载明细", df_warehouse_filtered.to_csv(index=False,encoding="utf-8-sig"), "仓库月度明细.csv")
                     with c2:
                         st.download_button("下载汇总", df_summary.to_csv(index=False,encoding="utf-8-sig"), "仓库表现汇总.csv")
-
-
-
-# ======================================================================================
-# ======================================================================================
-# 📦 物流环节时效分析（耗时分布 + 准时率时效）【完整四合一 · 无报错最终版】
-# ======================================================================================
-st.divider()
-st.subheader("📦 物流环节时效分析（耗时分布 + 准时率时效）")
-
-# ====================== 【独立筛选器】三个环节 + 准时率 共用 ======================
-with st.container():
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        months_list = sorted(df_selected["到货年月"].dropna().unique(), reverse=True)
-        selected_month_hot = st.multiselect(
-            "📅 选择月份（可多选）",
-            options=months_list,
-            default=months_list[:1] if len(months_list) > 0 else None,
-            key="hot_month"
-        )
-    with col2:
-        logistics_list = ["全部"] + sorted([str(x) for x in df_selected["物流方式"].dropna().unique() if x])
-        selected_log_hot = st.selectbox(
-            "🚛 渠道（物流方式）",
-            options=logistics_list,
-            index=0,
-            key="hot_logistics"
-        )
-    with col3:
-        region_list = ["全部", "美东", "美西", "美中"]
-        selected_region_hot = st.selectbox(
-            "🌎 区域",
-            options=region_list,
-            index=0,
-            key="hot_region"
-        )
-
-# ====================== 统一筛选数据 ======================
-def filter_df(df, month_col="到货年月"):
-    df = df.copy()
-    if selected_month_hot:
-        df = df[df[month_col].isin(selected_month_hot)]
-    if selected_log_hot != "全部" and "物流方式" in df.columns:
-        df = df[df["物流方式"] == selected_log_hot]
-    if selected_region_hot != "全部" and "区域" in df.columns:
-        df = df[df["区域"] == selected_region_hot]
-    df = df.reset_index(drop=True)
-    return df
-
-df_current = filter_df(df_selected)
-df_current_FBA = filter_df(df_selected_FBA)
-
-import math
-
-# ==============================================
-# 【准时率时效表格】
-# ==============================================
-st.markdown("### 📊 各物流方式 - 准时率 - 时效（含加权）")
-
-target_rates = [75, 80, 85, 90, 95, 100]
-time_col = "开船-完成上架"
-logistics_col = "物流方式"
-region_col = "区域"
-stage1_col = "开船-提柜"
-stage2_col = "提柜-签收"
-stage3_col = "签收-完成上架"
-
-all_results = []
-required_cols = [time_col, logistics_col, region_col, stage1_col, stage2_col, stage3_col]
-missing_cols = [col for col in required_cols if col not in df_current.columns]
-
-if missing_cols:
-    st.warning(f"缺失字段：{missing_cols}")
-else:
-    df_analysis = df_current.copy()
-    for col in [time_col, stage1_col, stage2_col, stage3_col]:
-        df_analysis[col] = pd.to_numeric(df_analysis[col], errors="coerce").fillna(0)
-    df_analysis = df_analysis[(df_analysis[time_col] > 0)].reset_index(drop=True)
-
-    if not df_analysis.empty:
-        unique_logistics = df_analysis[logistics_col].unique()
-
-        def calculate_weighted_by_region(df, col):
-            region_counts = df[region_col].value_counts()
-            total = len(df)
-            weighted = 0.0
-            for region, cnt in region_counts.items():
-                avg = df[df[region_col] == region][col].mean()
-                weighted += avg * (cnt / total)
-            return round(weighted, 2)
-
-        for method in unique_logistics:
-            df_m = df_analysis[df_analysis[logistics_col] == method].copy()
-            total_cnt = len(df_m)
-            if total_cnt < 1:
-                continue
-
-            df_sorted = df_m.sort_values(time_col, ascending=True).reset_index(drop=True)
-            df_sorted["累计占比(%)"] = (df_sorted.reset_index().index + 1) / total_cnt * 100
-
-            for tr in target_rates:
-                match = df_sorted[df_sorted["累计占比(%)"] >= tr]
-                if not match.empty:
-                    t = match[time_col].min()
-                    real_r = match[match[time_col]==t]["累计占比(%)"].iloc[0]
-                    pass_cnt = len(df_sorted[df_sorted[time_col] <= t])
-                    df_pass = df_sorted[df_sorted[time_col] <= t].copy()
-                else:
-                    t, real_r, pass_cnt = "-", "-", 0
-                    df_pass = df_m.copy()
-
-                w1 = round(df_pass[stage1_col].mean(), 2)
-                w2 = calculate_weighted_by_region(df_pass, stage2_col)
-                w3 = calculate_weighted_by_region(df_pass, stage3_col)
-                total_weighted = round(w1 + w2 + w3, 2)
-
-                all_results.append({
-                    "物流方式": method,
-                    "目标准时率(%)": tr,
-                    "实际占比(%)": round(real_r,1) if real_r != "-" else "-",
-                    "开船-完成上架(天)": round(t,1) if t != "-" else "-",
-                    "达标订单数": pass_cnt,
-                    "总单数": total_cnt,
-                    "开船-提柜(平均)": w1,
-                    "提柜-签收(加权)": w2,
-                    "签收-上架(加权)": w3,
-                    "总加权时效": total_weighted
-                })
-
-if all_results:
-    df_results = pd.DataFrame(all_results)
-    st.dataframe(df_results, use_container_width=True, height=400)
-else:
-    st.info("ℹ️ 暂无准时率时效数据")
-
-# ==============================================
-# 1. 开船 - 提柜（按物流方式）✅ 修复完成
-# ==============================================
-st.markdown("### 🔸 开船-提柜 耗时分布（按物流方式）")
-bins1  = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
-labels1= ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
-vals1  = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
-col1   = "开船-提柜"
-
-df1 = df_current.copy()
-df1[col1] = pd.to_numeric(df1[col1], errors="coerce")
-df1 = df1.dropna(subset=[col1])
-df1 = df1[df1[col1] >= 0]
-
-if not df1.empty:
-    df1['区间'] = pd.cut(df1[col1], bins=bins1, labels=labels1, right=True)
-    cross = pd.crosstab(df1['物流方式'], df1['区间'], dropna=False)
-    total_all = cross.sum().sum()
-    rows = []
-    for m in cross.index:
-        total = cross.loc[m].sum()
-        row = {"分组":m, "加权耗时":0}
-        ws = 0
-        for i, l in enumerate(labels1):
-            cnt = cross.loc[m, l]
-            pct = cnt/total*100 if total>0 else 0
-            wv = vals1[i] * (cnt/total) if total>0 else 0
-            ws += wv
-            if pct==0:bg,fc="#fff7e6","black"
-            elif pct<10:bg,fc="#ffe2b3","black"
-            elif pct<20:bg,fc="#ffc880","black"
-            elif pct<30:bg,fc="#ffad4d","black"
-            elif pct<40:bg,fc="#ff941a","white"
-            else:bg,fc="#e66a00","white"
-            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
-        row["加权耗时"] = math.ceil(ws) if total>0 else 0
-        row["票数"] = total
-        row["合计"] = total_all
-        rows.append(row)
-
-    order = ["分组","加权耗时"]+labels1+["票数","合计"]
-    h = "".join([f"<th>{x}</th>" for x in order])
-    b = ""
-    for r in rows:
-        cs = []
-        for c in order:
-            if c in ["分组","加权耗时","票数","合计"]:
-                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
-            else:
-                cs.append(f"<td style='padding:0'>{r[c]}</td>")
-        b += "<tr>"+"".join(cs)+"</tr>"
-
-    st.markdown(f"""
-    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
-    <table>{h}{b}</table>""", unsafe_allow_html=True)
-else:
-    st.warning("暂无开船-提柜数据")
-
-# ==============================================
-# 2. 提柜 - 签收（按区域）✅ 彻底修复报错
-# ==============================================
-st.markdown("### 🔸 提柜-签收 耗时分布（按区域）")
-bins2  = [-1, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
-labels2= ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
-vals2  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
-col2   = "提柜-签收"
-
-df2 = df_current.copy()
-df2[col2] = pd.to_numeric(df2[col2], errors="coerce").fillna(0)
-df2 = df2[df2[col2] >= 0]
-
-if not df2.empty:
-    df2['区间'] = pd.cut(df2[col2], bins=bins2, labels=labels2, right=True)
-    cross = pd.crosstab(df2['区域'], df2['区间'], dropna=False)
-    total_all = cross.sum().sum()
-    rows = []
-    for m in cross.index:
-        total = cross.loc[m].sum()
-        row = {"分组":m, "加权耗时":0}
-        ws = 0
-        for i, l in enumerate(labels2):
-            cnt = cross.loc[m, l]
-            pct = cnt/total*100 if total>0 else 0
-            wv = vals2[i] * (cnt/total) if total>0 else 0
-            ws += wv
-            if pct==0:bg,fc="#fff7e6","black"
-            elif pct<10:bg,fc="#ffe2b3","black"
-            elif pct<20:bg,fc="#ffc880","black"
-            elif pct<30:bg,fc="#ffad4d","black"
-            elif pct<40:bg,fc="#ff941a","white"
-            else:bg,fc="#e66a00","white"
-            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
-        row["加权耗时"] = math.ceil(ws) if total>0 else 0
-        row["票数"] = total
-        row["合计"] = total_all
-        rows.append(row)
-
-    order = ["分组","加权耗时"]+labels2+["票数","合计"]
-    h = "".join([f"<th>{x}</th>" for x in order])
-    b = ""
-    for r in rows:
-        cs = []
-        for c in order:
-            if c in ["分组","加权耗时","票数","合计"]:
-                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
-            else:
-                cs.append(f"<td style='padding:0'>{r[c]}</td>")
-        b += "<tr>"+"".join(cs)+"</tr>"
-
-    st.markdown(f"""
-    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
-    <table>{h}{b}</table>""", unsafe_allow_html=True)
-else:
-    st.warning("暂无提柜-签收数据")
-
-# ==============================================
-# 3. 签收-完成上架（按区域 + FBA）✅ 彻底修复
-# ==============================================
-st.markdown("### 🔸 签收-完成上架 耗时分布（按区域 - FBA号）")
-bins3  = [-1, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,999]
-labels3= ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16+']
-vals3  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
-col3   = "签收-完成上架"
-
-df3 = df_current_FBA.copy()
-df3[col3] = pd.to_numeric(df3[col3], errors="coerce").fillna(0)
-df3 = df3[df3[col3] >= 0]
-
-if not df3.empty:
-    df3['区间'] = pd.cut(df3[col3], bins=bins3, labels=labels3, right=True)
-    cross = pd.crosstab(df3['区域'], df3['区间'], dropna=False)
-    total_all = cross.sum().sum()
-    rows = []
-    for m in cross.index:
-        total = cross.loc[m].sum()
-        row = {"分组":m, "加权耗时":0}
-        ws = 0
-        for i, l in enumerate(labels3):
-            cnt = cross.loc[m, l]
-            pct = cnt/total*100 if total>0 else 0
-            wv = vals3[i] * (cnt/total) if total>0 else 0
-            ws += wv
-            if pct==0:bg,fc="#fff7e6","black"
-            elif pct<10:bg,fc="#ffe2b3","black"
-            elif pct<20:bg,fc="#ffc880","black"
-            elif pct<30:bg,fc="#ffad4d","black"
-            elif pct<40:bg,fc="#ff941a","white"
-            else:bg,fc="#e66a00","white"
-            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
-        row["加权耗时"] = math.ceil(ws) if total>0 else 0
-        row["票数"] = total
-        row["合计"] = total_all
-        rows.append(row)
-
-    order = ["分组","加权耗时"]+labels3+["票数","合计"]
-    h = "".join([f"<th>{x}</th>" for x in order])
-    b = ""
-    for r in rows:
-        cs = []
-        for c in order:
-            if c in ["分组","加权耗时","票数","合计"]:
-                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
-            else:
-                cs.append(f"<td style='padding:0'>{r[c]}</td>")
-        b += "<tr>"+"".join(cs)+"</tr>"
-
-    st.markdown(f"""
-    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
-    <table>{h}{b}</table>""", unsafe_allow_html=True)
-else:
-    st.warning("暂无签收-完成上架数据")
-
-
 
 st.title("📊 物流成本分析")
 
