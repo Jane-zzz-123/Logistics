@@ -3386,7 +3386,7 @@ st.download_button(
 )
 
 # ======================================================================================
-# 📊 独立模块：渠道耗时分布占比表（自带独立筛选器，不联动上方，数据100%准确）
+# 📊 独立模块：渠道耗时分布占比表（自带独立筛选器，数据100%准确）
 # 数据源：df_selected（去重货件，和主看板完全一致）
 # ======================================================================================
 st.subheader("📊 渠道耗时分布占比表")
@@ -3396,12 +3396,12 @@ st.divider()
 with st.container():
     col1, col2, col3 = st.columns(3)
     with col1:
-        # 独立年月筛选
+        # 独立年月筛选 → 支持多选，默认最新1个月
         months_list = sorted(df_selected["到货年月"].dropna().unique(), reverse=True)
-        selected_month_hot = st.selectbox(
-            "📅 选择月份",
+        selected_month_hot = st.multiselect(
+            "📅 选择月份（可多选）",
             options=months_list,
-            index=0,
+            default=months_list[:1] if len(months_list) > 0 else None,
             key="hot_month"
         )
     with col2:
@@ -3426,8 +3426,9 @@ with st.container():
 # ---------------------- 独立取数（只受上面3个筛选控制，不联动上面任何东西） ----------------------
 df_hotmap = df_selected.copy()
 
-# 只应用本模块的筛选
-df_hotmap = df_hotmap[df_hotmap["到货年月"] == selected_month_hot]
+# 多选月份筛选（已修复）
+if selected_month_hot:
+    df_hotmap = df_hotmap[df_hotmap["到货年月"].isin(selected_month_hot)]
 
 if selected_log_hot != "全部":
     df_hotmap = df_hotmap[df_hotmap["物流方式"] == selected_log_hot]
@@ -3450,7 +3451,7 @@ if df_hotmap.empty:
     st.warning("⚠️ 当前筛选条件下无数据")
     st.stop()
 
-# ---------------------- 渐变色（你要的清晰商务橙） ----------------------
+# ---------------------- 渐变色（清晰商务橙） ----------------------
 def color_gradient(val):
     if val == 0:
         return "background-color: #fff7e6; color:black"
@@ -3479,11 +3480,12 @@ cross = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间'], dropna=False
 pct = cross.div(cross.sum(axis=1), axis=0) * 100
 pct = pct.round(0).astype(int)
 pct["票数"] = cross.sum(axis=1)
+pct["合计票数"] = cross.sum().sum()
 
 styled = pct.style \
     .applymap(color_gradient, subset=labels) \
     .format("{:>2.0f}%", subset=labels) \
-    .format("{}", subset=["票数"])
+    .format("{}", subset=["票数", "合计票数"])
 
 st.dataframe(styled, use_container_width=True)
 
@@ -3494,16 +3496,17 @@ st.markdown("### 🔸 提柜-签收 耗时分布占比")
 bins2 = list(range(0, 16)) + [999]
 labels2 = [str(i) for i in range(1, 16)] + ['16+']
 
-df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins=bins2, labels=labels2, right=False)
+df_hotmap['区间2'] = pd.cut(df_hotmap['提柜-签收'], bins2, labels=labels2, right=False)
 cross2 = pd.crosstab(df_hotmap['物流方式'], df_hotmap['区间2'], dropna=False)
 pct2 = cross2.div(cross2.sum(axis=1), axis=0) * 100
 pct2 = pct2.round(0).astype(int)
 pct2["票数"] = cross2.sum(axis=1)
+pct2["合计票数"] = cross2.sum().sum()
 
 styled2 = pct2.style \
     .applymap(color_gradient, subset=labels2) \
     .format("{:>2.0f}%", subset=labels2) \
-    .format("{}", subset=["票数"])
+    .format("{}", subset=["票数", "合计票数"])
 
 st.dataframe(styled2, use_container_width=True)
 
