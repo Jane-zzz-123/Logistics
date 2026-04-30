@@ -3407,7 +3407,7 @@ with st.container():
     with col2:
         # 独立物流方式筛选
         logistics_list = ["全部"] + sorted([str(x) for x in df_selected["物流方式"].dropna().unique() if x])
-        selected_log_hot = selectbox(
+        selected_log_hot = st.selectbox(
             "🚛 渠道（物流方式）",
             options=logistics_list,
             index=0,
