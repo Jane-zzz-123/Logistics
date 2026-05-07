@@ -3621,19 +3621,19 @@ render_analysis(col_right, "📦 入库配置费", df_storage, latest)
 
 st.caption("🔴 单价上升｜🟢 单价下降｜单价 = 总金额 ÷ 总重量")
 
-# ====================== 🧾 报关费分析（独立不受筛选 · 按运输方式 · 仅总金额） ======================
+# ====================== 🧾 报关费分析（受上方筛选控制 · 按运输方式 · 总金额） ======================
 st.markdown("---")
-st.title("🧾 报关费分析（全部数据）")
+st.title("🧾 报关费分析")
 
-# 独立切换：按周期 / 按月（不受上方筛选影响）
+# 独立切换：按周期 / 按月（与上方筛选联动）
 customs_view = st.radio("报关费统计维度", ["按周期", "按月份"], horizontal=True, key="customs_view")
 
-# 核心：永远用原始数据 df_cost，不受筛选 | 按【运输方式】分组
-def calculate_customs(df_original):
+# 核心：使用筛选后的 df，受上方筛选控制 | 按【运输方式】分组
+def calculate_customs(df_filtered):
     group_col = "周期" if customs_view == "按周期" else "月份"
 
     # 按 周期/月份 + 运输方式 汇总报关费总金额
-    df_cus = df_original.groupby([group_col, "运输方式"], as_index=False).agg(
+    df_cus = df_filtered.groupby([group_col, "运输方式"], as_index=False).agg(
         报关费=("报关费", "sum")
     )
     df_cus = df_cus.sort_values([group_col, "运输方式"]).reset_index(drop=True)
@@ -3648,8 +3648,8 @@ def calculate_customs(df_original):
     )
     return df_cus, group_col
 
-# 关键：永远使用原始数据 df_cost，不使用筛选后的 df
-df_customs, group_col = calculate_customs(df_cost)
+# 关键：使用筛选后的 df，完全跟随上方筛选器变化
+df_customs, group_col = calculate_customs(df)
 
 # ====================== 折线图 ======================
 st.subheader("📈 报关费总金额趋势")
@@ -3673,7 +3673,7 @@ st.plotly_chart(fig_cus, use_container_width=True)
 # ====================== 统计表 ======================
 st.subheader("📋 报关费总金额统计表（带环比）")
 data_map = {(str(r[group_col]), r["运输方式"]): r for _, r in df_customs.iterrows()}
-trans_list = sorted(df_cost["运输方式"].dropna().unique())
+trans_list = sorted(df["运输方式"].dropna().unique())
 val_list = sorted(df_customs[group_col].unique())
 
 table_html = f"<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px;'>"
