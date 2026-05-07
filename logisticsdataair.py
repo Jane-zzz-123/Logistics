@@ -3625,13 +3625,11 @@ st.caption("🔴 单价上升｜🟢 单价下降｜单价 = 总金额 ÷ 总重
 st.markdown("---")
 st.title("🧾 报关费分析")
 
-# 独立切换：按周期 / 按月（与上方筛选联动）
-customs_view = st.radio("报关费统计维度", ["按周期", "按月份"], horizontal=True, key="customs_view")
+# 核心：直接继承上方的筛选维度，不再额外显示按钮
+group_col = "周期" if view_mode == "按周期" else "月份"
 
 # 核心：使用筛选后的 df，受上方筛选控制 | 按【运输方式】分组
-def calculate_customs(df_filtered):
-    group_col = "周期" if customs_view == "按周期" else "月份"
-
+def calculate_customs(df_filtered, group_col):
     # 按 周期/月份 + 运输方式 汇总报关费总金额
     df_cus = df_filtered.groupby([group_col, "运输方式"], as_index=False).agg(
         报关费=("报关费", "sum")
@@ -3646,10 +3644,10 @@ def calculate_customs(df_filtered):
         (df_cus["环比差值"] / df_cus["上期金额"] * 100).round(2),
         0
     )
-    return df_cus, group_col
+    return df_cus
 
 # 关键：使用筛选后的 df，完全跟随上方筛选器变化
-df_customs, group_col = calculate_customs(df)
+df_customs = calculate_customs(df, group_col)
 
 # ====================== 折线图 ======================
 st.subheader("📈 报关费总金额趋势")
