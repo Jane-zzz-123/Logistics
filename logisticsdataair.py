@@ -1551,9 +1551,11 @@ st.divider()
 st.subheader("📦 物流方式-准时率对应物流时效分析（上架完成-发货时间）")
 
 # ====================== 【新增】独立月份多选筛选器（默认最新月份） ======================
-if "到货年月" in df_current.columns:
+# ====================== 【修复】独立月份多选筛选器（默认最新月份） ======================
+# 🔥 关键：用 df_selected（完整数据），不要用 df_current（已过滤单月）
+if "到货年月" in df_selected.columns:
     # 获取所有可选择的月份并排序
-    available_months = sorted(df_current["到货年月"].dropna().unique(), reverse=True)
+    available_months = sorted(df_selected["到货年月"].dropna().unique(), reverse=True)
 
     # 默认只选最新月份
     default_month = available_months[0] if len(available_months) > 0 else None
@@ -1567,13 +1569,13 @@ if "到货年月" in df_current.columns:
 
     # 筛选数据
     if selected_months:
-        df_used = df_current[df_current["到货年月"].isin(selected_months)].copy()
+        df_used = df_selected[df_selected["到货年月"].isin(selected_months)].copy()
         st.success(f"📅 当前分析：{len(selected_months)}个月份合并，共 {len(df_used)} 条数据")
     else:
-        df_used = df_current.copy()
+        df_used = df_selected.copy()
         st.info("ℹ️ 未选择月份，使用全部数据")
 else:
-    df_used = df_current.copy()
+    df_used = df_selected.copy()
     st.warning("⚠️ 数据中未找到「到货年月」列，无法按月份筛选")
 
 # ====================== 1. 全局变量初始化 ======================
