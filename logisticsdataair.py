@@ -3620,6 +3620,100 @@ render_analysis(col_right, "📦 入库配置费", df_storage, latest)
 
 st.caption("🔴 单价上升｜🟢 单价下降｜单价 = 总金额 ÷ 总重量")
 
+# ====================== 🧾 报关费分析（独立不受筛选） ======================
+st.markdown("---")
+st.title("🧾 报关费分析（全部数据）")
+
+# 切换：按周期 / 按月（独立按钮，不受上面筛选影响）
+cost_view_mode = st.radio("报关费筛选维度", ["按周期", "按月份"], horizontal=True, key="cost_view_mode")
+
+# ====================== 核心：直接使用原始数据 df_cost，不受筛选影响 ======================
+def calc_customs_fee(df_original, group_col):
+    df_customs = df_original.groupby([group_col, "实际物流方式"], as_index=False).agg(
+        总重量=("重量", "sum"),
+        报关费总金额=("报关费", "sum")
+    )
+    df_customs["报关费单价"] = (df_customs["报关费总金额"] / df_customs["总重量"]).round(4)
+    df_customs = df_customs.sort_values(["实际物流方式", group_col]).reset_index(drop=True)
+
+    # 环比
+    df_customs["上期单价"] = df_customs.groupby("实际物流方式")["报关费单价"].shift(1)
+    df_customs["环比差值"] = (df_customs["报关费单价"] - df_customs["上期单价"]).round(2)
+    df_customs["环比幅度"] = np.where(
+        df_customs["上期单价"] > 0,
+        (df_customs["环比差值"] / df_customs["上期单价"] * 100).round(2),
+        0
+    )
+    return df_customs
+
+group_col_cus = "周期" if cost_view_mode == "按周期" else "月份"
+
+# 关键：使用原始数据 df_cost，不使用筛选后的 df
+df_customs = calc_customs_fee(df_cost.copy(), group_col_cus)
+df_cus_show = df_customs.copy()
+
+# 排序
+sorted_values_cus = sorted(df_cus_show[group_col_cus].unique())
+all_logi_cus = sorted(df_cost["实际物流方式"].unique())
+
+# ====================== 报关费折线图 ======================
+st.subheader("📈 报关费单价趋势")
+df_cus_show["x_str"] = df_cus_show[group_col_cus].astype(str)
+
+fig_cus = px.line(
+    df_cus_show,
+    x="x_str",
+    y="报关费单价",
+    color="实际物流方式",
+    color_discrete_map=color_map,
+    markers=True
+)
+fig_cus.update_traces(
+    text=df_cus_show["报关费单价"].round(2),
+    textposition="top center"
+)
+fig_cus.update_xaxes(type="category")
+st.plotly_chart(fig_cus, use_container_width=True)
+
+# ====================== 报关费统计表 ======================
+st.subheader("📋 报关费单价统计表（带环比）")
+data_map_cus = {(str(r[group_col_cus]), r["实际物流方式"]): r for _, r in df_cus_show.iterrows()}
+
+table_html = f"<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px;'>"
+table_html += f"<tr style='background:#f0f2f6;font-weight:bold'><td>{group_col_cus}</td>"
+for l in all_logi_cus:
+    table_html += f"<td style='border:1px solid #ddd;padding:8px'>{l}</td>"
+table_html += "</tr>"
+
+for val in sorted_values_cus:
+    table_html += f"<tr><td style='border:1px solid #ddd;padding:8px'>{val}</td>"
+    for logi in all_logi_cus:
+        key = (str(val), logi)
+        if key not in data_map_cus:
+            table_html += "<td style='border:1px solid #ddd'>-</td>"
+            continue
+
+        r = data_map_cus[key]
+        price = r["报关费单价"]
+        diff = r["环比差值"]
+        pct = r["环比幅度"]
+
+        if pd.isna(diff):
+            txt = "首期"
+            color = "#888"
+        else:
+            sign = "+" if diff > 0 else ""
+            txt = f"{sign}{diff:.2f} ({sign}{pct:.2f}%)"
+            color = "#ff4b4b" if diff > 0 else "#00b578"
+
+        cell = f"<div>{price:.2f}</div><div style='font-size:12px;color:{color}'>{txt}</div>"
+        table_html += f"<td style='border:1px solid #ddd;padding:8px'>{cell}</td>"
+    table_html += "</tr>"
+table_html += "</table>"
+
+st.markdown(table_html, unsafe_allow_html=True)
+st.caption("📌 红色=上升 | 绿色=下降 | 报关费单价 = 报关费总金额 ÷ 总重量")
+
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")
 
