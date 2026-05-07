@@ -857,373 +857,6 @@ else:
     for i, s in enumerate(suggestions, 1):
         st.markdown(f"{i}. {s}")
 
-# ---------------------- 货代准时率-物流时效分析（终极无报错版） ----------------------
-st.divider()
-st.subheader("📦 物流方式-准时率对应物流时效分析（上架完成-发货时间）")
-
-# ====================== 1. 全局变量初始化（核心：避免未定义报错） ======================
-target_rates = [75, 80, 85, 90, 95, 100]  # 目标累计占比（准时率）
-time_col = "上架完成-发货时间"  # 核心统计列
-logistics_col = "物流方式"  # 物流方式列
-is_all_logistics = False  # 是否筛选全部物流方式
-all_results = []  # 所有物流方式的计算结果
-group_data = {}  # 每个物流方式的排序后数据
-unique_logistics = []  # 唯一物流方式列表
-df_analysis = pd.DataFrame()  # 预处理后的数据集
-
-# ====================== 2. 数据预处理（容错处理） ======================
-# 检查核心列是否存在
-if time_col not in df_current.columns or logistics_col not in df_current.columns:
-    st.warning(f"⚠️ 数据中缺失核心列：「{time_col}」 或 「{logistics_col}」")
-else:
-    # 复制数据并清洗：仅保留有效数据
-    df_analysis = df_current.copy()
-    df_analysis[time_col] = pd.to_numeric(df_analysis[time_col], errors="coerce")
-    # 过滤条件：时效>0 且 物流方式非空
-    df_analysis = df_analysis[
-        (df_analysis[time_col] > 0) &
-        (df_analysis[logistics_col].notna())
-        ].reset_index(drop=True)
-
-    # 检查清洗后是否有数据
-    if len(df_analysis) == 0:
-        st.warning("⚠️ 无有效数据（时效为空/≤0 或 物流方式为空）")
-    else:
-        # 获取唯一物流方式并判断是否为「全部」筛选
-        unique_logistics = df_analysis[logistics_col].unique()
-        is_all_logistics = len(unique_logistics) > 1
-
-        # ====================== 3. 核心计算逻辑 ======================
-        if is_all_logistics:
-            st.info(f"✅ 当前筛选为「全部」，按「{logistics_col}」分组分析（共 {len(unique_logistics)} 种方式）")
-            # 遍历每种物流方式单独计算
-            for logistics_type in unique_logistics:
-                df_group = df_analysis[df_analysis[logistics_col] == logistics_type].copy()
-                group_total = len(df_group)
-                if group_total == 0:
-                    continue
-
-                # 按时效升序排序
-                df_sorted = df_group.sort_values(by=time_col, ascending=True).reset_index(drop=True)
-                # 计算累计订单数和累计占比
-                df_sorted["累计订单数"] = range(1, group_total + 1)
-                df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / group_total) * 100
-                group_data[logistics_type] = df_sorted
-
-                # 匹配每个目标准时率的时效阈值
-                for target_rate in target_rates:
-                    df_matched = df_sorted[df_sorted["累计占比(%)"] >= target_rate]
-                    if not df_matched.empty:
-                        # 取「累计占比>=目标率」的第一行，就是刚好达标/超标的点
-                        target_row = df_matched.iloc[0]
-                        min_time = target_row[time_col]
-                        actual_rate = target_row["累计占比(%)"]
-                        pass_orders = target_row["累计订单数"]  # 这里直接用累计订单数，不用再筛选了
-                        all_results.append({
-                            "物流方式": logistics_type,
-                            "目标准时率(%)": target_rate,
-                            "实际累计占比(%)": round(actual_rate, 1),
-                            "对应时效上限(天)": round(min_time, 1),
-                            "达标订单数": pass_orders,
-                            "总订单数": group_total
-                        })
-                    else:
-                        all_results.append({
-                            "物流方式": logistics_type,
-                            "目标准时率(%)": target_rate,
-                            "实际累计占比(%)": "-",
-                            "对应时效上限(天)": "-",
-                            "达标订单数": 0,
-                            "总订单数": group_total
-                        })
-        else:
-            # 单个物流方式计算
-            logistics_type = unique_logistics[0] if len(unique_logistics) > 0 else ""
-            if logistics_type:
-                df_sorted = df_analysis.sort_values(by=time_col, ascending=True).reset_index(drop=True)
-                group_total = len(df_sorted)
-                df_sorted["累计订单数"] = range(1, group_total + 1)
-                df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / group_total) * 100
-                group_data[logistics_type] = df_sorted
-
-                # 匹配每个目标准时率的时效阈值
-                for target_rate in target_rates:
-                    df_matched = df_sorted[df_sorted["累计占比(%)"] >= target_rate]
-                    if not df_matched.empty:
-                        # 取「累计占比>=目标率」的第一行，就是刚好达标/超标的点
-                        target_row = df_matched.iloc[0]
-                        min_time = target_row[time_col]
-                        actual_rate = target_row["累计占比(%)"]
-                        pass_orders = target_row["累计订单数"]  # 这里直接用累计订单数，不用再筛选了
-                        all_results.append({
-                            "物流方式": logistics_type,
-                            "目标准时率(%)": target_rate,
-                            "实际累计占比(%)": round(actual_rate, 1),
-                            "对应时效上限(天)": round(min_time, 1),
-                            "达标订单数": pass_orders,
-                            "总订单数": group_total
-                        })
-                    else:
-                        all_results.append({
-                            "物流方式": logistics_type,
-                            "目标准时率(%)": target_rate,
-                            "实际累计占比(%)": "-",
-                            "对应时效上限(天)": "-",
-                            "达标订单数": 0,
-                            "总订单数": group_total
-                        })
-
-# ====================== 4. 展示结果总表 ======================
-if all_results:
-    st.markdown("#### 📊 各物流方式-准时率-时效阈值对应表")
-    df_results = pd.DataFrame(all_results)
-    st.dataframe(
-        df_results,
-        use_container_width=True,
-        column_config={
-            "物流方式": st.column_config.TextColumn("物流方式"),
-            "目标准时率(%)": st.column_config.NumberColumn("目标准时率(%)", format="%d"),
-            "实际累计占比(%)": st.column_config.NumberColumn("实际累计占比(%)", format="%.1f"),
-            "对应时效上限(天)": st.column_config.NumberColumn("时效上限(天)", format="%.1f"),
-            "达标订单数": st.column_config.NumberColumn("达标订单数", format="%d"),
-            "总订单数": st.column_config.NumberColumn("总订单数", format="%d")
-        }
-    )
-else:
-    st.info("ℹ️ 暂无有效数据生成时效阈值表")
-
-# ====================== 5. 可视化：分开展示独立图表（核心优化） ======================
-st.markdown("#### 📈 各物流方式时效分布 & 累计准时率分析")
-if group_data and len(group_data) > 0:  # 确保group_data有数据
-    if is_all_logistics:
-        # 筛选「全部」：为每个物流方式生成独立图表
-        import plotly.graph_objects as go
-        import plotly.express as px
-        from plotly.subplots import make_subplots
-
-        # 分配专属颜色
-        color_palette = px.colors.qualitative.Plotly
-        logistics_colors = {lt: color_palette[i % len(color_palette)] for i, lt in enumerate(unique_logistics)}
-
-        # 遍历生成每个物流方式的图表
-        for idx, logistics_type in enumerate(unique_logistics, 1):
-            if logistics_type not in group_data:
-                continue
-            df_sorted = group_data[logistics_type]
-            time_count = df_sorted[time_col].value_counts().sort_index().reset_index()
-            time_count.columns = [time_col, "订单数"]
-
-            # 创建双轴图
-            fig_single = make_subplots(specs=[[{"secondary_y": True}]])
-
-            # 1. 柱形图：时效分布
-            fig_single.add_trace(
-                go.Bar(
-                    x=time_count[time_col],
-                    y=time_count["订单数"],
-                    name="各时效订单数",
-                    marker_color=logistics_colors[logistics_type],
-                    opacity=0.7,
-                    hovertemplate=f"{logistics_type}<br>时效：%{{x}}天<br>订单数：%{{y}}单<extra></extra>"
-                ),
-                secondary_y=False
-            )
-
-            # 2. 折线图：累计占比
-            fig_single.add_trace(
-                go.Scatter(
-                    x=df_sorted[time_col],
-                    y=df_sorted["累计占比(%)"],
-                    name="累计占比（准时率）",
-                    line=dict(color=logistics_colors[logistics_type], width=3, shape="spline"),
-                    marker=dict(color=logistics_colors[logistics_type], size=5),
-                    hovertemplate=f"{logistics_type}<br>时效：%{{x}}天<br>累计准时率：%{{y:.1f}}%<extra></extra>"
-                ),
-                secondary_y=True
-            )
-
-            # 3. 阈值散点标注
-            scatter_x = []
-            scatter_y = []
-            scatter_text = []
-            for res in all_results:
-                if res["物流方式"] == logistics_type and res["对应时效上限(天)"] != "-":
-                    scatter_x.append(res["对应时效上限(天)"])
-                    scatter_y.append(res["实际累计占比(%)"])
-                    scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
-            if scatter_x:
-                fig_single.add_trace(
-                    go.Scatter(
-                        x=scatter_x,
-                        y=scatter_y,
-                        mode="markers+text",
-                        text=scatter_text,
-                        textposition="top center",
-                        marker=dict(color="darkblue", size=10, symbol="star"),
-                        showlegend=False,
-                        hovertemplate="目标：%{text}<extra></extra>"
-                    ),
-                    secondary_y=True
-                )
-
-            # 4. 参考线
-            for rate in target_rates:
-                fig_single.add_hline(
-                    y=rate,
-                    line_dash="dash",
-                    line_color="gray",
-                    opacity=0.5,
-                    secondary_y=True,
-                    annotation_text=f"{rate}% 目标",
-                    annotation_position="right",
-                    annotation_font={"size": 9, "color": "gray"}
-                )
-
-            # 5. 样式优化
-            fig_single.update_layout(
-                height=450,
-                title=f"({idx}/{len(unique_logistics)}) {logistics_type} - 时效分布 & 累计准时率",
-                xaxis_title="上架完成-发货时间(天)",
-                xaxis=dict(tickangle=0, showgrid=False),
-                yaxis=dict(title="订单数", showgrid=True, gridcolor="lightgray"),
-                yaxis2=dict(title="累计占比（准时率）(%)", range=[0, 105], showgrid=False),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-                template="simple_white",
-                margin=dict(b=80)
-            )
-
-            st.plotly_chart(fig_single, use_container_width=True)
-            st.divider()  # 分隔不同物流方式的图表
-    else:
-        # 筛选「单个」：单物流方式图表
-        logistics_type = next(iter(group_data.keys()))
-        df_sorted = group_data[logistics_type]
-        time_count = df_sorted[time_col].value_counts().sort_index().reset_index()
-        time_count.columns = [time_col, "订单数"]
-
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-        # 柱形图
-        fig.add_trace(
-            go.Bar(
-                x=time_count[time_col],
-                y=time_count["订单数"],
-                name="各时效订单数",
-                marker_color="#87CEEB",
-                opacity=0.7,
-                hovertemplate="时效：%{x}天<br>订单数：%{y}单<extra></extra>"
-            ),
-            secondary_y=False
-        )
-
-        # 折线图
-        fig.add_trace(
-            go.Scatter(
-                x=df_sorted[time_col],
-                y=df_sorted["累计占比(%)"],
-                name="累计占比（准时率）",
-                line=dict(color="red", width=2, shape="spline"),
-                hovertemplate="时效：%{x}天<br>累计占比：%{y:.1f}%<extra></extra>"
-            ),
-            secondary_y=True
-        )
-
-        # 阈值散点
-        scatter_x = []
-        scatter_y = []
-        scatter_text = []
-        for res in all_results:
-            if res["对应时效上限(天)"] != "-":
-                scatter_x.append(res["对应时效上限(天)"])
-                scatter_y.append(res["实际累计占比(%)"])
-                scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
-        if scatter_x:
-            fig.add_trace(
-                go.Scatter(
-                    x=scatter_x,
-                    y=scatter_y,
-                    mode="markers+text",
-                    text=scatter_text,
-                    textposition="top center",
-                    marker=dict(color="darkblue", size=10, symbol="star"),
-                    showlegend=False,
-                    hovertemplate="目标：%{text}<extra></extra>"
-                ),
-                secondary_y=True
-            )
-
-        # 参考线
-        for rate in target_rates:
-            fig.add_hline(
-                y=rate,
-                line_dash="dash",
-                line_color="orange",
-                opacity=0.5,
-                secondary_y=True,
-                annotation_text=f"{rate}%",
-                annotation_position="right"
-            )
-
-        # 样式
-        fig.update_layout(
-            height=550,
-            title=f"{logistics_type} - 时效分布 & 累计准时率",
-            xaxis_title="上架完成-发货时间(天)",
-            yaxis=dict(title="订单数"),
-            yaxis2=dict(title="累计占比（准时率）(%)", range=[0, 105]),
-            template="simple_white"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("ℹ️ 暂无有效数据生成对比图表")
-
-# ====================== 6. 业务解读 ======================
-st.markdown("#### 📝 各物流方式核心结论")
-if all_results:
-    # 90%准时率汇总对比
-    df_summary = pd.DataFrame(all_results)
-    rate_90_summary = df_summary[df_summary["目标准时率(%)"] == 90].copy()
-    if not rate_90_summary.empty:
-        st.markdown("##### 🔍 90%准时率核心对比")
-        display_cols = ["物流方式", "对应时效上限(天)", "达标订单数", "总订单数"]
-        st.dataframe(
-            rate_90_summary[display_cols],
-            use_container_width=True,
-            column_config={
-                "物流方式": st.column_config.TextColumn("物流方式"),
-                "对应时效上限(天)": st.column_config.NumberColumn("时效上限(天)", format="%.1f"),
-                "达标订单数": st.column_config.NumberColumn("达标订单数"),
-                "总订单数": st.column_config.NumberColumn("总订单数")
-            }
-        )
-
-    # 逐方式详细解读
-    st.markdown("##### 📋 各方式详细结论")
-    for logistics_type in unique_logistics:
-        lt_results = [r for r in all_results if r["物流方式"] == logistics_type]
-        if not lt_results:
-            continue
-
-        rate_75 = next((r for r in lt_results if r["目标准时率(%)"] == 75), None)
-        rate_90 = next((r for r in lt_results if r["目标准时率(%)"] == 90), None)
-        rate_100 = next((r for r in lt_results if r["目标准时率(%)"] == 100), None)
-
-        desc = f"**{logistics_type}**：<br>"
-        if rate_75 and rate_75["对应时效上限(天)"] != "-":
-            desc += f"- 75%准时率：时效≤{rate_75['对应时效上限(天)']}天（达标{rate_75['达标订单数']}单）<br>"
-        if rate_90 and rate_90["对应时效上限(天)"] != "-":
-            desc += f"- 90%准时率：时效≤{rate_90['对应时效上限(天)']}天（达标{rate_90['达标订单数']}单）<br>"
-        if rate_100 and rate_100["对应时效上限(天)"] != "-":
-            desc += f"- 100%准时率：时效≤{rate_100['对应时效上限(天)']}天（覆盖所有{rate_100['总订单数']}单）<br>"
-
-        st.markdown(desc, unsafe_allow_html=True)
-else:
-    st.info("ℹ️ 暂无有效数据生成分析解读")
-
 # ---------------------- 货代准时情况分析（独立版：发货-签收环节，无仓库关联） ----------------------
 st.markdown("### 货代准时情况分析（发货-提取环节）")
 
@@ -1912,6 +1545,370 @@ else:
         mime="text/csv",
         key="warehouse_data_download"
     )
+
+# ---------------------- 货代准时率-物流时效分析（独立月份多选版） ----------------------
+st.divider()
+st.subheader("📦 物流方式-准时率对应物流时效分析（上架完成-发货时间）")
+
+# ====================== 【新增】独立月份多选筛选器（默认最新月份） ======================
+if "到货年月" in df_current.columns:
+    # 获取所有可选择的月份并排序
+    available_months = sorted(df_current["到货年月"].dropna().unique(), reverse=True)
+
+    # 默认只选最新月份
+    default_month = available_months[0] if len(available_months) > 0 else None
+
+    # 独立筛选器
+    selected_months = st.multiselect(
+        "✅ 选择分析月份（可多选，合并数据一起统计）",
+        options=available_months,
+        default=[default_month] if default_month else []
+    )
+
+    # 筛选数据
+    if selected_months:
+        df_used = df_current[df_current["到货年月"].isin(selected_months)].copy()
+        st.success(f"📅 当前分析：{len(selected_months)}个月份合并，共 {len(df_used)} 条数据")
+    else:
+        df_used = df_current.copy()
+        st.info("ℹ️ 未选择月份，使用全部数据")
+else:
+    df_used = df_current.copy()
+    st.warning("⚠️ 数据中未找到「到货年月」列，无法按月份筛选")
+
+# ====================== 1. 全局变量初始化 ======================
+target_rates = [75, 80, 85, 90, 95, 100]
+time_col = "上架完成-发货时间"
+logistics_col = "物流方式"
+is_all_logistics = False
+all_results = []
+group_data = {}
+unique_logistics = []
+df_analysis = pd.DataFrame()
+
+# ====================== 2. 数据预处理 ======================
+if time_col not in df_used.columns or logistics_col not in df_used.columns:
+    st.warning(f"⚠️ 数据中缺失核心列：「{time_col}」 或 「{logistics_col}」")
+else:
+    df_analysis = df_used.copy()
+    df_analysis[time_col] = pd.to_numeric(df_analysis[time_col], errors="coerce")
+    df_analysis = df_analysis[
+        (df_analysis[time_col] > 0) &
+        (df_analysis[logistics_col].notna())
+        ].reset_index(drop=True)
+
+    if len(df_analysis) == 0:
+        st.warning("⚠️ 无有效数据（时效为空/≤0 或 物流方式为空）")
+    else:
+        unique_logistics = df_analysis[logistics_col].unique()
+        is_all_logistics = len(unique_logistics) > 1
+
+        # ====================== 3. 核心计算逻辑 ======================
+        if is_all_logistics:
+            st.info(f"✅ 当前筛选为「全部」，按「{logistics_col}」分组分析（共 {len(unique_logistics)} 种方式）")
+            for logistics_type in unique_logistics:
+                df_group = df_analysis[df_analysis[logistics_col] == logistics_type].copy()
+                group_total = len(df_group)
+                if group_total == 0:
+                    continue
+
+                df_sorted = df_group.sort_values(by=time_col, ascending=True).reset_index(drop=True)
+                df_sorted["累计订单数"] = range(1, group_total + 1)
+                df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / group_total) * 100
+                group_data[logistics_type] = df_sorted
+
+                for target_rate in target_rates:
+                    df_matched = df_sorted[df_sorted["累计占比(%)"] >= target_rate]
+                    if not df_matched.empty:
+                        target_row = df_matched.iloc[0]
+                        min_time = target_row[time_col]
+                        actual_rate = target_row["累计占比(%)"]
+                        pass_orders = target_row["累计订单数"]
+                        all_results.append({
+                            "物流方式": logistics_type,
+                            "目标准时率(%)": target_rate,
+                            "实际累计占比(%)": round(actual_rate, 1),
+                            "对应时效上限(天)": round(min_time, 1),
+                            "达标订单数": pass_orders,
+                            "总订单数": group_total
+                        })
+                    else:
+                        all_results.append({
+                            "物流方式": logistics_type,
+                            "目标准时率(%)": target_rate,
+                            "实际累计占比(%)": "-",
+                            "对应时效上限(天)": "-",
+                            "达标订单数": 0,
+                            "总订单数": group_total
+                        })
+        else:
+            logistics_type = unique_logistics[0] if len(unique_logistics) > 0 else ""
+            if logistics_type:
+                df_sorted = df_analysis.sort_values(by=time_col, ascending=True).reset_index(drop=True)
+                group_total = len(df_sorted)
+                df_sorted["累计订单数"] = range(1, group_total + 1)
+                df_sorted["累计占比(%)"] = (df_sorted["累计订单数"] / group_total) * 100
+                group_data[logistics_type] = df_sorted
+
+                for target_rate in target_rates:
+                    df_matched = df_sorted[df_sorted["累计占比(%)"] >= target_rate]
+                    if not df_matched.empty:
+                        target_row = df_matched.iloc[0]
+                        min_time = target_row[time_col]
+                        actual_rate = target_row["累计占比(%)"]
+                        pass_orders = target_row["累计订单数"]
+                        all_results.append({
+                            "物流方式": logistics_type,
+                            "目标准时率(%)": target_rate,
+                            "实际累计占比(%)": round(actual_rate, 1),
+                            "对应时效上限(天)": round(min_time, 1),
+                            "达标订单数": pass_orders,
+                            "总订单数": group_total
+                        })
+                    else:
+                        all_results.append({
+                            "物流方式": logistics_type,
+                            "目标准时率(%)": target_rate,
+                            "实际累计占比(%)": "-",
+                            "对应时效上限(天)": "-",
+                            "达标订单数": 0,
+                            "总订单数": group_total
+                        })
+
+# ====================== 4. 展示结果总表 ======================
+if all_results:
+    st.markdown("#### 📊 各物流方式-准时率-时效阈值对应表")
+    df_results = pd.DataFrame(all_results)
+    st.dataframe(
+        df_results,
+        use_container_width=True,
+        column_config={
+            "物流方式": st.column_config.TextColumn("物流方式"),
+            "目标准时率(%)": st.column_config.NumberColumn("目标准时率(%)", format="%d"),
+            "实际累计占比(%)": st.column_config.NumberColumn("实际累计占比(%)", format="%.1f"),
+            "对应时效上限(天)": st.column_config.NumberColumn("时效上限(天)", format="%.1f"),
+            "达标订单数": st.column_config.NumberColumn("达标订单数", format="%d"),
+            "总订单数": st.column_config.NumberColumn("总订单数", format="%d")
+        }
+    )
+else:
+    st.info("ℹ️ 暂无有效数据生成时效阈值表")
+
+# ====================== 5. 可视化 ======================
+st.markdown("#### 📈 各物流方式时效分布 & 累计准时率分析")
+if group_data and len(group_data) > 0:
+    if is_all_logistics:
+        import plotly.graph_objects as go
+        import plotly.express as px
+        from plotly.subplots import make_subplots
+
+        color_palette = px.colors.qualitative.Plotly
+        logistics_colors = {lt: color_palette[i % len(color_palette)] for i, lt in enumerate(unique_logistics)}
+
+        for idx, logistics_type in enumerate(unique_logistics, 1):
+            if logistics_type not in group_data:
+                continue
+            df_sorted = group_data[logistics_type]
+            time_count = df_sorted[time_col].value_counts().sort_index().reset_index()
+            time_count.columns = [time_col, "订单数"]
+
+            fig_single = make_subplots(specs=[[{"secondary_y": True}]])
+
+            fig_single.add_trace(
+                go.Bar(
+                    x=time_count[time_col],
+                    y=time_count["订单数"],
+                    name="各时效订单数",
+                    marker_color=logistics_colors[logistics_type],
+                    opacity=0.7,
+                    hovertemplate=f"{logistics_type}<br>时效：%{{x}}天<br>订单数：%{{y}}单<extra></extra>"
+                ),
+                secondary_y=False
+            )
+
+            fig_single.add_trace(
+                go.Scatter(
+                    x=df_sorted[time_col],
+                    y=df_sorted["累计占比(%)"],
+                    name="累计占比（准时率）",
+                    line=dict(color=logistics_colors[logistics_type], width=3, shape="spline"),
+                    marker=dict(color=logistics_colors[logistics_type], size=5),
+                    hovertemplate=f"{logistics_type}<br>时效：%{{x}}天<br>累计准时率：%{{y:.1f}}%<extra></extra>"
+                ),
+                secondary_y=True
+            )
+
+            scatter_x = []
+            scatter_y = []
+            scatter_text = []
+            for res in all_results:
+                if res["物流方式"] == logistics_type and res["对应时效上限(天)"] != "-":
+                    scatter_x.append(res["对应时效上限(天)"])
+                    scatter_y.append(res["实际累计占比(%)"])
+                    scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
+            if scatter_x:
+                fig_single.add_trace(
+                    go.Scatter(
+                        x=scatter_x,
+                        y=scatter_y,
+                        mode="markers+text",
+                        text=scatter_text,
+                        textposition="top center",
+                        marker=dict(color="darkblue", size=10, symbol="star"),
+                        showlegend=False,
+                        hovertemplate="目标：%{text}<extra></extra>"
+                    ),
+                    secondary_y=True
+                )
+
+            for rate in target_rates:
+                fig_single.add_hline(
+                    y=rate,
+                    line_dash="dash",
+                    line_color="gray",
+                    opacity=0.5,
+                    secondary_y=True,
+                    annotation_text=f"{rate}% 目标",
+                    annotation_position="right",
+                    annotation_font={"size": 9, "color": "gray"}
+                )
+
+            fig_single.update_layout(
+                height=450,
+                title=f"({idx}/{len(unique_logistics)}) {logistics_type} - 时效分布 & 累计准时率",
+                xaxis_title="上架完成-发货时间(天)",
+                xaxis=dict(tickangle=0, showgrid=False),
+                yaxis=dict(title="订单数", showgrid=True, gridcolor="lightgray"),
+                yaxis2=dict(title="累计占比（准时率）(%)", range=[0, 105], showgrid=False),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                template="simple_white",
+                margin=dict(b=80)
+            )
+
+            st.plotly_chart(fig_single, use_container_width=True)
+            st.divider()
+    else:
+        logistics_type = next(iter(group_data.keys()))
+        df_sorted = group_data[logistics_type]
+        time_count = df_sorted[time_col].value_counts().sort_index().reset_index()
+        time_count.columns = [time_col, "订单数"]
+
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        fig.add_trace(
+            go.Bar(
+                x=time_count[time_col],
+                y=time_count["订单数"],
+                name="各时效订单数",
+                marker_color="#87CEEB",
+                opacity=0.7,
+                hovertemplate="时效：%{x}天<br>订单数：%{y}单<extra></extra>"
+            ),
+            secondary_y=False
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=df_sorted[time_col],
+                y=df_sorted["累计占比(%)"],
+                name="累计占比（准时率）",
+                line=dict(color="red", width=2, shape="spline"),
+                hovertemplate="时效：%{x}天<br>累计占比：%{y:.1f}%<extra></extra>"
+            ),
+            secondary_y=True
+        )
+
+        scatter_x = []
+        scatter_y = []
+        scatter_text = []
+        for res in all_results:
+            if res["对应时效上限(天)"] != "-":
+                scatter_x.append(res["对应时效上限(天)"])
+                scatter_y.append(res["实际累计占比(%)"])
+                scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
+        if scatter_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=scatter_x,
+                    y=scatter_y,
+                    mode="markers+text",
+                    text=scatter_text,
+                    textposition="top center",
+                    marker=dict(color="darkblue", size=10, symbol="star"),
+                    showlegend=False,
+                    hovertemplate="目标：%{text}<extra></extra>"
+                ),
+                secondary_y=True
+            )
+
+        for rate in target_rates:
+            fig.add_hline(
+                y=rate,
+                line_dash="dash",
+                line_color="orange",
+                opacity=0.5,
+                secondary_y=True,
+                annotation_text=f"{rate}%",
+                annotation_position="right"
+            )
+
+        fig.update_layout(
+            height=550,
+            title=f"{logistics_type} - 时效分布 & 累计准时率",
+            xaxis_title="上架完成-发货时间(天)",
+            yaxis=dict(title="订单数"),
+            yaxis2=dict(title="累计占比（准时率）(%)", range=[0, 105]),
+            template="simple_white"
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("ℹ️ 暂无有效数据生成对比图表")
+
+# ====================== 6. 业务解读 ======================
+st.markdown("#### 📝 各物流方式核心结论")
+if all_results:
+    df_summary = pd.DataFrame(all_results)
+    rate_90_summary = df_summary[df_summary["目标准时率(%)"] == 90].copy()
+    if not rate_90_summary.empty:
+        st.markdown("##### 🔍 90%准时率核心对比")
+        display_cols = ["物流方式", "对应时效上限(天)", "达标订单数", "总订单数"]
+        st.dataframe(
+            rate_90_summary[display_cols],
+            use_container_width=True,
+            column_config={
+                "物流方式": st.column_config.TextColumn("物流方式"),
+                "对应时效上限(天)": st.column_config.NumberColumn("时效上限(天)", format="%.1f"),
+                "达标订单数": st.column_config.NumberColumn("达标订单数"),
+                "总订单数": st.column_config.NumberColumn("总订单数")
+            }
+        )
+
+    st.markdown("##### 📋 各方式详细结论")
+    for logistics_type in unique_logistics:
+        lt_results = [r for r in all_results if r["物流方式"] == logistics_type]
+        if not lt_results:
+            continue
+
+        rate_75 = next((r for r in lt_results if r["目标准时率(%)"] == 75), None)
+        rate_90 = next((r for r in lt_results if r["目标准时率(%)"] == 90), None)
+        rate_100 = next((r for r in lt_results if r["目标准时率(%)"] == 100), None)
+
+        desc = f"**{logistics_type}**：<br>"
+        if rate_75 and rate_75["对应时效上限(天)"] != "-":
+            desc += f"- 75%准时率：时效≤{rate_75['对应时效上限(天)']}天（达标{rate_75['达标订单数']}单）<br>"
+        if rate_90 and rate_90["对应时效上限(天)"] != "-":
+            desc += f"- 90%准时率：时效≤{rate_90['对应时效上限(天)']}天（达标{rate_90['达标订单数']}单）<br>"
+        if rate_100 and rate_100["对应时效上限(天)"] != "-":
+            desc += f"- 100%准时率：时效≤{rate_100['对应时效上限(天)']}天（覆盖所有{rate_100['总订单数']}单）<br>"
+
+        st.markdown(desc, unsafe_allow_html=True)
+else:
+    st.info("ℹ️ 暂无有效数据生成分析解读")
+
 # ---------------------- 不同月份整体趋势分析（总订单+准时率） ----------------------
 st.markdown("## 📈 不同月份整体趋势分析")
 st.divider()
