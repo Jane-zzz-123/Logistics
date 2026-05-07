@@ -3434,7 +3434,7 @@ def load_cost_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_cost = pd.read_excel(url, sheet_name="数据")
 
-    need_cols = ["周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "报关费",
+    need_cols = ["周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "报关费","运输方式",
                  "总费用", "总运费", "入库配置费折算RMB"]
     df_cost = df_cost[[col for col in need_cols if col in df_cost.columns]]
 
@@ -3621,24 +3621,25 @@ render_analysis(col_right, "📦 入库配置费", df_storage, latest)
 
 st.caption("🔴 单价上升｜🟢 单价下降｜单价 = 总金额 ÷ 总重量")
 
-# ====================== 🧾 报关费分析（仅看总金额 · 独立不受筛选） ======================
+# ====================== 🧾 报关费分析（独立不受筛选 · 按运输方式 · 仅总金额） ======================
 st.markdown("---")
 st.title("🧾 报关费分析（全部数据）")
 
 # 独立切换：按周期 / 按月（不受上方筛选影响）
 customs_view = st.radio("报关费统计维度", ["按周期", "按月份"], horizontal=True, key="customs_view")
 
-# 核心：只汇总报关费总金额，不除以重量
+# 核心：永远用原始数据 df_cost，不受筛选 | 按【运输方式】分组
 def calculate_customs(df_original):
     group_col = "周期" if customs_view == "按周期" else "月份"
 
-    df_cus = df_original.groupby([group_col, "实际物流方式"], as_index=False).agg(
-        报关费=("报关费", "sum")  # 直接求和，不除重量
+    # 按 周期/月份 + 运输方式 汇总报关费总金额
+    df_cus = df_original.groupby([group_col, "运输方式"], as_index=False).agg(
+        报关费=("报关费", "sum")
     )
-    df_cus = df_cus.sort_values([group_col, "实际物流方式"]).reset_index(drop=True)
+    df_cus = df_cus.sort_values([group_col, "运输方式"]).reset_index(drop=True)
 
-    # 环比（上期金额、差值、幅度）
-    df_cus["上期金额"] = df_cus.groupby("实际物流方式")["报关费"].shift(1)
+    # 环比
+    df_cus["上期金额"] = df_cus.groupby("运输方式")["报关费"].shift(1)
     df_cus["环比差值"] = (df_cus["报关费"] - df_cus["上期金额"]).round(2)
     df_cus["环比幅度"] = np.where(
         df_cus["上期金额"] > 0,
@@ -3647,9 +3648,10 @@ def calculate_customs(df_original):
     )
     return df_cus, group_col
 
+# 关键：永远使用原始数据 df_cost，不使用筛选后的 df
 df_customs, group_col = calculate_customs(df_cost)
 
-# ====================== 折线图：报关费总金额趋势 ======================
+# ====================== 折线图 ======================
 st.subheader("📈 报关费总金额趋势")
 df_customs["x_str"] = df_customs[group_col].astype(str)
 
@@ -3657,7 +3659,7 @@ fig_cus = px.line(
     df_customs,
     x="x_str",
     y="报关费",
-    color="实际物流方式",
+    color="运输方式",
     color_discrete_map=color_map,
     markers=True
 )
@@ -3668,22 +3670,22 @@ fig_cus.update_traces(
 fig_cus.update_xaxes(type="category")
 st.plotly_chart(fig_cus, use_container_width=True)
 
-# ====================== 表格：报关费总金额（带环比） ======================
+# ====================== 统计表 ======================
 st.subheader("📋 报关费总金额统计表（带环比）")
-data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_customs.iterrows()}
-logi_list = sorted(df_cost["实际物流方式"].unique())
+data_map = {(str(r[group_col]), r["运输方式"]): r for _, r in df_customs.iterrows()}
+trans_list = sorted(df_cost["运输方式"].dropna().unique())
 val_list = sorted(df_customs[group_col].unique())
 
 table_html = f"<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px;'>"
 table_html += f"<tr style='background:#f0f2f6;font-weight:bold'><td>{group_col}</td>"
-for logi in logi_list:
-    table_html += f"<td style='border:1px solid #ddd;padding:8px'>{logi}</td>"
+for t in trans_list:
+    table_html += f"<td style='border:1px solid #ddd;padding:8px'>{t}</td>"
 table_html += "</tr>"
 
 for val in val_list:
     table_html += f"<tr><td style='border:1px solid #ddd;padding:8px'>{val}</td>"
-    for logi in logi_list:
-        key = (str(val), logi)
+    for t in trans_list:
+        key = (str(val), t)
         if key not in data_map:
             table_html += "<td style='border:1px solid #ddd'>-</td>"
             continue
