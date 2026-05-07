@@ -914,9 +914,11 @@ else:
                 for target_rate in target_rates:
                     df_matched = df_sorted[df_sorted["累计占比(%)"] >= target_rate]
                     if not df_matched.empty:
-                        min_time = df_matched[time_col].min()
-                        actual_rate = df_matched[df_matched[time_col] == min_time]["累计占比(%)"].iloc[0]
-                        pass_orders = len(df_sorted[df_sorted[time_col] <= min_time])
+                        # 取「累计占比>=目标率」的第一行，就是刚好达标/超标的点
+                        target_row = df_matched.iloc[0]
+                        min_time = target_row[time_col]
+                        actual_rate = target_row["累计占比(%)"]
+                        pass_orders = target_row["累计订单数"]  # 这里直接用累计订单数，不用再筛选了
                         all_results.append({
                             "物流方式": logistics_type,
                             "目标准时率(%)": target_rate,
@@ -948,9 +950,11 @@ else:
                 for target_rate in target_rates:
                     df_matched = df_sorted[df_sorted["累计占比(%)"] >= target_rate]
                     if not df_matched.empty:
-                        min_time = df_matched[time_col].min()
-                        actual_rate = df_matched[df_matched[time_col] == min_time]["累计占比(%)"].iloc[0]
-                        pass_orders = len(df_sorted[df_sorted[time_col] <= min_time])
+                        # 取「累计占比>=目标率」的第一行，就是刚好达标/超标的点
+                        target_row = df_matched.iloc[0]
+                        min_time = target_row[time_col]
+                        actual_rate = target_row["累计占比(%)"]
+                        pass_orders = target_row["累计订单数"]  # 这里直接用累计订单数，不用再筛选了
                         all_results.append({
                             "物流方式": logistics_type,
                             "目标准时率(%)": target_rate,
