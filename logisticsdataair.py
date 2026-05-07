@@ -3489,6 +3489,16 @@ with st.expander("🔎 筛选条件", expanded=True):
         area_list = ["全部"] + sorted(df_cost["区域"].dropna().unique())
         selected_area = st.selectbox("区域", area_list)
 
+# ====================== 费用说明 ======================
+st.markdown("""
+<div style="background-color:#f7fafc; padding:12px 16px; border-radius:8px; font-size:14px; line-height:1.6;">
+<b>📌 费用计算公式说明：</b><br>
+• 运费 = 账单运费 + 附加费 + 运费税点<br>
+• 总运费 = 报关费 + 报关费税点 + 运费<br>
+• 入库配置费折算RMB = 入库配置费单价（美元） × 汇率<br>
+• 总费用 = 总运费 + 入库配置费折算RMB
+</div>
+""", unsafe_allow_html=True)
 # ====================== 数据筛选 ======================
 df = df_cost.copy()
 if view_mode == "按周期":
