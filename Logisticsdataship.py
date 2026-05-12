@@ -1919,6 +1919,84 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
+# ---------------------- 【新增】不同物流方式的帕累托图（柱状+累计线） ----------------------
+st.markdown("### 📈 各物流方式 - 开船-完成上架时效分布（帕累托图）")
+
+if not df_analysis.empty:
+    # 按物流方式循环生成图表
+    for method in unique_logistics:
+        df_m = df_analysis[df_analysis[logistics_col] == method].copy()
+        if len(df_m) < 1:
+            continue
+
+        # 1. 按「开船-完成上架」天数分组，统计订单数
+        df_group = df_m.groupby(time_col, as_index=False).agg({
+            "FBA号": "count"  # 订单数统计
+        }).rename(columns={"FBA号": "订单数"})
+        df_group = df_group.sort_values(time_col).reset_index(drop=True)
+
+        # 2. 计算累计订单数和累计占比
+        df_group["累计订单数"] = df_group["订单数"].cumsum()
+        df_group["累计占比(%)"] = (df_group["累计订单数"] / df_group["订单数"].sum()) * 100
+
+        # 3. 创建双轴图（柱状+折线）
+        fig = go.Figure()
+
+        # 左轴：柱状图 - 订单数
+        fig.add_trace(go.Bar(
+            x=df_group[time_col],
+            y=df_group["订单数"],
+            name="订单数",
+            marker_color="#AED6F1",
+            opacity=0.8
+        ))
+
+        # 右轴：折线图 - 累计占比（准时率）
+        fig.add_trace(go.Scatter(
+            x=df_group[time_col],
+            y=df_group["累计占比(%)"],
+            name="累计占比(%)",
+            mode="lines+markers",
+            line=dict(color="red", width=3),
+            marker=dict(color="darkblue", size=10, symbol="star"),
+            yaxis="y2"
+        ))
+
+        # 4. 添加目标准时率标注（75/80/85/90/95/100%）
+        for tr in target_rates:
+            match = df_group[df_group["累计占比(%)"] >= tr]
+            if not match.empty:
+                t_val = match[time_col].min()
+                real_r_val = match[match[time_col]==t_val]["累计占比(%)"].iloc[0]
+                fig.add_annotation(
+                    x=t_val,
+                    y=real_r_val,
+                    text=f"{tr}% → {t_val}天",
+                    showarrow=False,
+                    yshift=10,
+                    font=dict(size=10, color="gray")
+                )
+
+        # 5. 双轴设置
+        fig.update_layout(
+            title=f"物流方式：{method}",
+            xaxis_title="开船-完成上架（天）",
+            yaxis_title="订单数",
+            yaxis2=dict(
+                title="累计占比（准时率）(%)",
+                overlaying="y",
+                side="right",
+                range=[0, 105]
+            ),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=500,
+            template="plotly_white"
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("ℹ️ 暂无数据生成时效分布图表")
+
 # ==============================================
 # 1. 开船 - 提柜（按物流方式）✅ 修复完成
 # ==============================================
