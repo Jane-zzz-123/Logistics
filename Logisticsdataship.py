@@ -1931,11 +1931,14 @@ if not df_current.empty and "是否查验" in df_current.columns and "是否为�
     df_check_abnormal = df_current[(df_current["是否为异常数据"] == "是") & (df_current["是否查验"] == "是")].copy()
     df_with_check = pd.concat([df_pure, df_check_abnormal], ignore_index=True)
 
-    # 统一清洗数值列
-    for df in [df_pure, df_with_check]:
-        for col in [time_col, stage1_col, stage2_col, stage3_col]:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        df = df[df[time_col] > 0].reset_index(drop=True)
+    # 统一清洗数值列 —— 【修复：正确原地修改】
+    for col in [time_col, stage1_col, stage2_col, stage3_col]:
+        df_pure[col] = pd.to_numeric(df_pure[col], errors="coerce").fillna(0)
+        df_with_check[col] = pd.to_numeric(df_with_check[col], errors="coerce").fillna(0)
+
+    # 【修复：只保留时效>0的有效数据】
+    df_pure = df_pure[df_pure[time_col] > 0].reset_index(drop=True)
+    df_with_check = df_with_check[df_with_check[time_col] > 0].reset_index(drop=True)
 
     # 按物流方式循环生成对比图
     unique_logistics_pure = df_pure[logistics_col].dropna().unique()
