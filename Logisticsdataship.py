@@ -241,30 +241,36 @@ if selected_logistics != '全部' and not df_prev.empty:
 
 # B. FBA不去重（仓库分析用）→ 新增
 df_prev_FBA = df_selected_FBA[df_selected_FBA["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
-if selected_logistics != '全部' and not df_prev_FBA.empty:
+if selected_logistics != '全部' and not df_prev.empty:
     df_prev_FBA = df_prev_FBA[df_prev_FBA['物流方式'] == selected_logistics].copy()
 
 # -------------------------------------------
-# 9. 【已修改】当月异常数据统计 + 查验区分
+# 9. 【修复版】当月异常数据统计
 # -------------------------------------------
 logistics_tip = f"，筛选物流方式：{selected_logistics}" if selected_logistics != "全部" else ""
+
+# 先统一计算当月异常总数（修复报错）
+abnormal_filter = (df_all["到货年月"] == selected_month) & (df_all["是否为异常数据"] == "是")
+if selected_logistics != '全部':
+    abnormal_filter = abnormal_filter & (df_all["物流方式"] == selected_logistics)
+abnormal_current_month = len(df_all[abnormal_filter])
 
 if data_filter == "纯净数据（剔除异常）":
     st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据{logistics_tip}，当前共 {len(df_current)} 条货件记录 | {len(df_current_FBA)} 条FBA记录")
 else:
-    # ===================== 货件维度（去重）异常统计 =====================
+    # 货件维度（去重）
     total_current_shipment = len(df_current)
     abnormal_current_shipment = len(df_current[df_current["是否为异常数据"] == "是"])
     abnormal_shipment_check = len(df_current[(df_current["是否为异常数据"] == "是") & (df_current["是否查验"] == "是")])
     abnormal_shipment_nocheck = abnormal_current_shipment - abnormal_shipment_check
 
-    # ===================== FBA维度（不去重）异常统计 =====================
+    # FBA维度（不去重）
     total_current_fba = len(df_current_FBA)
     abnormal_current_fba = len(df_current_FBA[df_current_FBA["是否为异常数据"] == "是"])
     abnormal_fba_check = len(df_current_FBA[(df_current_FBA["是否为异常数据"] == "是") & (df_current_FBA["是否查验"] == "是")])
     abnormal_fba_nocheck = abnormal_current_fba - abnormal_fba_check
 
-    # ===================== 最终显示（按你要求格式） =====================
+    # 输出你要的格式
     st.info(f"📌 【{selected_month}】当前显示全部数据{logistics_tip}，"
             f"共 {total_current_shipment} 条货件记录，其中异常 {abnormal_current_shipment} 条，查验导致 {abnormal_shipment_check} 条，非查验 {abnormal_shipment_nocheck} 条 | "
             f"共 {total_current_fba} 条FBA记录，其中异常 {abnormal_current_fba} 条，查验导致 {abnormal_fba_check} 条，非查验 {abnormal_fba_nocheck} 条")
