@@ -1929,17 +1929,24 @@ if not df_current.empty and "是否查验" in df_current.columns and "是否为�
     # 左图：当前筛选后的数据（纯净/去重货件，你看板正在用的）
     df_left = df_current.copy()
 
-    # 右图：当前数据 + 【当月+当前物流+异常=是+查验=是】的数据
-    # 关键：从 df_all 里拿，但严格匹配 年月 + 物流方式
-    df_check_extra = df_all[
-        (df_all["到货年月"] == selected_month) &
-        (df_all["是否为异常数据"] == "是") &
-        (df_all["是否查验"] == "是")
-    ].copy()
+    # ===================== 【修复点】同步多选月份+物流+区域 =====================
+    df_check_extra = df_all.copy()
 
-    # 匹配物流筛选
-    if selected_logistics != '全部':
-        df_check_extra = df_check_extra[df_check_extra["物流方式"] == selected_logistics]
+    # 同步 多选月份
+    if selected_month_hot:
+        df_check_extra = df_check_extra[df_check_extra["到货年月"].isin(selected_month_hot)]
+
+    # 同步 物流方式
+    if selected_log_hot != "全部":
+        df_check_extra = df_check_extra[df_check_extra["物流方式"] == selected_log_hot]
+
+    # 同步 区域
+    if selected_region_hot != "全部":
+        df_check_extra = df_check_extra[df_check_extra["区域"] == selected_region_hot]
+
+    # 只加：异常数据 + 查验=是
+    df_check_extra = df_check_extra[(df_check_extra["是否为异常数据"] == "是") & (df_check_extra["是否查验"] == "是")].copy()
+    # ========================================================================
 
     # 货件去重（和你看板保持一致）
     df_check_extra = df_check_extra.drop_duplicates(subset=["货件单号"], keep="first")
