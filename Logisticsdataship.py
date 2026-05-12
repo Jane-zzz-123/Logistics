@@ -1919,83 +1919,226 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【新增】不同物流方式的帕累托图（柱状+累计线） ----------------------
-st.markdown("### 📈 各物流方式 - 开船-完成上架时效分布（帕累托图）")
+# ---------------------- 原有表格代码（你已有的） ----------------------
+st.markdown("### 📊 各物流方式 - 准时率 - 时效（含加权）")
 
-if not df_analysis.empty:
-    # 按物流方式循环生成图表
-    for method in unique_logistics:
-        df_m = df_analysis[df_analysis[logistics_col] == method].copy()
-        if len(df_m) < 1:
-            continue
+target_rates = [75, 80, 85, 90, 95, 100]
+time_col = "开船-完成上架"
+logistics_col = "物流方式"
+region_col = "区域"
+stage1_col = "开船-提柜"
+stage2_col = "提柜-签收"
+stage3_col = "签收-完成上架"
 
-        # 1. 按「开船-完成上架」天数分组，统计订单数
-        df_group = df_m.groupby(time_col, as_index=False).agg({
-            "FBA号": "count"  # 订单数统计
-        }).rename(columns={"FBA号": "订单数"})
-        df_group = df_group.sort_values(time_col).reset_index(drop=True)
+all_results = []
+required_cols = [time_col, logistics_col, region_col, stage1_col, stage2_col, stage3_col]
+missing_cols = [col for col in required_cols if col not in df_current.columns]
 
-        # 2. 计算累计订单数和累计占比
-        df_group["累计订单数"] = df_group["订单数"].cumsum()
-        df_group["累计占比(%)"] = (df_group["累计订单数"] / df_group["订单数"].sum()) * 100
-
-        # 3. 创建双轴图（柱状+折线）
-        fig = go.Figure()
-
-        # 左轴：柱状图 - 订单数
-        fig.add_trace(go.Bar(
-            x=df_group[time_col],
-            y=df_group["订单数"],
-            name="订单数",
-            marker_color="#AED6F1",
-            opacity=0.8
-        ))
-
-        # 右轴：折线图 - 累计占比（准时率）
-        fig.add_trace(go.Scatter(
-            x=df_group[time_col],
-            y=df_group["累计占比(%)"],
-            name="累计占比(%)",
-            mode="lines+markers",
-            line=dict(color="red", width=3),
-            marker=dict(color="darkblue", size=10, symbol="star"),
-            yaxis="y2"
-        ))
-
-        # 4. 添加目标准时率标注（75/80/85/90/95/100%）
-        for tr in target_rates:
-            match = df_group[df_group["累计占比(%)"] >= tr]
-            if not match.empty:
-                t_val = match[time_col].min()
-                real_r_val = match[match[time_col]==t_val]["累计占比(%)"].iloc[0]
-                fig.add_annotation(
-                    x=t_val,
-                    y=real_r_val,
-                    text=f"{tr}% → {t_val}天",
-                    showarrow=False,
-                    yshift=10,
-                    font=dict(size=10, color="gray")
-                )
-
-        # 5. 双轴设置
-        fig.update_layout(
-            title=f"物流方式：{method}",
-            xaxis_title="开船-完成上架（天）",
-            yaxis_title="订单数",
-            yaxis2=dict(
-                title="累计占比（准时率）(%)",
-                overlaying="y",
-                side="right",
-                range=[0, 105]
-            ),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            height=500,
-            template="plotly_white"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+if missing_cols:
+    st.warning(f"缺失字段：{missing_cols}")
 else:
-    st.info("ℹ️ 暂无数据生成时效分布图表")
+    df_analysis = df_current.copy()
+    for col in [time_col, stage1_col, stage2_col, stage3_col]:
+        df_analysis[col] = pd.to_numeric(df_analysis[col], errors="coerce").fillna(0)
+    df_analysis = df_analysis[(df_analysis[time_col] > 0)].reset_index(drop=True)
+
+    if not df_analysis.empty:
+        unique_logistics = df_analysis[logistics_col].unique()
+
+
+        def calculate_weighted_by_region(df, col):
+            region_counts = df[region_col].value_counts()
+            total = len(df)
+            weighted = 0.0
+            for region, cnt in region_counts.items():
+                avg = df[df[region_col] == region][col].mean()
+                weighted += avg * (cnt / total)
+            return round(weighted, 2)
+
+
+        for method in unique_logistics:
+            df_m = df_analysis[df_analysis[logistics_col] == method].copy()
+            total_cnt = len(df_m)
+            if total_cnt < 1:
+                continue
+
+            df_sorted = df_m.sort_values(time_col, ascending=True).reset_index(drop=True)
+            df_sorted["累计占比(%)"] = (df_sorted.reset_index().index + 1) / total_cnt * 100
+
+            for tr in target_rates:
+                match = df_sorted[df_sorted["累计占比(%)"] >= tr]
+                if not match.empty:
+                    t = match[time_col].min()
+                    real_r = match[match[time_col] == t]["累计占比(%)"].iloc[0]
+                    pass_cnt = len(df_sorted[df_sorted[time_col] <= t])
+                    df_pass = df_sorted[df_sorted[time_col] <= t].copy()
+                else:
+                    t, real_r, pass_cnt = "-", "-", 0
+                    df_pass = df_m.copy()
+
+                w1 = round(df_pass[stage1_col].mean(), 2)
+                w2 = calculate_weighted_by_region(df_pass, stage2_col)
+                w3 = calculate_weighted_by_region(df_pass, stage3_col)
+                total_weighted = round(w1 + w2 + w3, 2)
+
+                all_results.append({
+                    "物流方式": method,
+                    "目标准时率(%)": tr,
+                    "实际占比(%)": round(real_r, 1) if real_r != "-" else "-",
+                    "开船-完成上架(天)": round(t, 1) if t != "-" else "-",
+                    "达标订单数": pass_cnt,
+                    "总单数": total_cnt,
+                    "开船-提柜(平均)": w1,
+                    "提柜-签收(加权)": w2,
+                    "签收-上架(加权)": w3,
+                    "总加权时效": total_weighted
+                })
+
+if all_results:
+    df_results = pd.DataFrame(all_results)
+    st.dataframe(df_results, use_container_width=True, height=400)
+else:
+    st.info("ℹ️ 暂无准时率时效数据")
+
+# ---------------------- 【改造版】一行两列对比帕累托图 ----------------------
+st.markdown("### 📈 各物流方式 - 开船-完成上架时效分布（含查验数据对比）")
+
+# 1. 准备两份对比数据
+if not df_current.empty and "是否查验" in df_current.columns and "是否为异常数据" in df_current.columns:
+    # 数据A：纯净数据（剔除所有异常）
+    df_pure = df_current[df_current["是否为异常数据"] == "否"].copy()
+
+    # 数据B：纯净数据 + 查验异常数据（加回「异常但查验=是」的订单）
+    df_check_abnormal = df_current[(df_current["是否为异常数据"] == "是") & (df_current["是否查验"] == "是")].copy()
+    df_with_check = pd.concat([df_pure, df_check_abnormal], ignore_index=True)
+
+    # 统一清洗数值列
+    for df in [df_pure, df_with_check]:
+        for col in [time_col, stage1_col, stage2_col, stage3_col]:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        df = df[df[time_col] > 0].reset_index(drop=True)
+
+    # 按物流方式循环生成对比图
+    unique_logistics_pure = df_pure[logistics_col].dropna().unique()
+    unique_logistics_check = df_with_check[logistics_col].dropna().unique()
+    common_logistics = list(set(unique_logistics_pure) & set(unique_logistics_check))
+
+    if common_logistics:
+        for method in common_logistics:
+            # 准备数据A：纯净数据
+            df_m_pure = df_pure[df_pure[logistics_col] == method].copy()
+            if len(df_m_pure) < 1:
+                continue
+
+            # 准备数据B：含查验异常数据
+            df_m_check = df_with_check[df_with_check[logistics_col] == method].copy()
+            if len(df_m_check) < 1:
+                continue
+
+            # ------------ 数据A的帕累托计算 ------------
+            df_group_pure = df_m_pure.groupby(time_col, as_index=False).agg({
+                "FBA号": "count"
+            }).rename(columns={"FBA号": "订单数"})
+            df_group_pure = df_group_pure.sort_values(time_col).reset_index(drop=True)
+            df_group_pure["累计订单数"] = df_group_pure["订单数"].cumsum()
+            df_group_pure["累计占比(%)"] = (df_group_pure["累计订单数"] / df_group_pure["订单数"].sum()) * 100
+
+            # ------------ 数据B的帕累托计算 ------------
+            df_group_check = df_m_check.groupby(time_col, as_index=False).agg({
+                "FBA号": "count"
+            }).rename(columns={"FBA号": "订单数"})
+            df_group_check = df_group_check.sort_values(time_col).reset_index(drop=True)
+            df_group_check["累计订单数"] = df_group_check["订单数"].cumsum()
+            df_group_check["累计占比(%)"] = (df_group_check["累计订单数"] / df_group_check["订单数"].sum()) * 100
+
+            # ------------ 一行两列布局 ------------
+            col1, col2 = st.columns(2)
+
+            # 左图：纯净数据
+            with col1:
+                fig1 = go.Figure()
+                fig1.add_trace(go.Bar(
+                    x=df_group_pure[time_col],
+                    y=df_group_pure["订单数"],
+                    name="订单数",
+                    marker_color="#AED6F1",
+                    opacity=0.8
+                ))
+                fig1.add_trace(go.Scatter(
+                    x=df_group_pure[time_col],
+                    y=df_group_pure["累计占比(%)"],
+                    name="累计占比(%)",
+                    mode="lines+markers",
+                    line=dict(color="red", width=3),
+                    marker=dict(color="darkblue", size=10, symbol="star"),
+                    yaxis="y2"
+                ))
+                # 添加目标占比标注
+                for tr in target_rates:
+                    match = df_group_pure[df_group_pure["累计占比(%)"] >= tr]
+                    if not match.empty:
+                        t_val = match[time_col].min()
+                        real_r_val = match[match[time_col] == t_val]["累计占比(%)"].iloc[0]
+                        fig1.add_annotation(
+                            x=t_val, y=real_r_val,
+                            text=f"{tr}% → {t_val}天",
+                            showarrow=False, yshift=10,
+                            font=dict(size=10, color="gray")
+                        )
+                fig1.update_layout(
+                    title=f"物流方式：{method}（纯净数据，无异常）",
+                    xaxis_title="开船-完成上架（天）",
+                    yaxis_title="订单数",
+                    yaxis2=dict(title="累计占比（准时率）(%)", overlaying="y", side="right", range=[0, 105]),
+                    height=450, template="plotly_white"
+                )
+                st.plotly_chart(fig1, use_container_width=True)
+
+            # 右图：含查验异常数据
+            with col2:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Bar(
+                    x=df_group_check[time_col],
+                    y=df_group_check["订单数"],
+                    name="订单数",
+                    marker_color="#AED6F1",
+                    opacity=0.8
+                ))
+                fig2.add_trace(go.Scatter(
+                    x=df_group_check[time_col],
+                    y=df_group_check["累计占比(%)"],
+                    name="累计占比(%)",
+                    mode="lines+markers",
+                    line=dict(color="red", width=3),
+                    marker=dict(color="darkblue", size=10, symbol="star"),
+                    yaxis="y2"
+                ))
+                # 添加目标占比标注
+                for tr in target_rates:
+                    match = df_group_check[df_group_check["累计占比(%)"] >= tr]
+                    if not match.empty:
+                        t_val = match[time_col].min()
+                        real_r_val = match[match[time_col] == t_val]["累计占比(%)"].iloc[0]
+                        fig2.add_annotation(
+                            x=t_val, y=real_r_val,
+                            text=f"{tr}% → {t_val}天",
+                            showarrow=False, yshift=10,
+                            font=dict(size=10, color="gray")
+                        )
+                fig2.update_layout(
+                    title=f"物流方式：{method}（含查验异常数据）",
+                    xaxis_title="开船-完成上架（天）",
+                    yaxis_title="订单数",
+                    yaxis2=dict(title="累计占比（准时率）(%)", overlaying="y", side="right", range=[0, 105]),
+                    height=450, template="plotly_white"
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+
+            st.divider()
+    else:
+        st.info("ℹ️ 无共同物流方式可对比")
+else:
+    st.info("ℹ️ 缺少「是否查验」或「是否为异常数据」字段，无法生成对比图表")
 
 # ==============================================
 # 1. 开船 - 提柜（按物流方式）✅ 修复完成
