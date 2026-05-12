@@ -162,9 +162,27 @@ if data_filter == "纯净数据（剔除异常）":
     df_selected_FBA = df_clean.copy()
     df_selected = df_clean.drop_duplicates(subset=["货件单号"], keep="first").copy()
 
-    exclude_count = len(df_all) - len(df_clean)
+    # ===================== 纯净模式：剔除的异常统计（货件 + FBA + 查验） =====================
+    # 全局被剔除的异常数据（来自 df_all）
+    df_excluded = df_all[df_all["是否为异常数据"] == "是"]
+
+    # 货件维度（去重）
+    excluded_shipment = df_excluded.drop_duplicates(subset=["货件单号"], keep="first")
+    excluded_shipment_count = len(excluded_shipment)
+    excluded_shipment_check = len(excluded_shipment[excluded_shipment["是否查验"] == "是"])
+    excluded_shipment_nocheck = excluded_shipment_count - excluded_shipment_check
+
+    # FBA维度（不去重）
+    excluded_fba_count = len(df_excluded)
+    excluded_fba_check = len(df_excluded[df_excluded["是否查验"] == "是"])
+    excluded_fba_nocheck = excluded_fba_count - excluded_fba_check
+
     st.success(
-        f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（全局），当前共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录")
+        f"✅ 已筛选为纯净数据（全局），\n"
+        f"已剔除 {excluded_shipment_count} 条货件异常数据（查验导致 {excluded_shipment_check} 条，非查验 {excluded_shipment_nocheck} 条），\n"
+        f"已剔除 {excluded_fba_count} 条FBA异常数据（查验导致 {excluded_fba_check} 条，非查验 {excluded_fba_nocheck} 条），\n"
+        f"当前共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录"
+    )
 else:
     df_selected_FBA = df_all.copy()
     df_selected = df_all.drop_duplicates(subset=["货件单号"], keep="first").copy()
@@ -245,7 +263,8 @@ if selected_logistics != '全部' and not df_prev.empty:
     df_prev_FBA = df_prev_FBA[df_prev_FBA['物流方式'] == selected_logistics].copy()
 
 # -------------------------------------------
-# 9. 【修复版】当月异常数据统计
+# -------------------------------------------
+# 9. 【最终版】当月异常数据统计 + 查验区分（纯净数据模式也支持）
 # -------------------------------------------
 logistics_tip = f"，筛选物流方式：{selected_logistics}" if selected_logistics != "全部" else ""
 
@@ -255,9 +274,42 @@ if selected_logistics != '全部':
     abnormal_filter = abnormal_filter & (df_all["物流方式"] == selected_logistics)
 abnormal_current_month = len(df_all[abnormal_filter])
 
+# 纯净数据模式下，我们也需要统计「被剔除的异常数据」中查验/非查验的数量
 if data_filter == "纯净数据（剔除异常）":
-    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据{logistics_tip}，当前共 {len(df_current)} 条货件记录 | {len(df_current_FBA)} 条FBA记录")
+    # 1. 货件维度：被剔除的异常货件（去重）
+    # 先筛选出当月、对应物流方式的所有数据，再去重货件
+    temp_all_shipment = df_all[
+        (df_all["到货年月"] == selected_month) &
+        (df_all["物流方式"] == selected_logistics if selected_logistics != "全部" else True)
+        ].drop_duplicates(subset=["货件单号"], keep="first")
+
+    excluded_shipment = len(temp_all_shipment[temp_all_shipment["是否为异常数据"] == "是"])
+    excluded_shipment_check = len(temp_all_shipment[
+                                      (temp_all_shipment["是否为异常数据"] == "是") &
+                                      (temp_all_shipment["是否查验"] == "是")
+                                      ])
+    excluded_shipment_nocheck = excluded_shipment - excluded_shipment_check
+
+    # 2. FBA维度：被剔除的异常FBA记录（不去重）
+    temp_all_fba = df_all[
+        (df_all["到货年月"] == selected_month) &
+        (df_all["物流方式"] == selected_logistics if selected_logistics != "全部" else True)
+        ]
+
+    excluded_fba = len(temp_all_fba[temp_all_fba["是否为异常数据"] == "是"])
+    excluded_fba_check = len(temp_all_fba[
+                                 (temp_all_fba["是否为异常数据"] == "是") &
+                                 (temp_all_fba["是否查验"] == "是")
+                                 ])
+    excluded_fba_nocheck = excluded_fba - excluded_fba_check
+
+    # 3. 按你要的格式输出
+    st.info(f"📌 【{selected_month}】已筛选为纯净数据{logistics_tip}，"
+            f"已剔除 {excluded_shipment} 条货件异常数据（查验导致 {excluded_shipment_check} 条，非查验 {excluded_shipment_nocheck} 条），"
+            f"已剔除 {excluded_fba} 条FBA记录异常数据（查验导致 {excluded_fba_check} 条，非查验 {excluded_fba_nocheck} 条），"
+            f"当前共 {len(df_current)} 条货件记录 | {len(df_current_FBA)} 条FBA记录")
 else:
+    # 全部数据模式：保持之前的统计逻辑
     # 货件维度（去重）
     total_current_shipment = len(df_current)
     abnormal_current_shipment = len(df_current[df_current["是否为异常数据"] == "是"])
@@ -267,13 +319,13 @@ else:
     # FBA维度（不去重）
     total_current_fba = len(df_current_FBA)
     abnormal_current_fba = len(df_current_FBA[df_current_FBA["是否为异常数据"] == "是"])
-    abnormal_fba_check = len(df_current_FBA[(df_current_FBA["是否为异常数据"] == "是") & (df_current_FBA["是否查验"] == "是")])
+    abnormal_fba_check = len(
+        df_current_FBA[(df_current_FBA["是否为异常数据"] == "是") & (df_current_FBA["是否查验"] == "是")])
     abnormal_fba_nocheck = abnormal_current_fba - abnormal_fba_check
 
-    # 输出你要的格式
     st.info(f"📌 【{selected_month}】当前显示全部数据{logistics_tip}，"
-            f"共 {total_current_shipment} 条货件记录，其中异常 {abnormal_current_shipment} 条，查验导致 {abnormal_shipment_check} 条，非查验 {abnormal_shipment_nocheck} 条 | "
-            f"共 {total_current_fba} 条FBA记录，其中异常 {abnormal_current_fba} 条，查验导致 {abnormal_fba_check} 条，非查验 {abnormal_fba_nocheck} 条")
+            f"共 {total_current_shipment} 条货件记录，其中异常 {abnormal_current_shipment} 条（查验导致 {abnormal_shipment_check} 条，非查验 {abnormal_shipment_nocheck} 条） | "
+            f"共 {total_current_fba} 条FBA记录，其中异常 {abnormal_current_fba} 条（查验导致 {abnormal_fba_check} 条，非查验 {abnormal_fba_nocheck} 条）")
 # ---------------------- 你的核心指标/可视化/表格代码（仅改数据源引用） ----------------------
 # ---------------------- ① 核心指标卡片 ----------------------
 st.markdown("### 核心指标")
