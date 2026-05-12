@@ -95,6 +95,16 @@ def load_data():
         df_clean = df_all.copy()
         st.warning(f"未找到「{abnormal_col}」列，已默认全部为正常数据（否）")
 
+    # ===================== 新增：处理 是否查验 列 =====================
+    check_col = "是否查验"
+    if check_col in df_all.columns:
+        df_all[check_col] = df_all[check_col].astype(str).str.strip().fillna("否")
+        df_all[check_col] = df_all[check_col].replace({"是": "是", "否": "否", "nan": "否"})
+    else:
+        df_all[check_col] = "否"
+        st.warning(f"未找到「{check_col}」列，已默认全部为否")
+    # =================================================================
+
     # 核心列筛选
     core_columns = [
         "FBA号", "区域", "物流方式", "店铺", "仓库", "货代", "异常备注","货件单号",
@@ -103,7 +113,7 @@ def load_data():
         "预计物流时效-实际物流时效差值(绝对值)",
         "预计物流时效-实际物流时效差值", "提前/延期(整体)",
         "预计物流时效-实际物流时效差值（货代）",
-        "提前/延期（货代）", "提前/延期（仓库）", abnormal_col
+        "提前/延期（货代）", "提前/延期（仓库）", abnormal_col, "是否查验"  # <-- 加入是否查验
     ]
     existing_columns = [col for col in core_columns if col in df_all.columns]
     missing_columns = [col for col in core_columns if col not in df_all.columns]
@@ -149,26 +159,35 @@ data_filter = st.radio(
 
 # 3. 核心：生成两套数据（完全满足你的需求）
 if data_filter == "纯净数据（剔除异常）":
-    # 仓库分析用：不去重，全部FBA号
     df_selected_FBA = df_clean.copy()
-
-    # 非仓库分析用：按【货件单号】去重（保留第一条）
     df_selected = df_clean.drop_duplicates(subset=["货件单号"], keep="first").copy()
 
     exclude_count = len(df_all) - len(df_clean)
     st.success(
         f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（全局），当前共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录")
 else:
-    # 仓库分析用：不去重，全部FBA号
     df_selected_FBA = df_all.copy()
-
-    # 非仓库分析用：按【货件单号】去重（保留第一条）
     df_selected = df_all.drop_duplicates(subset=["货件单号"], keep="first").copy()
 
-    abnormal_count_total = len(df_all[df_all["是否为异常数据"] == "是"])
-    st.info(
-        f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录（含 {abnormal_count_total} 条异常数据）")
+    # ===================== 【核心修改】查验统计 =====================
+    # 货件维度（去重后）
+    total_shipment = len(df_selected)
+    abnormal_shipment = len(df_selected[df_selected["是否为异常数据"] == "是"])
+    abnormal_shipment_check = len(df_selected[(df_selected["是否为异常数据"] == "是") & (df_selected["是否查验"] == "是")])
+    abnormal_shipment_nocheck = abnormal_shipment - abnormal_shipment_check
 
+    # FBA维度（不去重）
+    total_fba = len(df_selected_FBA)
+    abnormal_fba = len(df_selected_FBA[df_selected_FBA["是否为异常数据"] == "是"])
+    abnormal_fba_check = len(df_selected_FBA[(df_selected_FBA["是否为异常数据"] == "是") & (df_selected_FBA["是否查验"] == "是")])
+    abnormal_fba_nocheck = abnormal_fba - abnormal_fba_check
+
+    # 输出你要的格式
+    st.info(
+        f"ℹ️ 当前展示全部数据（全局），共 {total_shipment} 条货件记录，"
+        f"其中异常 {abnormal_shipment} 条，查验导致 {abnormal_shipment_check} 条，非查验 {abnormal_shipment_nocheck} 条 | "
+        f"共 {total_fba} 条FBA记录，其中异常 {abnormal_fba} 条，查验导致 {abnormal_fba_check} 条，非查验 {abnormal_fba_nocheck} 条"
+    )
 # 5. 主看板区域
 st.title("🚢 FBA海运分析看板区域")
 st.divider()
