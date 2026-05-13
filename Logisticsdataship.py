@@ -1919,45 +1919,37 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【一行三列：双图+差异表 终极修复版】 ----------------------
+# ---------------------- 【按你的思路重写：纯逻辑版】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
-if not df_current.empty and "是否查验" in df_current.columns and "是否为异常数据" in df_current.columns:
+if "是否查验" in df_all.columns and "是否为异常数据" in df_all.columns:
 
-    # 1. 基础数据准备
-    df_left = df_current.copy()
-
-    # 2. 查验数据（同步筛选+去重）【关键修复：加调试日志】
-    st.write("#### 🔍 调试日志：查验数据筛选过程")
-    df_check_extra = df_all.copy()
-    st.write(f"原始df_all数据量：{len(df_check_extra)}")
-
-    # 同步独立筛选器
+    # ===================== 你的逻辑：左右图均直接从df_all取，只受独立筛选器控制 =====================
+    # 同步筛选条件
     if selected_month_hot:
-        df_check_extra = df_check_extra[df_check_extra["到货年月"].isin(selected_month_hot)]
-        st.write(f"同步月份筛选后：{len(df_check_extra)}")
+        mask_month = df_all["到货年月"].isin(selected_month_hot)
+    else:
+        mask_month = True
     if selected_log_hot != "全部":
-        df_check_extra = df_check_extra[df_check_extra["物流方式"] == selected_log_hot]
-        st.write(f"同步物流方式筛选后：{len(df_check_extra)}")
+        mask_log = df_all["物流方式"] == selected_log_hot
+    else:
+        mask_log = True
     if selected_region_hot != "全部":
-        df_check_extra = df_check_extra[df_check_extra["区域"] == selected_region_hot]
-        st.write(f"同步区域筛选后：{len(df_check_extra)}")
+        mask_region = df_all["区域"] == selected_region_hot
+    else:
+        mask_region = True
 
-    # 筛选异常+查验
-    df_check_extra = df_check_extra[
-        (df_check_extra["是否为异常数据"] == "是") &
-        (df_check_extra["是否查验"] == "是")
-    ].copy()
-    st.write(f"筛选「异常=是+查验=是」后：{len(df_check_extra)}")
+    # 1. 左图：无查验（是否异常=否）
+    mask_left = (df_all["是否为异常数据"] == "否") & mask_month & mask_log & mask_region
+    df_left = df_all[mask_left].copy()
+    df_left = df_left.drop_duplicates(subset=["货件单号"], keep="first")
 
-    # 货件去重
-    df_check_extra = df_check_extra.drop_duplicates(subset=["货件单号"], keep="first")
-    st.write(f"货件去重后：{len(df_check_extra)}")
-
-    # 3. 合并数据并清洗
-    df_right = pd.concat([df_left, df_check_extra], ignore_index=True)
+    # 2. 右图：含查验（是否异常=否 OR 是否查验=是）
+    mask_right = ((df_all["是否为异常数据"] == "否") | (df_all["是否查验"] == "是")) & mask_month & mask_log & mask_region
+    df_right = df_all[mask_right].copy()
     df_right = df_right.drop_duplicates(subset=["货件单号"], keep="first")
 
+    # 清洗时效
     for col in [time_col, stage1_col, stage2_col, stage3_col]:
         df_left[col] = pd.to_numeric(df_left[col], errors="coerce").fillna(0)
         df_right[col] = pd.to_numeric(df_right[col], errors="coerce").fillna(0)
