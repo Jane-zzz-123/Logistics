@@ -1919,7 +1919,7 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【按你的思路重写：纯逻辑版】 ----------------------
+# ---------------------- 【按你的需求：天数维度对比表】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
 if "是否查验" in df_all.columns and "是否为异常数据" in df_all.columns:
@@ -1971,32 +1971,31 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
             if len(df_m_left) < 1 or len(df_m_right) < 1:
                 continue
 
-            # 帕累托数据计算
+            # 帕累托数据计算（左图）
             g_left = df_m_left.groupby(time_col).agg(订单数=("FBA号", "count")).reset_index().sort_values(time_col)
-            g_left["累计占比(%)"] = g_left["订单数"].cumsum() / g_left["订单数"].sum() * 100
+            g_left["累计订单数"] = g_left["订单数"].cumsum()
+            g_left["无查验累计占比(%)"] = (g_left["累计订单数"] / g_left["订单数"].sum() * 100).round(2)
 
+            # 帕累托数据计算（右图）
             g_right = df_m_right.groupby(time_col).agg(订单数=("FBA号", "count")).reset_index().sort_values(time_col)
-            g_right["累计占比(%)"] = g_right["订单数"].cumsum() / g_right["订单数"].sum() * 100
+            g_right["累计订单数"] = g_right["订单数"].cumsum()
+            g_right["含查验累计占比(%)"] = (g_right["累计订单数"] / g_right["订单数"].sum() * 100).round(2)
 
-            # 差异统计（订单数+关键节点）
-            cnt_before = g_left["订单数"].sum()
-            cnt_after = g_right["订单数"].sum()
-            diff_cnt = cnt_after - cnt_before
+            # 合并成按天数的对比表
+            diff_df = pd.merge(
+                g_left[[time_col, "无查验累计占比(%)", "订单数"]],
+                g_right[[time_col, "含查验累计占比(%)", "订单数"]],
+                on=time_col,
+                how="outer",
+                suffixes=("_无查验", "_含查验")
+            ).sort_values(time_col).fillna(0)
 
-            def get_pareto_day(g, rate):
-                match = g[g["累计占比(%)"] >= rate]
-                return round(match[time_col].min(),1) if not match.empty else "-"
-
-            diff_75 = get_pareto_day(g_right,75) - get_pareto_day(g_left,75) if get_pareto_day(g_right,75) != "-" else "-"
-            diff_90 = get_pareto_day(g_right,90) - get_pareto_day(g_left,90) if get_pareto_day(g_right,90) != "-" else "-"
-            diff_95 = get_pareto_day(g_right,95) - get_pareto_day(g_left,95) if get_pareto_day(g_right,95) != "-" else "-"
-
-            # 构建差异表
-            diff_df = pd.DataFrame({
-                "指标": ["订单总数", "75%时效(天)", "90%时效(天)", "95%时效(天)"],
-                "无查验": [cnt_before, get_pareto_day(g_left,75), get_pareto_day(g_left,90), get_pareto_day(g_left,95)],
-                "含查验": [cnt_after, get_pareto_day(g_right,75), get_pareto_day(g_right,90), get_pareto_day(g_right,95)],
-                "差异": [f"+{diff_cnt}", diff_75, diff_90, diff_95]
+            # 计算差异列
+            diff_df["占比差异(含查验-无查验)"] = (diff_df["含查验累计占比(%)"] - diff_df["无查验累计占比(%)"]).round(2)
+            diff_df = diff_df.rename(columns={
+                time_col: "开船-完成上架(天)",
+                "订单数_无查验": "无查验订单数",
+                "订单数_含查验": "含查验订单数"
             })
 
             # 一行三列布局
@@ -2006,12 +2005,7 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
             with col1:
                 fig1 = go.Figure()
                 fig1.add_trace(go.Bar(x=g_left[time_col], y=g_left["订单数"], name="订单数", marker_color="#AED6F1", opacity=0.8))
-                fig1.add_trace(go.Scatter(x=g_left[time_col], y=g_left["累计占比(%)"], name="累计占比", line=dict(color="red", width=3), mode="lines+markers", yaxis="y2"))
-                for tr in [75,90,95,100]:
-                    match = g_left[g_left["累计占比(%)"] >= tr]
-                    if not match.empty:
-                        t = match[time_col].min()
-                        fig1.add_annotation(x=t, y=tr, text=f"{tr}% → {t:.0f}天", showarrow=False, yshift=10, font_size=10)
+                fig1.add_trace(go.Scatter(x=g_left[time_col], y=g_left["无查验累计占比(%)"], name="累计占比", line=dict(color="red", width=3), mode="lines+markers", yaxis="y2"))
                 fig1.update_layout(
                     title=f"{method}（无查验）",
                     xaxis_title="开船-完成上架（天）",
@@ -2025,12 +2019,7 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
             with col2:
                 fig2 = go.Figure()
                 fig2.add_trace(go.Bar(x=g_right[time_col], y=g_right["订单数"], name="订单数", marker_color="#AED6F1", opacity=0.8))
-                fig2.add_trace(go.Scatter(x=g_right[time_col], y=g_right["累计占比(%)"], name="累计占比", line=dict(color="red", width=3), mode="lines+markers", yaxis="y2"))
-                for tr in [75,90,95,100]:
-                    match = g_right[g_right["累计占比(%)"] >= tr]
-                    if not match.empty:
-                        t = match[time_col].min()
-                        fig2.add_annotation(x=t, y=tr, text=f"{tr}% → {t:.0f}天", showarrow=False, yshift=10, font_size=10)
+                fig2.add_trace(go.Scatter(x=g_right[time_col], y=g_right["含查验累计占比(%)"], name="累计占比", line=dict(color="red", width=3), mode="lines+markers", yaxis="y2"))
                 fig2.update_layout(
                     title=f"{method}（含查验）",
                     xaxis_title="开船-完成上架（天）",
@@ -2040,20 +2029,14 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
                 )
                 st.plotly_chart(fig2, use_container_width=True)
 
-            # 第3列：差异对比表格
+            # 第3列：按天数的差异对比表
             with col3:
-                st.subheader("📋 查验影响差异表")
+                st.subheader("📋 按天数查验影响差异表")
                 st.dataframe(
                     diff_df,
                     use_container_width=True,
                     hide_index=True
                 )
-                # 高亮关键差异
-                st.info(f"""
-                ✅ 查验影响总结：
-                - 订单数变化：**+{diff_cnt}** 单
-                - 95%时效变化：**{diff_95 if diff_95 != "-" else "无数据"}** 天
-                """)
 
             st.divider()
     else:
