@@ -1920,34 +1920,40 @@ else:
     st.info("ℹ️ 暂无准时率时效数据")
 
 # ---------------------- 【最终版·你的逻辑】一行两列对比帕累托图 ----------------------
+# ---------------------- 【最终·绝对正确版】 ----------------------
 st.markdown("### 📈 各物流方式 - 开船-完成上架时效分布（含查验数据对比）")
 
 if not df_current.empty and "是否查验" in df_current.columns and "是否为异常数据" in df_current.columns:
 
-    # 左图：当前筛选后的数据（纯净/去重货件，你看板正在用的）
+    # 左图：当前筛选好的数据（你看板正在用的）
     df_left = df_current.copy()
 
-    # ===================== 【你的逻辑】查验数据也受「顶部筛选 + 独立筛选器」双重控制 =====================
-    # 关键：从 df_selected（和左图同源，受顶部筛选控制）中提取数据
-    df_check_extra = df_selected.copy()
+    # ===================== 你的逻辑：严格 1:1 还原 =====================
+    # 1. 从全量数据拿
+    df_check_extra = df_all.copy()
 
-    # 1. 同步你的独立筛选器（年月+物流+区域）
-    df_check_extra = filter_df(df_check_extra)
+    # 2. 受【物流环节时效分析】的三个筛选器控制
+    if selected_month_hot:
+        df_check_extra = df_check_extra[df_check_extra["到货年月"].isin(selected_month_hot)]
+    if selected_log_hot != "全部":
+        df_check_extra = df_check_extra[df_check_extra["物流方式"] == selected_log_hot]
+    if selected_region_hot != "全部":
+        df_check_extra = df_check_extra[df_check_extra["区域"] == selected_region_hot]
 
-    # 2. 只保留：异常数据 + 查验=是
+    # 3. 只保留：异常=是 且 查验=是
     df_check_extra = df_check_extra[
         (df_check_extra["是否为异常数据"] == "是") &
         (df_check_extra["是否查验"] == "是")
     ].copy()
-    # =========================================================================================
 
-    # 货件去重（和你看板保持一致）
+    # 4. 货件单号去重 ✅ 你问的就是这个！
     df_check_extra = df_check_extra.drop_duplicates(subset=["货件单号"], keep="first")
+    # =================================================================
 
-    # 右图 = 当前数据 + 查验异常
+    # 右图 = 左边 + 查验数据
     df_right = pd.concat([df_left, df_check_extra], ignore_index=True)
 
-    # 清洗时效列
+    # 清洗
     for col in [time_col, stage1_col, stage2_col, stage3_col]:
         df_left[col] = pd.to_numeric(df_left[col], errors="coerce").fillna(0)
         df_right[col] = pd.to_numeric(df_right[col], errors="coerce").fillna(0)
@@ -1955,29 +1961,20 @@ if not df_current.empty and "是否查验" in df_current.columns and "是否为�
     df_left = df_left[df_left[time_col] > 0].reset_index(drop=True)
     df_right = df_right[df_right[time_col] > 0].reset_index(drop=True)
 
-    # 共同物流方式
-    common_logistics = list(
-        set(df_left[logistics_col].dropna().unique()) &
-        set(df_right[logistics_col].dropna().unique())
-    )
+    # 绘图
+    common_logistics = list(set(df_left[logistics_col].dropna().unique()) & set(df_right[logistics_col].dropna().unique()))
 
     if common_logistics:
         for method in common_logistics:
             df_m_left = df_left[df_left[logistics_col] == method].copy()
             df_m_right = df_right[df_right[logistics_col] == method].copy()
+            if len(df_m_left) < 1 or len(df_m_right) < 1: continue
 
-            if len(df_m_left) < 1 or len(df_m_right) < 1:
-                continue
-
-            # 帕累托计算 左
             g_left = df_m_left.groupby(time_col).agg(订单数=("FBA号", "count")).reset_index().sort_values(time_col)
-            g_left["累计订单数"] = g_left["订单数"].cumsum()
-            g_left["累计占比(%)"] = g_left["累计订单数"] / g_left["订单数"].sum() * 100
+            g_left["累计占比(%)"] = g_left["订单数"].cumsum() / g_left["订单数"].sum() * 100
 
-            # 帕累托计算 右
             g_right = df_m_right.groupby(time_col).agg(订单数=("FBA号", "count")).reset_index().sort_values(time_col)
-            g_right["累计订单数"] = g_right["订单数"].cumsum()
-            g_right["累计占比(%)"] = g_right["累计订单数"] / g_right["订单数"].sum() * 100
+            g_right["累计占比(%)"] = g_right["订单数"].cumsum() / g_right["订单数"].sum() * 100
 
             col1, col2 = st.columns(2)
             with col1:
