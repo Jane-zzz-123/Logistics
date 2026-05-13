@@ -1919,7 +1919,7 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【按你的需求：天数维度对比表】 ----------------------
+# ---------------------- 【最终调整版：加总订单数+去差异列】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
 if "是否查验" in df_all.columns and "是否为异常数据" in df_all.columns:
@@ -1981,7 +1981,13 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
             g_right["累计订单数"] = g_right["订单数"].cumsum()
             g_right["含查验累计占比(%)"] = (g_right["累计订单数"] / g_right["订单数"].sum() * 100).round(2)
 
-            # 合并成按天数的对比表
+            # ===================== 新增：总订单数汇总 =====================
+            total_no_check = g_left["订单数"].sum()  # 无查验总订单数
+            total_with_check = g_right["订单数"].sum()  # 含查验总订单数
+            diff_total = total_with_check - total_no_check  # 新增订单数
+            # =================================================================
+
+            # 合并成按天数的对比表（去掉占比差异列）
             diff_df = pd.merge(
                 g_left[[time_col, "无查验累计占比(%)", "订单数"]],
                 g_right[[time_col, "含查验累计占比(%)", "订单数"]],
@@ -1990,13 +1996,12 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
                 suffixes=("_无查验", "_含查验")
             ).sort_values(time_col).fillna(0)
 
-            # 计算差异列
-            diff_df["占比差异(含查验-无查验)"] = (diff_df["含查验累计占比(%)"] - diff_df["无查验累计占比(%)"]).round(2)
+            # 重命名列+调整顺序
             diff_df = diff_df.rename(columns={
                 time_col: "开船-完成上架(天)",
                 "订单数_无查验": "无查验订单数",
                 "订单数_含查验": "含查验订单数"
-            })
+            })[["开船-完成上架(天)", "无查验订单数", "无查验累计占比(%)", "含查验订单数", "含查验累计占比(%)"]]
 
             # 一行三列布局
             col1, col2, col3 = st.columns(3)
@@ -2029,9 +2034,17 @@ if "是否查验" in df_all.columns and "是否为异常数据" in df_all.column
                 )
                 st.plotly_chart(fig2, use_container_width=True)
 
-            # 第3列：按天数的差异对比表
+            # 第3列：按天数的差异对比表（加总订单数）
             with col3:
                 st.subheader("📋 按天数查验影响差异表")
+                # 先显示总订单数汇总
+                st.info(f"""
+                📦 总订单数汇总：
+                - 无查验总订单：**{total_no_check}** 单
+                - 含查验总订单：**{total_with_check}** 单
+                - 新增查验订单：**+{diff_total}** 单
+                """)
+                # 再显示明细表格
                 st.dataframe(
                     diff_df,
                     use_container_width=True,
