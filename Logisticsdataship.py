@@ -1919,7 +1919,7 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【一行三列：双图+差异表 终极版】 ----------------------
+# ---------------------- 【一行三列：双图+差异表 终极修复版】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
 if not df_current.empty and "是否查验" in df_current.columns and "是否为异常数据" in df_current.columns:
@@ -1927,20 +1927,32 @@ if not df_current.empty and "是否查验" in df_current.columns and "是否为�
     # 1. 基础数据准备
     df_left = df_current.copy()
 
-    # 2. 查验数据（同步筛选+去重）
+    # 2. 查验数据（同步筛选+去重）【关键修复：加调试日志】
+    st.write("#### 🔍 调试日志：查验数据筛选过程")
     df_check_extra = df_all.copy()
+    st.write(f"原始df_all数据量：{len(df_check_extra)}")
+
+    # 同步独立筛选器
     if selected_month_hot:
         df_check_extra = df_check_extra[df_check_extra["到货年月"].isin(selected_month_hot)]
+        st.write(f"同步月份筛选后：{len(df_check_extra)}")
     if selected_log_hot != "全部":
         df_check_extra = df_check_extra[df_check_extra["物流方式"] == selected_log_hot]
+        st.write(f"同步物流方式筛选后：{len(df_check_extra)}")
     if selected_region_hot != "全部":
         df_check_extra = df_check_extra[df_check_extra["区域"] == selected_region_hot]
+        st.write(f"同步区域筛选后：{len(df_check_extra)}")
 
+    # 筛选异常+查验
     df_check_extra = df_check_extra[
         (df_check_extra["是否为异常数据"] == "是") &
         (df_check_extra["是否查验"] == "是")
     ].copy()
+    st.write(f"筛选「异常=是+查验=是」后：{len(df_check_extra)}")
+
+    # 货件去重
     df_check_extra = df_check_extra.drop_duplicates(subset=["货件单号"], keep="first")
+    st.write(f"货件去重后：{len(df_check_extra)}")
 
     # 3. 合并数据并清洗
     df_right = pd.concat([df_left, df_check_extra], ignore_index=True)
