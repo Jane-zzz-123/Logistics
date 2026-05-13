@@ -1919,34 +1919,27 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【改造版】一行两列对比帕累托图 ----------------------
-# ---------------------- 【最终版·你要的逻辑】一行两列对比帕累托图 ----------------------
+# ---------------------- 【最终版·你的逻辑】一行两列对比帕累托图 ----------------------
 st.markdown("### 📈 各物流方式 - 开船-完成上架时效分布（含查验数据对比）")
 
-# ===================== 你的逻辑：直接用当前筛选好的数据 =====================
 if not df_current.empty and "是否查验" in df_current.columns and "是否为异常数据" in df_current.columns:
 
     # 左图：当前筛选后的数据（纯净/去重货件，你看板正在用的）
     df_left = df_current.copy()
 
-    # ===================== 【修复点】同步多选月份+物流+区域 =====================
-    df_check_extra = df_all.copy()
+    # ===================== 【你的逻辑】查验数据也受「顶部筛选 + 独立筛选器」双重控制 =====================
+    # 关键：从 df_selected（和左图同源，受顶部筛选控制）中提取数据
+    df_check_extra = df_selected.copy()
 
-    # 同步 多选月份
-    if selected_month_hot:
-        df_check_extra = df_check_extra[df_check_extra["到货年月"].isin(selected_month_hot)]
+    # 1. 同步你的独立筛选器（年月+物流+区域）
+    df_check_extra = filter_df(df_check_extra)
 
-    # 同步 物流方式
-    if selected_log_hot != "全部":
-        df_check_extra = df_check_extra[df_check_extra["物流方式"] == selected_log_hot]
-
-    # 同步 区域
-    if selected_region_hot != "全部":
-        df_check_extra = df_check_extra[df_check_extra["区域"] == selected_region_hot]
-
-    # 只加：异常数据 + 查验=是
-    df_check_extra = df_check_extra[(df_check_extra["是否为异常数据"] == "是") & (df_check_extra["是否查验"] == "是")].copy()
-    # ========================================================================
+    # 2. 只保留：异常数据 + 查验=是
+    df_check_extra = df_check_extra[
+        (df_check_extra["是否为异常数据"] == "是") &
+        (df_check_extra["是否查验"] == "是")
+    ].copy()
+    # =========================================================================================
 
     # 货件去重（和你看板保持一致）
     df_check_extra = df_check_extra.drop_duplicates(subset=["货件单号"], keep="first")
