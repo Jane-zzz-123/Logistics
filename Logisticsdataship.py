@@ -3610,65 +3610,82 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置堆叠柱形图（最直观·零门槛·占比对比一眼懂）
-# 核心逻辑：每类物流方式位置永久固定，柱子高度=占比大小，不会搞反
+# 📊 固定位置·占比对比柱形图（同色系·占比越大颜色越深）
+# 红单=红 | 空派=蓝 | 普船=绿 | 以星=橙 | 以星特快=黄 | 正班=灰 | 其余=紫
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
 # 1. 数据准备
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
-    总费用=("总费用", "sum")
+    总费用=("总费用", sum)
 )
-df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
+df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform(sum)
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
+df_pie[group_col] = df_pie[group_col].astype(str)
 
-# 强制时间列为整数，彻底解决小数点问题
-df_pie[group_col] = df_pie[group_col].astype(int).astype(str)
+# 2. 物流方式基础色（你指定的）
+logi_base_color = {
+    "红单": "#cc0000",
+    "空派": "#0066cc",
+    "普船": "#009944",
+    "以星": "#cc6600",
+    "以星特快": "#cc9900",
+    "正班": "#555555",
+}
+default_base = "#8822cc"  # 其余统一紫色
 
-# 2. 一行两列布局：左边图，右边表
-bar_col, table_col = st.columns([1.3, 1])
+# 3. 一行两列
+bar_col, tbl_col = st.columns([1.4, 1])
 
-# -------------------- 左边：固定位置分组柱形图 --------------------
 with bar_col:
-    st.markdown("### 🔁 占比变化对比图")
-    # 分组柱形图：X轴=物流方式（位置固定），Y轴=占比，不同周期用不同颜色区分
-    fig_bar = px.bar(
-        df_pie,
-        x="实际物流方式",
-        y="占比",
-        color=group_col,
+    st.markdown("### 🔁 占比变化对比（同色系·占比越大颜色越深）")
+    fig = go.Figure()
+
+    max_pct = df_pie["占比"].max()
+
+    for _, row in df_pie.iterrows():
+        logi = row["实际物流方式"]
+        p = row[group_col]
+        val = row["占比"]
+
+        # 基础色
+        base = logi_base_color.get(logi, default_base)
+
+        # 占比越大 → 颜色越深（核心逻辑）
+        intensity = val / max_pct if max_pct != 0 else 0.5
+        r = int(int(base[1:3], 16) * intensity)
+        g = int(int(base[3:5], 16) * intensity)
+        b = int(int(base[5:7], 16) * intensity)
+        color = f"rgb({r},{g},{b})"
+
+        fig.add_trace(go.Bar(
+            x=[f"{logi}"],
+            y=[val],
+            name=f"{logi} | {p}",
+            marker_color=color,
+            text=f"{val:.1f}%",
+            textposition="outside",
+            textfont=dict(size=11),
+            width=0.7,
+        ))
+
+    fig.update_layout(
+        height=520,
         barmode="group",
-        color_discrete_sequence=["#1f77b4", "#ff7f0e", "#2ca02c"], # 周期颜色：内→外对应旧→新
-        title="各物流方式占比变化（位置固定，高度=占比大小）",
-        text=df_pie["占比"].apply(lambda x: f"{x:.1f}%")
-    )
-    fig_bar.update_traces(textposition="outside", textfont=dict(size=11))
-    fig_bar.update_layout(
-        height=500,
-        yaxis_title="占比(%)",
+        yaxis_title="占比 (%)",
         xaxis_title="实际物流方式",
-        legend_title=group_col,
-        margin=dict(l=20, r=20, t=50, b=20)
+        legend=dict(orientation="h", y=-0.2),
+        margin=dict(l=20, r=20, t=40, b=60),
+        title="同色系：占比越大 → 颜色越深",
+        title_x=0.5
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-# -------------------- 右边：占比明细表格（修复nan值） --------------------
-with table_col:
+with tbl_col:
     st.markdown("### 📋 占比明细（%）")
-    # 透视表，自动填充空值为0，修复nan显示问题
-    pv = df_pie.pivot(
-        index="实际物流方式",
-        columns=group_col,
-        values="占比"
-    ).fillna(0).round(1)
-
-    # 格式化表格，加百分号
-    pv_display = pv.applymap(lambda x: f"{x:.1f}%")
-    st.dataframe(
-        pv_display,
-        use_container_width=True,
-        height=500
-    )
+    pv = df_pie.pivot(index="实际物流方式", columns=group_col, values="占比").fillna(0)
+    pv = pv.round(1).astype(str) + "%"
+    st.dataframe(pv, use_container_width=True, height=520)
 
 st.markdown("---")
 
