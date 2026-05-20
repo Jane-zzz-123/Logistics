@@ -3687,6 +3687,7 @@ with bar_col:
         # 隐藏图例，页面更干净
         showlegend=False,
         margin=dict(l=20, r=20, t=40, b=60),
+        title="各物流方式占比变化",
         title_x=0.5,
         bargap=0.3,
         bargroupgap=0.1
