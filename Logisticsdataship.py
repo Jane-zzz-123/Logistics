@@ -3610,52 +3610,61 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 🥧 多层同心圆环形图（内层=早期月份/周期 外层=最新月份/周期）
+# 🥧 固定位置·分裂式多层环形图（物流方式位置固定·厚度区分月份）
 # ==============================================================================
-st.markdown("## 🥧 多周期嵌套环形占比（同一圆心·多层环比）")
+st.markdown("## 🥧 固定位置·分裂式多层环形占比")
 
 # 1. 数据准备
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum")
 )
 df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
-df_pie["占比"] = df_pie["总费用"] / df_pie["周期总费用"]
+df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 
-# 时间排序（内层旧 → 外层新）
+# 时间排序：内层=旧月份，外层=新月份
 period_list = sorted(df_pie[group_col].unique())
 df_pie[group_col] = df_pie[group_col].astype(str)
 
-# 2. 一行两列：左图 右表
-fig_col, tbl_col = st.columns([1.2, 1])
+# 2. 一行两列布局：左图 右表
+fig_col, tbl_col = st.columns([1.3, 1])
 
 with fig_col:
-    st.markdown("### 🔁 多层同心圆占比趋势")
+    st.markdown("### 🔁 固定位置·分裂式环比图")
     fig = go.Figure()
 
-    # 依次绘制每一层：内层旧 → 外层新
+    # 核心逻辑：从内层到外层，固定每一种物流方式的角度位置
+    # 越往外，环形的外半径越大，用厚度区分月份
     for i, period in enumerate(period_list):
         d = df_pie[df_pie[group_col] == str(period)]
+
+        # 固定环形半径：内层（旧）半径小，外层（新）半径大，形成厚度差
+        inner_radius = 0.3 + i * 0.12  # 内层内半径
+        outer_radius = 0.42 + i * 0.12  # 内层外半径，和下一层无缝衔接
+
         fig.add_trace(go.Pie(
-            values=d["总费用"],
+            values=d["占比"],
             labels=d["实际物流方式"],
             name=f"{group_col} {period}",
-            hole=0.3 + i*0.15,        # 越往外圈洞越大
+            hole=inner_radius,
             domain=dict(x=[0, 1], y=[0, 1]),
             textposition="inside",
             texttemplate="%{percent:.1%}",
             textinfo="percent",
-            showlegend=(i == len(period_list)-1), # 只显示最后一层图例
-            rotation=90,
+            showlegend=(i == len(period_list) - 1),  # 只显示最后一层图例
+            rotation=90,  # 固定起始角度，保证每一块位置不变
             marker=dict(
-                colors=[color_map.get(name, "#cccccc") for name in d["实际物流方式"]]
-            )
+                colors=[color_map.get(name, "#cccccc") for name in d["实际物流方式"]],
+                line=dict(color="#ffffff", width=3)  # 白色分割线，分裂炸开效果
+            ),
+            # 分裂炸开效果：每一块都向外突出一点
+            pull=0.05
         ))
 
     fig.update_layout(
-        height=480,
+        height=520,
         legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5),
         margin=dict(l=20, r=20, t=30, b=60),
-        title_text=f"从内到外：旧 → 新（{", ".join(map(str, period_list))}）",
+        title_text=f"从内到外：旧 → 新（{", ".join(map(str, period_list))}）｜每块位置固定，厚度区分月份",
         title_x=0.5
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -3664,8 +3673,8 @@ with tbl_col:
     st.markdown("### 📋 各周期占比明细")
     # 透视表：行为物流方式，列为周期，值为占比
     pv = df_pie.pivot(index="实际物流方式", columns=group_col, values="占比").fillna(0)
-    pv_pct = pv.apply(lambda x: (x*100).round(1)).astype(str) + "%"
-    st.dataframe(pv_pct, use_container_width=True, height=480)
+    pv_pct = pv.apply(lambda x: (x).round(1)).astype(str) + "%"
+    st.dataframe(pv_pct, use_container_width=True, height=520)
 
 st.markdown("---")
 
