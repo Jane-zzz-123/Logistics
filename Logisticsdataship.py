@@ -3610,82 +3610,93 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（同色系·占比越大颜色越深）
-# 红单=红 | 空派=蓝 | 普船=绿 | 以星=橙 | 以星特快=黄 | 正班=灰 | 其余=紫
+# 📊 固定位置·占比对比柱形图（同色系·月份越新颜色越深）
+# 红单=红渐变 | 空派=蓝渐变 | 普船=绿渐变 | 以星=橙渐变 | 以星特快=黄渐变 | 正班=灰渐变 | 其余=紫渐变
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
 # 1. 数据准备
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
-    总费用=("总费用", sum)
+    总费用=("总费用", "sum")
 )
-df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform(sum)
+df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 df_pie[group_col] = df_pie[group_col].astype(str)
 
-# 2. 物流方式基础色（你指定的）
-logi_base_color = {
-    "红单": "#cc0000",
-    "空派": "#0066cc",
-    "普船": "#009944",
-    "以星": "#cc6600",
-    "以星特快": "#cc9900",
-    "正班": "#555555",
+# 2. 专属渐变配色（完全对应你要的风格，月份越新→颜色越深）
+logi_gradient_map = {
+    "红单": ["#ffb3b3", "#ff6666", "#cc0000"],  # 红系：浅→中→深
+    "空派": ["#b3d9ff", "#66a3ff", "#0066cc"],  # 蓝系：浅→中→深
+    "普船": ["#b3f0c6", "#66cc88", "#009944"],  # 绿系：浅→中→深
+    "以星": ["#ffd9b3", "#ff9933", "#cc6600"],  # 橙系：浅→中→深
+    "以星特快": ["#fff0b3", "#ffdd66", "#cc9900"],  # 黄系：浅→中→深
+    "正班": ["#f0f0f0", "#b3b3b3", "#666666"],  # 灰系：浅→中→深
 }
-default_base = "#8822cc"  # 其余统一紫色
+default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]  # 其余渠道统一紫渐变
 
-# 3. 一行两列
+# 3. 自动获取周期顺序（旧→新，对应颜色浅→深）
+period_list = sorted(df_pie[group_col].unique())
+
+# 4. 一行两列布局
 bar_col, tbl_col = st.columns([1.4, 1])
 
 with bar_col:
-    st.markdown("### 🔁 占比变化对比（同色系·占比越大颜色越深）")
+    st.markdown("### 🔁 占比变化对比（同色系·月份越新颜色越深）")
     fig = go.Figure()
 
-    max_pct = df_pie["占比"].max()
+    # 按物流方式循环，每个方式画一组（月份渐变）
+    for logi in df_pie["实际物流方式"].unique():
+        df_logi = df_pie[df_pie["实际物流方式"] == logi].copy()
+        # 获取该物流方式的渐变配色
+        colors = logi_gradient_map.get(logi, default_gradient)
 
-    for _, row in df_pie.iterrows():
-        logi = row["实际物流方式"]
-        p = row[group_col]
-        val = row["占比"]
+        # 按周期从旧到新绘制，对应颜色从浅到深
+        for i, period in enumerate(period_list):
+            row = df_logi[df_logi[group_col] == period]
+            if row.empty:
+                continue
+            y_val = row["占比"].iloc[0]
+            # 周期越新，索引越大，对应渐变里越深的颜色
+            bar_color = colors[min(i, len(colors) - 1)]
 
-        # 基础色
-        base = logi_base_color.get(logi, default_base)
-
-        # 占比越大 → 颜色越深（核心逻辑）
-        intensity = val / max_pct if max_pct != 0 else 0.5
-        r = int(int(base[1:3], 16) * intensity)
-        g = int(int(base[3:5], 16) * intensity)
-        b = int(int(base[5:7], 16) * intensity)
-        color = f"rgb({r},{g},{b})"
-
-        fig.add_trace(go.Bar(
-            x=[f"{logi}"],
-            y=[val],
-            name=f"{logi} | {p}",
-            marker_color=color,
-            text=f"{val:.1f}%",
-            textposition="outside",
-            textfont=dict(size=11),
-            width=0.7,
-        ))
+            fig.add_trace(go.Bar(
+                x=[logi],
+                y=[y_val],
+                name=f"{period}",
+                marker_color=bar_color,
+                text=f"{y_val:.1f}%",
+                textposition="outside",
+                textfont=dict(size=11),
+                width=0.7
+            ))
 
     fig.update_layout(
         height=520,
         barmode="group",
         yaxis_title="占比 (%)",
         xaxis_title="实际物流方式",
+        legend_title=group_col,
         legend=dict(orientation="h", y=-0.2),
         margin=dict(l=20, r=20, t=40, b=60),
-        title="同色系：占比越大 → 颜色越深",
+        title="同渠道：月份越新 → 颜色越深",
         title_x=0.5
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with tbl_col:
     st.markdown("### 📋 占比明细（%）")
-    pv = df_pie.pivot(index="实际物流方式", columns=group_col, values="占比").fillna(0)
-    pv = pv.round(1).astype(str) + "%"
-    st.dataframe(pv, use_container_width=True, height=520)
+    # 透视表，空值自动填充0，格式统一
+    pv = df_pie.pivot(
+        index="实际物流方式",
+        columns=group_col,
+        values="占比"
+    ).fillna(0).round(1)
+    pv_display = pv.applymap(lambda x: f"{x:.1f}%")
+    st.dataframe(
+        pv_display,
+        use_container_width=True,
+        height=520
+    )
 
 st.markdown("---")
 
