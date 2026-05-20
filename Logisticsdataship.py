@@ -3466,10 +3466,7 @@ for i, metric in enumerate(metrics):
 st.markdown("---")
 
 # ==============================================================================
-# 📊 第二部分：整体趋势柱形图
-# ==============================================================================
-# ==============================================================================
-# 📊 第二部分：整体成本趋势（一行五列柱形图，和指标卡一一对应）
+# 📊 第二部分：整体成本趋势（一行五列柱形图，顶部显示数值）
 # ==============================================================================
 st.markdown("## 📈 整体趋势（与核心指标卡一一对应）")
 
@@ -3497,7 +3494,12 @@ with t1:
         color_discrete_sequence=["#1f77b4"],
         title="总费用趋势"
     )
-    fig1.update_layout(height=300, showlegend=False)
+    # 柱形顶部显示数值，千分位格式化
+    fig1.update_traces(
+        text=df_trend["总费用"].apply(lambda x: f"¥{x:,.0f}"),
+        textposition="outside"
+    )
+    fig1.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
     st.plotly_chart(fig1, use_container_width=True)
 
 # 2. 总运费趋势
@@ -3509,7 +3511,11 @@ with t2:
         color_discrete_sequence=["#ff7f0e"],
         title="总运费趋势"
     )
-    fig2.update_layout(height=300, showlegend=False)
+    fig2.update_traces(
+        text=df_trend["总运费"].apply(lambda x: f"¥{x:,.0f}"),
+        textposition="outside"
+    )
+    fig2.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
     st.plotly_chart(fig2, use_container_width=True)
 
 # 3. 入库配置费趋势
@@ -3521,7 +3527,11 @@ with t3:
         color_discrete_sequence=["#2ca02c"],
         title="入库配置费趋势"
     )
-    fig3.update_layout(height=300, showlegend=False)
+    fig3.update_traces(
+        text=df_trend["入库配置费"].apply(lambda x: f"¥{x:,.0f}"),
+        textposition="outside"
+    )
+    fig3.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
     st.plotly_chart(fig3, use_container_width=True)
 
 # 4. 报关费趋势
@@ -3533,7 +3543,11 @@ with t4:
         color_discrete_sequence=["#d62728"],
         title="报关费趋势"
     )
-    fig4.update_layout(height=300, showlegend=False)
+    fig4.update_traces(
+        text=df_trend["报关费"].apply(lambda x: f"¥{x:,.0f}"),
+        textposition="outside"
+    )
+    fig4.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
     st.plotly_chart(fig4, use_container_width=True)
 
 # 5. 总重量趋势
@@ -3545,7 +3559,11 @@ with t5:
         color_discrete_sequence=["#9467bd"],
         title="总重量趋势"
     )
-    fig5.update_layout(height=300, showlegend=False)
+    fig5.update_traces(
+        text=df_trend["总重量"].apply(lambda x: f"{x:,.0f}kg"),
+        textposition="outside"
+    )
+    fig5.update_layout(height=350, showlegend=False, yaxis_title="重量(kg)")
     st.plotly_chart(fig5, use_container_width=True)
 
 st.markdown("---")
