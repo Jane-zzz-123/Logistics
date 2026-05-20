@@ -3610,8 +3610,7 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（柱子100%独立·不重叠·不折叠）
-# 核心优化：柱子宽度缩小，间距拉开，每根柱子完全独立
+# 📊 固定位置·占比对比柱形图（标签优化·去掉重复图例）
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
@@ -3634,6 +3633,7 @@ logi_gradient_map = {
     "合德": ["#c488ff", "#a366ff", "#8822cc"],  # 紫系：浅→中→深
     "普船亚马逊自提": ["#99ffcc", "#66ffaa", "#33ff88"],  # 浅绿系
 }
+default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]  # 其余渠道统一紫渐变
 
 # 3. 自动获取周期顺序（旧→新，对应颜色浅→深）
 period_list = sorted(df_pie[group_col].unique())
@@ -3646,11 +3646,12 @@ with bar_col:
     st.markdown("### 🔁 占比变化对比（同渠道·月份越新颜色越深）")
     fig = go.Figure()
 
-    # 核心逻辑：缩小柱子宽度，拉开间距，每根柱子完全独立
+    # 按周期循环绘制，柱子宽度自适应，100%独立不重叠
     for i, period in enumerate(period_list):
         df_period = df_pie[df_pie[group_col] == period].copy()
-        # 给当前周期的柱子，按物流方式分配对应深度的颜色
-        bar_colors = [logi_gradient_map.get(logi, ["#eeeeee", "#bbbbbb", "#888888"])[min(i, 2)] for logi in
+        # 给当前周期的柱子分配对应深度的颜色
+        bar_colors = [logi_gradient_map.get(logi, default_gradient)[
+                          min(i, len(logi_gradient_map.get(logi, default_gradient)) - 1)] for logi in
                       df_period["实际物流方式"]]
 
         fig.add_trace(go.Bar(
@@ -3658,11 +3659,11 @@ with bar_col:
             y=df_period["占比"],
             name=f"{period}",
             marker_color=bar_colors,
-            text=df_period["占比"].apply(lambda x: f"{x:.1f}%"),
+            # 核心优化：标签改成「月份+占比」两行格式
+            text=df_period.apply(lambda row: f"{row[group_col]}月<br>{row['占比']:.2f}%", axis=1),
             textposition="outside",
             textfont=dict(size=10),
-            # 关键优化：柱子宽度 = 0.7 / 周期数，周期越多，柱子越窄，完全不重叠
-            width=0.7 / num_periods
+            width=0.7 / num_periods  # 自适应宽度，不重叠
         ))
 
     fig.update_layout(
@@ -3670,25 +3671,24 @@ with bar_col:
         barmode="group",
         yaxis_title="占比 (%)",
         xaxis_title="实际物流方式",
-        legend_title=group_col,
-        legend=dict(orientation="h", y=-0.18),
+        # 核心优化：隐藏图例，去掉底部重复标签
+        showlegend=False,
         margin=dict(l=20, r=20, t=40, b=60),
         title="各物流方式占比变化（位置固定，高度=占比大小）",
         title_x=0.5,
-        bargap=0.3,  # 组内柱子间距
-        bargroupgap=0.1  # 组间柱子间距
+        bargap=0.3,
+        bargroupgap=0.1
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with tbl_col:
     st.markdown("### 📋 占比明细（%）")
-    # 透视表，空值自动填充0，格式统一
     pv = df_pie.pivot(
         index="实际物流方式",
         columns=group_col,
         values="占比"
-    ).fillna(0).round(1)
-    pv_display = pv.applymap(lambda x: f"{x:.1f}%")
+    ).fillna(0).round(2)
+    pv_display = pv.applymap(lambda x: f"{x:.2f}%")
     st.dataframe(
         pv_display,
         use_container_width=True,
