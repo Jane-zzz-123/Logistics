@@ -3409,136 +3409,187 @@ sorted_values = sorted(df_total[group_col].unique()) if len(df_total) else []
 latest = max(selected) if selected else (sorted_values[-1] if len(sorted_values) else 0)
 
 # ====================== 一行三列布局 ======================
-# ====================== 【合体版】计算：单价 + 总金额 ======================
-def calc_combined(df, value_col):
-    # 计算重量 & 总金额
+# ====================== 【终极版】计算：单价 + 总金额 独立计算 ======================
+# 1. 单价数据（和原逻辑一致，保留完整环比）
+def calc_unit_price(df, value_col):
     df_sum = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
         总重量=("重量", "sum"),
         总金额=(value_col, "sum")
     )
-    # 单价
     df_sum["折算单价"] = (df_sum["总金额"] / df_sum["总重量"]).round(4)
     df_sum = df_sum.sort_values(["实际物流方式", group_col]).reset_index(drop=True)
-
-    # 单价环比
-    df_sum["上周单价"] = df_sum.groupby("实际物流方式")["折算单价"].shift(1)
-    df_sum["单价环比差值"] = (df_sum["折算单价"] - df_sum["上周单价"]).round(2)
-    df_sum["单价环比幅度"] = np.where(
-        df_sum["上周单价"] > 0, (df_sum["单价环比差值"] / df_sum["上周单价"] * 100).round(2), 0
-    )
-
-    # 总金额环比
-    df_sum["上期总金额"] = df_sum.groupby("实际物流方式")["总金额"].shift(1)
-    df_sum["金额环比差值"] = (df_sum["总金额"] - df_sum["上期总金额"]).round(2)
-    df_sum["金额环比幅度"] = np.where(
-        df_sum["上期总金额"] > 0, (df_sum["金额环比差值"] / df_sum["上期总金额"] * 100).round(2), 0
+    df_sum["上期单价"] = df_sum.groupby("实际物流方式")["折算单价"].shift(1)
+    df_sum["环比差值"] = (df_sum["折算单价"] - df_sum["上期单价"]).round(2)
+    df_sum["环比幅度"] = np.where(
+        df_sum["上期单价"] > 0, (df_sum["环比差值"] / df_sum["上期单价"] * 100).round(2), 0
     )
     return df_sum
 
-df_cost_all = calc_combined(df, "总费用")
-df_freight_all = calc_combined(df, "总运费")
-df_storage_all = calc_combined(df, "入库配置费折算RMB")
+# 2. 总金额数据（独立计算，完整环比）
+def calc_total_amt(df, value_col):
+    df_sum = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
+        总金额=(value_col, "sum")
+    )
+    df_sum = df_sum.sort_values(["实际物流方式", group_col]).reset_index(drop=True)
+    df_sum["上期金额"] = df_sum.groupby("实际物流方式")["总金额"].shift(1)
+    df_sum["环比差值"] = (df_sum["总金额"] - df_sum["上期金额"]).round(2)
+    df_sum["环比幅度"] = np.where(
+        df_sum["上期金额"] > 0, (df_sum["环比差值"] / df_sum["上期金额"] * 100).round(2), 0
+    )
+    return df_sum
 
-# ====================== 【合体渲染】：单价 + 总金额 放一起 ======================
-def render_combined(col, title, df_comb, latest):
+# 计算3组费用的单价 + 总金额数据
+df_cost_unit = calc_unit_price(df, "总费用")
+df_cost_amt = calc_total_amt(df, "总费用")
+
+df_freight_unit = calc_unit_price(df, "总运费")
+df_freight_amt = calc_total_amt(df, "总运费")
+
+df_storage_unit = calc_unit_price(df, "入库配置费折算RMB")
+df_storage_amt = calc_total_amt(df, "入库配置费折算RMB")
+
+# ====================== 【终极渲染函数】：图表+表格全拆分，零混乱 ======================
+def render_ultimate(col, title, df_unit, df_amt, latest):
     with col:
         st.markdown(f"### {title}")
-        latest_data = df_comb[df_comb[group_col] == latest].copy()
         all_logi = sorted(df_cost["实际物流方式"].unique())
+        sorted_vals = sorted(df_unit[group_col].unique())
 
-        # === 文字总结：单价 + 总金额 一起显示 ===
-        st.markdown("##### 📊 变化概览")
-        html = ""
+        # ==================================
+        # 上半区：单价全模块（文字+图表+单价表）
+        # ==================================
+        st.markdown("##### 📈 单价（元/kg）")
+        # 1. 单价变化总结
+        latest_unit = df_unit[df_unit[group_col] == latest].copy()
+        html_unit = ""
         for logi in all_logi:
-            row = latest_data[latest_data["实际物流方式"] == logi]
+            row = latest_unit[latest_unit["实际物流方式"] == logi]
             if row.empty:
-                html += f"<div>• {logi}：无数据</div>"
                 continue
-
-            # 单价
             price = row["折算单价"].iloc[0]
-            pdiff = row["单价环比差值"].iloc[0]
-            ppct = row["单价环比幅度"].iloc[0]
-
-            # 金额
-            amt = row["总金额"].iloc[0]
-            adiff = row["金额环比差值"].iloc[0]
-            apct = row["金额环比幅度"].iloc[0]
-
-            # 单价文字
-            if pd.isna(pdiff):
-                price_txt = f"单价 ¥{price:.2f}（首期）"
+            diff = row["环比差值"].iloc[0]
+            if pd.isna(diff):
+                html_unit += f"• {logi}: ¥{price:.2f}（首期）<br>"
+            elif diff > 0:
+                html_unit += f"• <span style='color:red'>{logi}: ↑ ¥{diff:.2f}</span>，¥{price:.2f}<br>"
             else:
-                pcolor = "red" if pdiff > 0 else "green"
-                price_txt = f"<span style='color:{pcolor}'>单价 {'↑' if pdiff>0 else '↓'} ¥{abs(pdiff):.2f}</span>"
+                html_unit += f"• <span style='color:green'>{logi}: ↓ ¥{abs(diff):.2f}</span>，¥{price:.2f}<br>"
+        st.markdown(html_unit, unsafe_allow_html=True)
 
-            # 金额文字
-            if pd.isna(adiff):
-                amt_txt = f"金额 ¥{amt:.0f}（首期）"
-            else:
-                acolor = "red" if adiff > 0 else "green"
-                amt_txt = f"<span style='color:{acolor}'>金额 {'↑' if adiff>0 else '↓'} ¥{abs(adiff):.0f}</span>"
-
-            html += f"• <b>{logi}</b>：{price_txt}｜{amt_txt}<br>"
-        st.markdown(html, unsafe_allow_html=True)
-
-        # === 双轴对比图（最强对比！） ===
-        st.markdown("##### 📈 单价 ↔ 总金额 趋势")
-        df_comb["x_str"] = df_comb[group_col].astype(str)
-        fig = go.Figure()
-
-        for logi in all_logi:
-            d = df_comb[df_comb["实际物流方式"] == logi]
-            if d.empty: continue
-            color = color_map.get(logi, default_color)
-            fig.add_trace(go.Scatter(x=d["x_str"], y=d["折算单价"], name=f"{logi}-单价", marker=dict(color=color)))
-            fig.add_trace(go.Scatter(x=d["x_str"], y=d["总金额"], name=f"{logi}-总金额", marker=dict(color=color),
-                                     yaxis="y2", line=dict(dash="dot")))
-
-        fig.update_layout(
-            yaxis=dict(title="单价（元/kg）"),
-            yaxis2=dict(title="总金额（元）", overlaying="y", side="right"),
-            xaxis_type="category", height=250, showlegend=False, margin=dict(l=20,r=20,t=10,b=20)
+        # 2. 单价独立折线图
+        df_unit["x_str"] = df_unit[group_col].astype(str)
+        fig_unit = px.line(
+            df_unit, x="x_str", y="折算单价", color="实际物流方式",
+            color_discrete_map={k: color_map.get(k, default_color) for k in all_logi},
+            markers=True
         )
-        st.plotly_chart(fig, use_container_width=True)
+        fig_unit.update_xaxes(type="category")
+        fig_unit.update_layout(height=180, showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_unit, use_container_width=True)
 
-        # === 统计表：单价 + 总金额 合体 ===
-        st.markdown("##### 📋 明细")
-        data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_comb.iterrows()}
-        sorted_vals = sorted(df_comb[group_col].unique())
-        table = "<table style='width:100%;border-collapse:collapse;font-size:11px;text-align:center'>"
-        table += f"<tr style='background:#f0f2f6'><td>{group_col}</td>"
-        for l in all_logi: table += f"<td style='border:1px solid #ddd;padding:3px'>{l}</td>"
-        table += "</tr>"
+        # 3. 单价独立统计表
+        st.markdown("📋 单价明细")
+        unit_data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_unit.iterrows()}
+        unit_table = "<table style='width:100%;border-collapse:collapse;font-size:11px;text-align:center'>"
+        unit_table += f"<tr style='background:#f0f2f6'><td>{group_col}</td>"
+        for l in all_logi: unit_table += f"<td style='border:1px solid #ddd;padding:3px'>{l}</td>"
+        unit_table += "</tr>"
         for v in sorted_vals:
-            table += f"<tr><td style='border:1px solid #ddd'>{v}</td>"
+            unit_table += f"<tr><td style='border:1px solid #ddd'>{v}</td>"
             for logi in all_logi:
                 key = (str(v), logi)
-                if key not in data_map:
-                    table += "<td style='border:1px solid #ddd'>-</td>"
+                if key not in unit_data_map:
+                    unit_table += "<td style='border:1px solid #ddd'>-</td>"
                     continue
-                r = data_map[key]
+                r = unit_data_map[key]
                 p = r["折算单价"]
+                diff = r["环比差值"]
+                if pd.isna(diff):
+                    txt, color = "首期", "#888"
+                else:
+                    sign = "+" if diff > 0 else ""
+                    txt = f"{sign}{diff:.2f}"
+                    color = "red" if diff > 0 else "green"
+                cell = f"{p:.2f}<br><small style='color:{color}'>{txt}</small>"
+                unit_table += f"<td style='border:1px solid #ddd;padding:3px'>{cell}</td>"
+            unit_table += "</tr>"
+        unit_table += "</table>"
+        st.markdown(unit_table, unsafe_allow_html=True)
+
+        # ==================================
+        # 加粗分割线：彻底隔开单价和总金额
+        # ==================================
+        st.markdown("---")
+        st.markdown("<hr style='border: 2px solid #f0f2f6; margin: 10px 0;'>", unsafe_allow_html=True)
+
+        # ==================================
+        # 下半区：总金额全模块（文字+图表+金额表）
+        # ==================================
+        st.markdown("##### 💰 总金额（元）")
+        # 1. 总金额变化总结
+        latest_amt = df_amt[df_amt[group_col] == latest].copy()
+        html_amt = ""
+        for logi in all_logi:
+            row = latest_amt[latest_amt["实际物流方式"] == logi]
+            if row.empty:
+                continue
+            amt = row["总金额"].iloc[0]
+            diff = row["环比差值"].iloc[0]
+            if pd.isna(diff):
+                html_amt += f"• {logi}: ¥{amt:,.0f}（首期）<br>"
+            elif diff > 0:
+                html_amt += f"• <span style='color:red'>{logi}: ↑ ¥{diff:,.0f}</span>，¥{amt:,.0f}<br>"
+            else:
+                html_amt += f"• <span style='color:green'>{logi}: ↓ ¥{abs(diff):,.0f}</span>，¥{amt:,.0f}<br>"
+        st.markdown(html_amt, unsafe_allow_html=True)
+
+        # 2. 总金额独立折线图
+        df_amt["x_str"] = df_amt[group_col].astype(str)
+        fig_amt = px.line(
+            df_amt, x="x_str", y="总金额", color="实际物流方式",
+            color_discrete_map={k: color_map.get(k, default_color) for k in all_logi},
+            markers=True
+        )
+        fig_amt.update_xaxes(type="category")
+        fig_amt.update_layout(height=180, showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_amt, use_container_width=True)
+
+        # 3. 总金额独立统计表
+        st.markdown("📋 金额明细")
+        amt_data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_amt.iterrows()}
+        amt_table = "<table style='width:100%;border-collapse:collapse;font-size:11px;text-align:center'>"
+        amt_table += f"<tr style='background:#f0f2f6'><td>{group_col}</td>"
+        for l in all_logi: amt_table += f"<td style='border:1px solid #ddd;padding:3px'>{l}</td>"
+        amt_table += "</tr>"
+        for v in sorted_vals:
+            amt_table += f"<tr><td style='border:1px solid #ddd'>{v}</td>"
+            for logi in all_logi:
+                key = (str(v), logi)
+                if key not in amt_data_map:
+                    amt_table += "<td style='border:1px solid #ddd'>-</td>"
+                    continue
+                r = amt_data_map[key]
                 a = r["总金额"]
-                pdiff = r["单价环比差值"]
-                adiff = r["金额环比差值"]
+                diff = r["环比差值"]
+                if pd.isna(diff):
+                    txt, color = "首期", "#888"
+                else:
+                    sign = "+" if diff > 0 else ""
+                    txt = f"{sign}{diff:,.0f}"
+                    color = "red" if diff > 0 else "green"
+                cell = f"{a:,.0f}<br><small style='color:{color}'>{txt}</small>"
+                amt_table += f"<td style='border:1px solid #ddd;padding:3px'>{cell}</td>"
+            amt_table += "</tr>"
+        amt_table += "</table>"
+        st.markdown(amt_table, unsafe_allow_html=True)
 
-                pcol = "red" if pdiff > 0 else "green" if pdiff < 0 else "#888"
-                acol = "red" if adiff > 0 else "green" if adiff < 0 else "#888"
-
-                cell = f"{p:.2f}<br><span style='color:{pcol};font-size:10px'>{a:.0f}</span>"
-                table += f"<td style='border:1px solid #ddd;padding:3px'>{cell}</td>"
-            table += "</tr>"
-        table += "</table>"
-        st.markdown(table, unsafe_allow_html=True)
-
-# ====================== 最终 3 列：完美不挤，全部合体 ======================
+# ====================== 最终3列渲染：彻底零混乱 ======================
 col1, col2, col3 = st.columns(3)
-render_combined(col1, "💰 总费用", df_cost_all, latest)
-render_combined(col2, "🚚 总运费", df_freight_all, latest)
-render_combined(col3, "📦 入库配置费", df_storage_all, latest)
+render_ultimate(col1, "💰 总费用", df_cost_unit, df_cost_amt, latest)
+render_ultimate(col2, "🚚 总运费", df_freight_unit, df_freight_amt, latest)
+render_ultimate(col3, "📦 入库配置费", df_storage_unit, df_storage_amt, latest)
 
-st.caption("🔴 上涨｜🟢 下降｜上=单价(元/kg)｜下=总金额(元)｜双轴图实线=单价，虚线=总金额")
+st.caption("🔴 上涨｜🟢 下降｜上半区：单价分析（元/kg）｜下半区：总金额分析（元）｜同颜色代表同物流方式，上下一一对应")
 
 # ====================== 🧾 报关费分析（受上方筛选控制 · 按运输方式 · 总金额） ======================
 st.markdown("---")
