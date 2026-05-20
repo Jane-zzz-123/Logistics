@@ -3610,7 +3610,12 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（每个物流方式对应N根柱子·同色系·月份越新颜色越深）
+# 📊 固定位置·占比对比柱形图（1:1复刻你要的分组渐变效果）
+# 核心逻辑：
+# 1. 每个物流方式 = 一组柱子，柱子数量 = 月份/周期数
+# 2. 同一个物流方式的柱子，用同一个色系，月份越新→颜色越深
+# 3. X轴是物流方式，每个名称下面排N根柱子
+# 4. 图例只显示月份，清爽不杂乱
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
@@ -3622,16 +3627,18 @@ df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("su
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 df_pie[group_col] = df_pie[group_col].astype(str)
 
-# 2. 专属渐变配色（每个物流方式一套，从浅到深对应月份从旧到新）
+# 2. 专属渐变配色（和你截图里的色系完全对应）
+# 每个物流方式一套从浅到深的颜色，对应月份从旧到新
 logi_gradient_map = {
-    "红单": ["#ffb3b3", "#ff6666", "#cc0000"],  # 红系：浅→中→深
-    "空派": ["#b3d9ff", "#66a3ff", "#0066cc"],  # 蓝系：浅→中→深
-    "普船": ["#b3f0c6", "#66cc88", "#009944"],  # 绿系：浅→中→深
-    "以星": ["#ffd9b3", "#ff9933", "#cc6600"],  # 橙系：浅→中→深
-    "以星特快": ["#fff0b3", "#ffdd66", "#cc9900"],  # 黄系：浅→中→深
-    "正班": ["#f0f0f0", "#b3b3b3", "#666666"],  # 灰系：浅→中→深
+    "以星": ["#ff6666", "#ff3333", "#cc0000"],  # 红系：浅→中→深
+    "以星特快": ["#ffdd66", "#ffcc33", "#ffbb00"],  # 黄系：浅→中→深
+    "普船": ["#66cc88", "#33bb66", "#009944"],  # 绿系：浅→中→深
+    "正班": ["#b3d9ff", "#66a3ff", "#0066cc"],  # 蓝系：浅→中→深
+    "空派": ["#ff9933", "#ff7700", "#cc6600"],  # 橙系：浅→中→深
+    "红单": ["#ff9999", "#ff6666", "#cc0000"],  # 红系备用
+    "合德": ["#c488ff", "#a366ff", "#8822cc"],  # 紫系：浅→中→深
+    "普船亚马逊自提": ["#99ffcc", "#66ffaa", "#33ff88"],  # 浅绿系
 }
-default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]  # 其余渠道统一紫渐变
 
 # 3. 自动获取周期顺序（旧→新，对应颜色浅→深）
 period_list = sorted(df_pie[group_col].unique())
@@ -3643,34 +3650,40 @@ with bar_col:
     st.markdown("### 🔁 占比变化对比（同渠道·月份越新颜色越深）")
     fig = go.Figure()
 
-    # 核心逻辑：每个周期单独画一层，实现每个物流方式下N根柱子
+    # 核心逻辑：按月份循环，每个月份画一层，实现分组渐变
     for i, period in enumerate(period_list):
+        # 筛选当前月份的数据
         df_period = df_pie[df_pie[group_col] == period].copy()
-        # 给当前周期的柱子，按物流方式分配对应深度的颜色
-        colors = [logi_gradient_map.get(logi, default_gradient)[
-                      min(i, len(logi_gradient_map.get(logi, default_gradient)) - 1)] for logi in
-                  df_period["实际物流方式"]]
 
+        # 给当前月份的每个柱子，分配对应物流方式的第i个渐变颜色
+        bar_colors = []
+        for logi in df_period["实际物流方式"]:
+            # 获取该物流方式的渐变列表，取第i个颜色（越新的月份，i越大，颜色越深）
+            color_list = logi_gradient_map.get(logi, ["#eeeeee", "#bbbbbb", "#888888"])
+            bar_colors.append(color_list[min(i, len(color_list) - 1)])
+
+        # 添加这一层柱子
         fig.add_trace(go.Bar(
             x=df_period["实际物流方式"],
             y=df_period["占比"],
             name=f"{period}",
-            marker_color=colors,
+            marker_color=bar_colors,
             text=df_period["占比"].apply(lambda x: f"{x:.1f}%"),
             textposition="outside",
-            textfont=dict(size=11),
+            textfont=dict(size=10),
             width=0.7
         ))
 
+    # 图表布局优化
     fig.update_layout(
-        height=520,
+        height=550,
         barmode="group",
         yaxis_title="占比 (%)",
         xaxis_title="实际物流方式",
         legend_title=group_col,
-        legend=dict(orientation="h", y=-0.2),
+        legend=dict(orientation="h", y=-0.18),
         margin=dict(l=20, r=20, t=40, b=60),
-        title="同渠道：月份越新 → 颜色越深",
+        title="各物流方式占比变化（位置固定，高度=占比大小）",
         title_x=0.5
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -3687,7 +3700,7 @@ with tbl_col:
     st.dataframe(
         pv_display,
         use_container_width=True,
-        height=520
+        height=550
     )
 
 st.markdown("---")
