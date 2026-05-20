@@ -3610,9 +3610,9 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（渠道顺序+色系严格匹配要求）
-# 渠道顺序：红单→空派→普船→以星→以星特快→其余紫色渐变
-# 专属色系：红=红渐变 | 蓝=蓝渐变 | 绿=绿渐变 | 橙=橙渐变 | 黄=黄渐变 | 其余=紫渐变
+# 📊 固定位置·占比对比柱形图（渠道顺序锁死·色系严格匹配）
+# 【强制X轴顺序】红单 → 空派 → 普船 → 以星 → 以星特快 → 其余紫色渐变
+# 【专属色系】红=红渐变 | 蓝=蓝渐变 | 绿=绿渐变 | 橙=橙渐变 | 黄=黄渐变 | 其余=紫渐变
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
@@ -3635,13 +3635,18 @@ logi_gradient_map = {
 # 其余所有渠道，统一紫色渐变
 default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]
 
-# 3. 【严格按你要求】强制X轴渠道顺序，和指定顺序完全一致
-fixed_logi_order = ["红单", "空派", "普船", "以星", "以星特快"]
-# 把其余渠道排在后面，保持顺序
-other_logi = [logi for logi in df_pie["实际物流方式"].unique() if logi not in fixed_logi_order]
-final_logi_order = fixed_logi_order + other_logi
-# 强制X轴按这个顺序显示
-df_pie["实际物流方式"] = pd.Categorical(df_pie["实际物流方式"], categories=final_logi_order, ordered=True)
+# 3. 【核心锁死逻辑】强制X轴渠道顺序，绝对不会乱
+# 先按你指定的顺序排核心渠道
+fixed_order = ["红单", "空派", "普船", "以星", "以星特快"]
+# 再把其余渠道按字母顺序排在后面
+other_logi = [logi for logi in df_pie["实际物流方式"].unique() if logi not in fixed_order]
+final_order = fixed_order + sorted(other_logi)
+# 强制转换为有序分类，Plotly会严格按这个顺序显示X轴
+df_pie["实际物流方式"] = pd.Categorical(
+    df_pie["实际物流方式"],
+    categories=final_order,
+    ordered=True
+)
 
 # 4. 自动获取周期顺序（旧→新，对应颜色浅→深）
 period_list = sorted(df_pie[group_col].unique())
@@ -3658,9 +3663,7 @@ with bar_col:
     for i, period in enumerate(period_list):
         df_period = df_pie[df_pie[group_col] == period].copy()
         # 给当前周期的柱子，按物流方式分配对应深度的颜色
-        bar_colors = [logi_gradient_map.get(logi, default_gradient)[
-                          min(i, len(logi_gradient_map.get(logi, default_gradient)) - 1)] for logi in
-                      df_period["实际物流方式"]]
+        bar_colors = [logi_gradient_map.get(logi, default_gradient)[min(i, 2)] for logi in df_period["实际物流方式"]]
 
         fig.add_trace(go.Bar(
             x=df_period["实际物流方式"],
@@ -3679,6 +3682,8 @@ with bar_col:
         barmode="group",
         yaxis_title="占比 (%)",
         xaxis_title="实际物流方式",
+        # 强制X轴按我们指定的顺序显示，绝对不会乱
+        xaxis=dict(categoryorder="array", categoryarray=final_order),
         # 隐藏图例，页面更干净
         showlegend=False,
         margin=dict(l=20, r=20, t=40, b=60),
