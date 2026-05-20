@@ -3610,24 +3610,62 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 🥧 第三部分：成本结构占比
+# 🥧 多层同心圆环形图（内层=早期月份/周期 外层=最新月份/周期）
 # ==============================================================================
-st.markdown("## 🥧 成本结构占比")
-df_struct = latest_data.groupby("实际物流方式").agg(
-    总费用=("总费用", "sum"),
-    总运费=("总运费", "sum"),
-    入库配置费=("入库配置费折算RMB", "sum")
-).reset_index()
+st.markdown("## 🥧 多周期嵌套环形占比（同一圆心·多层环比）")
 
-fig_pie = px.pie(
-    df_struct,
-    values="总费用",
-    names="实际物流方式",
-    color_discrete_map=color_map,
-    hole=0.3,
-    title=f"{latest_period} 总费用结构占比"
+# 1. 数据准备
+df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
+    总费用=("总费用", "sum")
 )
-st.plotly_chart(fig_pie, use_container_width=True)
+df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
+df_pie["占比"] = df_pie["总费用"] / df_pie["周期总费用"]
+
+# 时间排序（内层旧 → 外层新）
+period_list = sorted(df_pie[group_col].unique())
+df_pie[group_col] = df_pie[group_col].astype(str)
+
+# 2. 一行两列：左图 右表
+fig_col, tbl_col = st.columns([1.2, 1])
+
+with fig_col:
+    st.markdown("### 🔁 多层同心圆占比趋势")
+    fig = go.Figure()
+
+    # 依次绘制每一层：内层旧 → 外层新
+    for i, period in enumerate(period_list):
+        d = df_pie[df_pie[group_col] == str(period)]
+        fig.add_trace(go.Pie(
+            values=d["总费用"],
+            labels=d["实际物流方式"],
+            name=f"{group_col} {period}",
+            hole=0.3 + i*0.15,        # 越往外圈洞越大
+            domain=dict(x=[0, 1], y=[0, 1]),
+            textposition="inside",
+            texttemplate="%{percent:.1%}",
+            textinfo="percent",
+            showlegend=(i == len(period_list)-1), # 只显示最后一层图例
+            rotation=90,
+            marker=dict(
+                colors=[color_map.get(name, "#cccccc") for name in d["实际物流方式"]]
+            )
+        ))
+
+    fig.update_layout(
+        height=480,
+        legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5),
+        margin=dict(l=20, r=20, t=30, b=60),
+        title_text=f"从内到外：旧 → 新（{", ".join(map(str, period_list))}）",
+        title_x=0.5
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+with tbl_col:
+    st.markdown("### 📋 各周期占比明细")
+    # 透视表：行为物流方式，列为周期，值为占比
+    pv = df_pie.pivot(index="实际物流方式", columns=group_col, values="占比").fillna(0)
+    pv_pct = pv.apply(lambda x: (x*100).round(1)).astype(str) + "%"
+    st.dataframe(pv_pct, use_container_width=True, height=480)
 
 st.markdown("---")
 
