@@ -3468,7 +3468,12 @@ st.markdown("---")
 # ==============================================================================
 # 📊 第二部分：整体趋势柱形图
 # ==============================================================================
-st.markdown("## 📈 整体成本趋势")
+# ==============================================================================
+# 📊 第二部分：整体成本趋势（一行五列柱形图，和指标卡一一对应）
+# ==============================================================================
+st.markdown("## 📈 整体趋势（与核心指标卡一一对应）")
+
+# 先计算趋势数据
 df_trend = df.groupby(group_col).agg(
     总费用=("总费用", "sum"),
     总运费=("总运费", "sum"),
@@ -3477,32 +3482,71 @@ df_trend = df.groupby(group_col).agg(
     总重量=("重量", "sum")
 ).reset_index()
 
-# 成本趋势图
-fig_trend = px.bar(
-    df_trend,
-    x=group_col,
-    y=["总费用", "总运费", "入库配置费", "报关费"],
-    barmode="group",
-    color_discrete_map={
-        "总费用": "#1f77b4",
-        "总运费": "#ff7f0e",
-        "入库配置费": "#2ca02c",
-        "报关费": "#d62728"
-    },
-    title="成本金额趋势"
-)
-st.plotly_chart(fig_trend, use_container_width=True)
+# 强制时间列为整数，彻底解决小数点问题
+df_trend[group_col] = df_trend[group_col].astype(int).astype(str)
 
-# 重量趋势图
-fig_weight = px.line(
-    df_trend,
-    x=group_col,
-    y="总重量",
-    markers=True,
-    color_discrete_sequence=["#9467bd"],
-    title="发货重量趋势"
-)
-st.plotly_chart(fig_weight, use_container_width=True)
+# 一行五列，和上面5张卡片完美对应
+t1, t2, t3, t4, t5 = st.columns(5)
+
+# 1. 总费用趋势
+with t1:
+    fig1 = px.bar(
+        df_trend,
+        x=group_col,
+        y="总费用",
+        color_discrete_sequence=["#1f77b4"],
+        title="总费用趋势"
+    )
+    fig1.update_layout(height=300, showlegend=False)
+    st.plotly_chart(fig1, use_container_width=True)
+
+# 2. 总运费趋势
+with t2:
+    fig2 = px.bar(
+        df_trend,
+        x=group_col,
+        y="总运费",
+        color_discrete_sequence=["#ff7f0e"],
+        title="总运费趋势"
+    )
+    fig2.update_layout(height=300, showlegend=False)
+    st.plotly_chart(fig2, use_container_width=True)
+
+# 3. 入库配置费趋势
+with t3:
+    fig3 = px.bar(
+        df_trend,
+        x=group_col,
+        y="入库配置费",
+        color_discrete_sequence=["#2ca02c"],
+        title="入库配置费趋势"
+    )
+    fig3.update_layout(height=300, showlegend=False)
+    st.plotly_chart(fig3, use_container_width=True)
+
+# 4. 报关费趋势
+with t4:
+    fig4 = px.bar(
+        df_trend,
+        x=group_col,
+        y="报关费",
+        color_discrete_sequence=["#d62728"],
+        title="报关费趋势"
+    )
+    fig4.update_layout(height=300, showlegend=False)
+    st.plotly_chart(fig4, use_container_width=True)
+
+# 5. 总重量趋势
+with t5:
+    fig5 = px.bar(
+        df_trend,
+        x=group_col,
+        y="总重量",
+        color_discrete_sequence=["#9467bd"],
+        title="总重量趋势"
+    )
+    fig5.update_layout(height=300, showlegend=False)
+    st.plotly_chart(fig5, use_container_width=True)
 
 st.markdown("---")
 
