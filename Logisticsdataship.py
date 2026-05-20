@@ -3610,8 +3610,7 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（同色系·月份越新颜色越深）
-# 红单=红渐变 | 空派=蓝渐变 | 普船=绿渐变 | 以星=橙渐变 | 以星特快=黄渐变 | 正班=灰渐变 | 其余=紫渐变
+# 📊 固定位置·占比对比柱形图（每个物流方式对应N根柱子·同色系·月份越新颜色越深）
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
@@ -3623,7 +3622,7 @@ df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("su
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 df_pie[group_col] = df_pie[group_col].astype(str)
 
-# 2. 专属渐变配色（完全对应你要的风格，月份越新→颜色越深）
+# 2. 专属渐变配色（每个物流方式一套，从浅到深对应月份从旧到新）
 logi_gradient_map = {
     "红单": ["#ffb3b3", "#ff6666", "#cc0000"],  # 红系：浅→中→深
     "空派": ["#b3d9ff", "#66a3ff", "#0066cc"],  # 蓝系：浅→中→深
@@ -3641,34 +3640,27 @@ period_list = sorted(df_pie[group_col].unique())
 bar_col, tbl_col = st.columns([1.4, 1])
 
 with bar_col:
-    st.markdown("### 🔁 占比变化对比（同色系·月份越新颜色越深）")
+    st.markdown("### 🔁 占比变化对比（同渠道·月份越新颜色越深）")
     fig = go.Figure()
 
-    # 按物流方式循环，每个方式画一组（月份渐变）
-    for logi in df_pie["实际物流方式"].unique():
-        df_logi = df_pie[df_pie["实际物流方式"] == logi].copy()
-        # 获取该物流方式的渐变配色
-        colors = logi_gradient_map.get(logi, default_gradient)
+    # 核心逻辑：每个周期单独画一层，实现每个物流方式下N根柱子
+    for i, period in enumerate(period_list):
+        df_period = df_pie[df_pie[group_col] == period].copy()
+        # 给当前周期的柱子，按物流方式分配对应深度的颜色
+        colors = [logi_gradient_map.get(logi, default_gradient)[
+                      min(i, len(logi_gradient_map.get(logi, default_gradient)) - 1)] for logi in
+                  df_period["实际物流方式"]]
 
-        # 按周期从旧到新绘制，对应颜色从浅到深
-        for i, period in enumerate(period_list):
-            row = df_logi[df_logi[group_col] == period]
-            if row.empty:
-                continue
-            y_val = row["占比"].iloc[0]
-            # 周期越新，索引越大，对应渐变里越深的颜色
-            bar_color = colors[min(i, len(colors) - 1)]
-
-            fig.add_trace(go.Bar(
-                x=[logi],
-                y=[y_val],
-                name=f"{period}",
-                marker_color=bar_color,
-                text=f"{y_val:.1f}%",
-                textposition="outside",
-                textfont=dict(size=11),
-                width=0.7
-            ))
+        fig.add_trace(go.Bar(
+            x=df_period["实际物流方式"],
+            y=df_period["占比"],
+            name=f"{period}",
+            marker_color=colors,
+            text=df_period["占比"].apply(lambda x: f"{x:.1f}%"),
+            textposition="outside",
+            textfont=dict(size=11),
+            width=0.7
+        ))
 
     fig.update_layout(
         height=520,
