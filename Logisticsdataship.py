@@ -3466,7 +3466,7 @@ for i, metric in enumerate(metrics):
 st.markdown("---")
 
 # ==============================================================================
-# 📊 第二部分：整体成本趋势（一行五列柱形图，顶部显示数值）
+# 📊 第二部分：整体成本趋势（一行五列，数值100%完整显示）
 # ==============================================================================
 st.markdown("## 📈 整体趋势（与核心指标卡一一对应）")
 
@@ -3497,9 +3497,18 @@ with t1:
     # 柱形顶部显示数值，千分位格式化
     fig1.update_traces(
         text=df_trend["总费用"].apply(lambda x: f"¥{x:,.0f}"),
-        textposition="outside"
+        textposition="outside",
+        textfont=dict(size=12)  # 字体大小适配
     )
-    fig1.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
+    # 关键优化：增大图表高度 + Y轴范围向上预留20%空间，给数值留位置
+    max_val1 = df_trend["总费用"].max()
+    fig1.update_layout(
+        height=400,  # 图表高度从350→400，给数值留垂直空间
+        showlegend=False,
+        yaxis_title="金额(¥)",
+        yaxis=dict(range=[0, max_val1 * 1.2]),  # Y轴最大值放大20%，顶部不会截断
+        margin=dict(l=20, r=20, t=60, b=40)  # 调整上下边距，顶部数值不被标题挡住
+    )
     st.plotly_chart(fig1, use_container_width=True)
 
 # 2. 总运费趋势
@@ -3513,9 +3522,17 @@ with t2:
     )
     fig2.update_traces(
         text=df_trend["总运费"].apply(lambda x: f"¥{x:,.0f}"),
-        textposition="outside"
+        textposition="outside",
+        textfont=dict(size=12)
     )
-    fig2.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
+    max_val2 = df_trend["总运费"].max()
+    fig2.update_layout(
+        height=400,
+        showlegend=False,
+        yaxis_title="金额(¥)",
+        yaxis=dict(range=[0, max_val2 * 1.2]),
+        margin=dict(l=20, r=20, t=60, b=40)
+    )
     st.plotly_chart(fig2, use_container_width=True)
 
 # 3. 入库配置费趋势
@@ -3529,9 +3546,17 @@ with t3:
     )
     fig3.update_traces(
         text=df_trend["入库配置费"].apply(lambda x: f"¥{x:,.0f}"),
-        textposition="outside"
+        textposition="outside",
+        textfont=dict(size=12)
     )
-    fig3.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
+    max_val3 = df_trend["入库配置费"].max()
+    fig3.update_layout(
+        height=400,
+        showlegend=False,
+        yaxis_title="金额(¥)",
+        yaxis=dict(range=[0, max_val3 * 1.2]),
+        margin=dict(l=20, r=20, t=60, b=40)
+    )
     st.plotly_chart(fig3, use_container_width=True)
 
 # 4. 报关费趋势
@@ -3545,9 +3570,17 @@ with t4:
     )
     fig4.update_traces(
         text=df_trend["报关费"].apply(lambda x: f"¥{x:,.0f}"),
-        textposition="outside"
+        textposition="outside",
+        textfont=dict(size=12)
     )
-    fig4.update_layout(height=350, showlegend=False, yaxis_title="金额(¥)")
+    max_val4 = df_trend["报关费"].max()
+    fig4.update_layout(
+        height=400,
+        showlegend=False,
+        yaxis_title="金额(¥)",
+        yaxis=dict(range=[0, max_val4 * 1.2]),
+        margin=dict(l=20, r=20, t=60, b=40)
+    )
     st.plotly_chart(fig4, use_container_width=True)
 
 # 5. 总重量趋势
@@ -3561,9 +3594,17 @@ with t5:
     )
     fig5.update_traces(
         text=df_trend["总重量"].apply(lambda x: f"{x:,.0f}kg"),
-        textposition="outside"
+        textposition="outside",
+        textfont=dict(size=12)
     )
-    fig5.update_layout(height=350, showlegend=False, yaxis_title="重量(kg)")
+    max_val5 = df_trend["总重量"].max()
+    fig5.update_layout(
+        height=400,
+        showlegend=False,
+        yaxis_title="重量(kg)",
+        yaxis=dict(range=[0, max_val5 * 1.2]),
+        margin=dict(l=20, r=20, t=60, b=40)
+    )
     st.plotly_chart(fig5, use_container_width=True)
 
 st.markdown("---")
