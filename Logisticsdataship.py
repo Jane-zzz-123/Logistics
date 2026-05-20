@@ -3610,7 +3610,9 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（标签优化·去掉重复图例）
+# 📊 固定位置·占比对比柱形图（渠道顺序+色系严格匹配要求）
+# 渠道顺序：红单→空派→普船→以星→以星特快→其余紫色渐变
+# 专属色系：红=红渐变 | 蓝=蓝渐变 | 绿=绿渐变 | 橙=橙渐变 | 黄=黄渐变 | 其余=紫渐变
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
@@ -3622,24 +3624,30 @@ df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("su
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 df_pie[group_col] = df_pie[group_col].astype(str)
 
-# 2. 专属渐变配色（和你截图里的色系完全对应）
+# 2. 【严格按你要求】渠道专属渐变配色
 logi_gradient_map = {
-    "以星": ["#ff6666", "#ff3333", "#cc0000"],  # 红系：浅→中→深
-    "以星特快": ["#ffdd66", "#ffcc33", "#ffbb00"],  # 黄系：浅→中→深
-    "普船": ["#66cc88", "#33bb66", "#009944"],  # 绿系：浅→中→深
-    "正班": ["#b3d9ff", "#66a3ff", "#0066cc"],  # 蓝系：浅→中→深
-    "空派": ["#ff9933", "#ff7700", "#cc6600"],  # 橙系：浅→中→深
-    "红单": ["#ff9999", "#ff6666", "#cc0000"],  # 红系备用
-    "合德": ["#c488ff", "#a366ff", "#8822cc"],  # 紫系：浅→中→深
-    "普船亚马逊自提": ["#99ffcc", "#66ffaa", "#33ff88"],  # 浅绿系
+    "红单": ["#ff9999", "#ff6666", "#cc0000"],  # 红系：浅→中→深
+    "空派": ["#b3d9ff", "#66a3ff", "#0066cc"],  # 蓝系：浅→中→深
+    "普船": ["#b3f0c6", "#66cc88", "#009944"],  # 绿系：浅→中→深
+    "以星": ["#ffd9b3", "#ff9933", "#cc6600"],  # 橙系：浅→中→深
+    "以星特快": ["#fff0b3", "#ffdd66", "#cc9900"],  # 黄系：浅→中→深
 }
-default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]  # 其余渠道统一紫渐变
+# 其余所有渠道，统一紫色渐变
+default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]
 
-# 3. 自动获取周期顺序（旧→新，对应颜色浅→深）
+# 3. 【严格按你要求】强制X轴渠道顺序，和指定顺序完全一致
+fixed_logi_order = ["红单", "空派", "普船", "以星", "以星特快"]
+# 把其余渠道排在后面，保持顺序
+other_logi = [logi for logi in df_pie["实际物流方式"].unique() if logi not in fixed_logi_order]
+final_logi_order = fixed_logi_order + other_logi
+# 强制X轴按这个顺序显示
+df_pie["实际物流方式"] = pd.Categorical(df_pie["实际物流方式"], categories=final_logi_order, ordered=True)
+
+# 4. 自动获取周期顺序（旧→新，对应颜色浅→深）
 period_list = sorted(df_pie[group_col].unique())
 num_periods = len(period_list)
 
-# 4. 一行两列布局
+# 5. 一行两列布局
 bar_col, tbl_col = st.columns([1.4, 1])
 
 with bar_col:
@@ -3649,7 +3657,7 @@ with bar_col:
     # 按周期循环绘制，柱子宽度自适应，100%独立不重叠
     for i, period in enumerate(period_list):
         df_period = df_pie[df_pie[group_col] == period].copy()
-        # 给当前周期的柱子分配对应深度的颜色
+        # 给当前周期的柱子，按物流方式分配对应深度的颜色
         bar_colors = [logi_gradient_map.get(logi, default_gradient)[
                           min(i, len(logi_gradient_map.get(logi, default_gradient)) - 1)] for logi in
                       df_period["实际物流方式"]]
@@ -3659,7 +3667,7 @@ with bar_col:
             y=df_period["占比"],
             name=f"{period}",
             marker_color=bar_colors,
-            # 核心优化：标签改成「月份+占比」两行格式
+            # 标签格式：月份+占比，两行显示
             text=df_period.apply(lambda row: f"{row[group_col]}月<br>{row['占比']:.2f}%", axis=1),
             textposition="outside",
             textfont=dict(size=10),
@@ -3671,7 +3679,7 @@ with bar_col:
         barmode="group",
         yaxis_title="占比 (%)",
         xaxis_title="实际物流方式",
-        # 核心优化：隐藏图例，去掉底部重复标签
+        # 隐藏图例，页面更干净
         showlegend=False,
         margin=dict(l=20, r=20, t=40, b=60),
         title="各物流方式占比变化（位置固定，高度=占比大小）",
@@ -3683,6 +3691,7 @@ with bar_col:
 
 with tbl_col:
     st.markdown("### 📋 占比明细（%）")
+    # 透视表，空值自动填充0，格式统一
     pv = df_pie.pivot(
         index="实际物流方式",
         columns=group_col,
