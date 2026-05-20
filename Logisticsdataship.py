@@ -3610,12 +3610,8 @@ with t5:
 st.markdown("---")
 
 # ==============================================================================
-# 📊 固定位置·占比对比柱形图（1:1复刻你要的分组渐变效果）
-# 核心逻辑：
-# 1. 每个物流方式 = 一组柱子，柱子数量 = 月份/周期数
-# 2. 同一个物流方式的柱子，用同一个色系，月份越新→颜色越深
-# 3. X轴是物流方式，每个名称下面排N根柱子
-# 4. 图例只显示月份，清爽不杂乱
+# 📊 固定位置·占比对比柱形图（柱子100%独立·不重叠·不折叠）
+# 核心优化：柱子宽度缩小，间距拉开，每根柱子完全独立
 # ==============================================================================
 st.markdown("## 📊 固定位置·占比对比柱形图")
 
@@ -3628,7 +3624,6 @@ df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round
 df_pie[group_col] = df_pie[group_col].astype(str)
 
 # 2. 专属渐变配色（和你截图里的色系完全对应）
-# 每个物流方式一套从浅到深的颜色，对应月份从旧到新
 logi_gradient_map = {
     "以星": ["#ff6666", "#ff3333", "#cc0000"],  # 红系：浅→中→深
     "以星特快": ["#ffdd66", "#ffcc33", "#ffbb00"],  # 黄系：浅→中→深
@@ -3642,6 +3637,7 @@ logi_gradient_map = {
 
 # 3. 自动获取周期顺序（旧→新，对应颜色浅→深）
 period_list = sorted(df_pie[group_col].unique())
+num_periods = len(period_list)
 
 # 4. 一行两列布局
 bar_col, tbl_col = st.columns([1.4, 1])
@@ -3650,19 +3646,13 @@ with bar_col:
     st.markdown("### 🔁 占比变化对比（同渠道·月份越新颜色越深）")
     fig = go.Figure()
 
-    # 核心逻辑：按月份循环，每个月份画一层，实现分组渐变
+    # 核心逻辑：缩小柱子宽度，拉开间距，每根柱子完全独立
     for i, period in enumerate(period_list):
-        # 筛选当前月份的数据
         df_period = df_pie[df_pie[group_col] == period].copy()
+        # 给当前周期的柱子，按物流方式分配对应深度的颜色
+        bar_colors = [logi_gradient_map.get(logi, ["#eeeeee", "#bbbbbb", "#888888"])[min(i, 2)] for logi in
+                      df_period["实际物流方式"]]
 
-        # 给当前月份的每个柱子，分配对应物流方式的第i个渐变颜色
-        bar_colors = []
-        for logi in df_period["实际物流方式"]:
-            # 获取该物流方式的渐变列表，取第i个颜色（越新的月份，i越大，颜色越深）
-            color_list = logi_gradient_map.get(logi, ["#eeeeee", "#bbbbbb", "#888888"])
-            bar_colors.append(color_list[min(i, len(color_list) - 1)])
-
-        # 添加这一层柱子
         fig.add_trace(go.Bar(
             x=df_period["实际物流方式"],
             y=df_period["占比"],
@@ -3671,10 +3661,10 @@ with bar_col:
             text=df_period["占比"].apply(lambda x: f"{x:.1f}%"),
             textposition="outside",
             textfont=dict(size=10),
-            width=0.7
+            # 关键优化：柱子宽度 = 0.7 / 周期数，周期越多，柱子越窄，完全不重叠
+            width=0.7 / num_periods
         ))
 
-    # 图表布局优化
     fig.update_layout(
         height=550,
         barmode="group",
@@ -3684,7 +3674,9 @@ with bar_col:
         legend=dict(orientation="h", y=-0.18),
         margin=dict(l=20, r=20, t=40, b=60),
         title="各物流方式占比变化（位置固定，高度=占比大小）",
-        title_x=0.5
+        title_x=0.5,
+        bargap=0.3,  # 组内柱子间距
+        bargroupgap=0.1  # 组间柱子间距
     )
     st.plotly_chart(fig, use_container_width=True)
 
