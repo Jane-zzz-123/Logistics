@@ -1917,90 +1917,70 @@ if all_results:
 else:
     st.info("ℹ️ 暂无准时率时效数据")
 
-# ---------------------- 【最终调整版：加总订单数+去差异列】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
-# 数据源固定取原始未去重的df_clean / df_all，图表内部自行组合去重
+# 数据源原始未去重
 raw_clean = df_clean.copy()
 raw_all = df_all.copy()
 
 if "是否查验" in raw_all.columns and "是否为异常数据" in raw_all.columns:
-    # 通用筛选条件
+    # 共用筛选条件（年月、区域），物流放到循环内部筛选
     if selected_month_hot:
         mask_month = raw_all["到货年月"].isin(selected_month_hot)
     else:
         mask_month = True
-    if selected_log_hot != "全部":
-        mask_log = raw_all["物流方式"] == selected_log_hot
-    else:
-        mask_log = True
     if selected_region_hot != "全部":
         mask_region = raw_all["区域"] == selected_region_hot
     else:
         mask_region = True
 
-    # 1、左图：无查验 = 正常+未查验；先筛选，再【年月+货件】组合去重
-    mask_left = ((raw_clean["是否为异常数据"] == "否") & (raw_clean["是否查验"] == "否")) & mask_month & mask_log & mask_region
-    df_left = raw_clean[mask_left].copy()
-    # ✅ 图表内部独立：到货年月+货件单号 组合去重
-    df_left = df_left.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
+    # 先筛年月+区域，不做物流筛选、不提前全局去重
+    base_clean = raw_clean[mask_month & mask_region].copy()
+    base_all = raw_all[mask_month & mask_region].copy()
 
-    # 2、右图：含查验=全部正常货件（clean全量筛选）+查验异常单（all里异常且查验）
-    # 正常部分
-    mask_right_normal = (raw_clean["是否为异常数据"] == "否") & mask_month & mask_log & mask_region
-    df_right_normal = raw_clean[mask_right_normal].copy()
-    df_right_normal = df_right_normal.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
-    # 查验异常部分
-    mask_check = ((raw_all["是否为异常数据"] == "是") & (raw_all["是否查验"] == "是")) & mask_month & mask_log & mask_region
-    df_check = raw_all[mask_check].copy()
-    df_check = df_check.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
-    # 合并含查验全集
-    df_right = pd.concat([df_right_normal, df_check]).drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
-
-    # ==========下面原有清洗、循环绘图代码完全保留不动==========
-
-    # 后面清洗、绘图代码完全原样不动
-    # ==========================================================================
-
-    # 清洗时效
-    for col in [time_col, stage1_col, stage2_col, stage3_col]:
-        df_left[col] = pd.to_numeric(df_left[col], errors="coerce").fillna(0)
-        df_right[col] = pd.to_numeric(df_right[col], errors="coerce").fillna(0)
-
-    df_left = df_left[df_left[time_col] > 0].reset_index(drop=True)
-    df_right = df_right[df_right[time_col] > 0].reset_index(drop=True)
-
-    common_logistics = list(
-        set(df_left[logistics_col].dropna().unique()) &
-        set(df_right[logistics_col].dropna().unique())
-    )
+    # 提取公共物流列表（全部可选物流）
+    common_logistics = sorted(base_clean["物流方式"].dropna().unique().tolist())
+    if selected_log_hot != "全部":
+        common_logistics = [selected_log_hot]
 
     if common_logistics:
         for method in common_logistics:
             st.markdown(f"#### 🚛 物流方式：{method}")
+            # =========关键：循环内【单物流筛选 → 再年月+货件去重】和主面板逻辑一模一样========
+            # 左：无查验=干净+无查验
+            df_m_left = base_clean[(base_clean["物流方式"] == method) & (base_clean["是否查验"] == "否")].copy()
+            df_m_left = df_m_left.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
 
-            df_m_left = df_left[df_left[logistics_col] == method].copy()
-            df_m_right = df_right[df_right[logistics_col] == method].copy()
-            if len(df_m_left) < 1 or len(df_m_right) < 1:
-                continue
+            # 右：正常干净部分
+            df_m_right_norm = base_clean[base_clean["物流方式"] == method].copy()
+            df_m_right_norm = df_m_right_norm.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
+            # 右：查验异常部分
+            df_m_right_check = base_all[(base_all["物流方式"] == method) & (base_all["是否为异常数据"] == "是") & (base_all["是否查验"] == "是")].copy()
+            df_m_right_check = df_m_right_check.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
+            # 合并
+            df_m_right = pd.concat([df_m_right_norm, df_m_right_check]).drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
 
-            # 帕累托数据计算（左图）
+            # 下面时效清洗、分组绘图代码【一字不动，沿用你原来的】
+            for col in [time_col, stage1_col, stage2_col, stage3_col]:
+                df_m_left[col] = pd.to_numeric(df_m_left[col], errors="coerce").fillna(0)
+                df_m_right[col] = pd.to_numeric(df_m_right[col], errors="coerce").fillna(0)
+
+            df_m_left = df_m_left[df_m_left[time_col] > 0].reset_index(drop=True)
+            df_m_right = df_m_right[df_m_right[time_col] > 0].reset_index(drop=True)
+
+            # 帕累托计算、表格、绘图全保留你原有代码
             g_left = df_m_left.groupby(time_col).agg(订单数=("FBA号", "count")).reset_index().sort_values(time_col)
             g_left["累计订单数"] = g_left["订单数"].cumsum()
             g_left["无查验累计占比(%)"] = (g_left["累计订单数"] / g_left["订单数"].sum() * 100).round(2)
 
-            # 帕累托数据计算（右图）
             g_right = df_m_right.groupby(time_col).agg(订单数=("FBA号", "count")).reset_index().sort_values(time_col)
             g_right["累计订单数"] = g_right["订单数"].cumsum()
             g_right["含查验累计占比(%)"] = (g_right["累计订单数"] / g_right["订单数"].sum() * 100).round(2)
 
-            # ===================== 新增：总订单数汇总 =====================
             total_no_check = g_left["订单数"].sum()
             total_with_check = g_right["订单数"].sum()
             diff_total = total_with_check - total_no_check
-            # =================================================================
 
-            # 合并成按天数的对比表
             diff_df = pd.merge(
                 g_left[[time_col, "无查验累计占比(%)", "订单数"]],
                 g_right[[time_col, "含查验累计占比(%)", "订单数"]],
@@ -2016,21 +1996,18 @@ if "是否查验" in raw_all.columns and "是否为异常数据" in raw_all.colu
             })[["开船-完成上架(天)", "无查验订单数", "无查验累计占比(%)", "含查验订单数", "含查验累计占比(%)"]]
 
             col1, col2, col3 = st.columns(3)
-
             with col1:
                 fig1 = go.Figure()
                 fig1.add_trace(go.Bar(x=g_left[time_col], y=g_left["订单数"], name="订单数", marker_color="#AED6F1", opacity=0.8))
                 fig1.add_trace(go.Scatter(x=g_left[time_col], y=g_left["无查验累计占比(%)"], name="累计占比", line=dict(color="red", width=3), mode="lines+markers", yaxis="y2"))
                 fig1.update_layout(title=f"{method}（无查验）", xaxis_title="开船-完成上架（天）", yaxis_title="订单数", yaxis2=dict(overlaying="y", side="right", range=[0,105]), height=450)
                 st.plotly_chart(fig1, use_container_width=True)
-
             with col2:
                 fig2 = go.Figure()
                 fig2.add_trace(go.Bar(x=g_right[time_col], y=g_right["订单数"], name="订单数", marker_color="#AED6F1", opacity=0.8))
                 fig2.add_trace(go.Scatter(x=g_right[time_col], y=g_right["含查验累计占比(%)"], name="累计占比", line=dict(color="red", width=3), mode="lines+markers", yaxis="y2"))
                 fig2.update_layout(title=f"{method}（含查验）", xaxis_title="开船-完成上架（天）", yaxis_title="订单数", yaxis2=dict(overlaying="y", side="right", range=[0,105]), height=450)
                 st.plotly_chart(fig2, use_container_width=True)
-
             with col3:
                 st.subheader("📋 按天数查验影响差异表")
                 st.info(f"""
@@ -2040,7 +2017,6 @@ if "是否查验" in raw_all.columns and "是否为异常数据" in raw_all.colu
                 - 新增查验订单：**+{diff_total}** 单
                 """)
                 st.dataframe(diff_df, use_container_width=True, hide_index=True)
-
             st.divider()
     else:
         st.info("无共同物流方式可展示")
