@@ -2036,7 +2036,7 @@ df1 = df_current.copy()
 df1[col1] = pd.to_numeric(df1[col1], errors="coerce")
 df1 = df1.dropna(subset=[col1])
 df1 = df1[df1[col1] >= 0]
-
+df1 = df1.drop_duplicates(subset=["货件单号"], keep="first")
 if not df1.empty:
     df1['区间'] = pd.cut(df1[col1], bins=bins1, labels=labels1, right=True)
     cross = pd.crosstab(df1['物流方式'], df1['区间'], dropna=False)
@@ -2093,7 +2093,7 @@ col2   = "提柜-签收"
 df2 = df_current.copy()
 df2[col2] = pd.to_numeric(df2[col2], errors="coerce").fillna(0)
 df2 = df2[df2[col2] >= 0]
-
+df2 = df2.drop_duplicates(subset=["货件单号"], keep="first")
 if not df2.empty:
     df2['区间'] = pd.cut(df2[col2], bins=bins2, labels=labels2, right=True)
     cross = pd.crosstab(df2['区域'], df2['区间'], dropna=False)
