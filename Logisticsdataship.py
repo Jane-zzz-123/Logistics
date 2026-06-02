@@ -2033,10 +2033,10 @@ labels1= ['10','11','12','13','14','15','16','17','18','19','20','21','22','23',
 vals1  = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
 col1   = "开船-提柜"
 
-# ✅ 核心：直接从最原始、未经过任何去重的纯净数据开始
-df1 = df_clean.copy()  # 请确保df_clean是您的原始纯净数据源
+# ✅ 用纯净数据 df_clean
+df1 = df_clean.copy()
 
-# 1. 第一步：严格按照【年月 → 物流 → 区域】的顺序进行筛选
+# 1. 先筛选（年月→物流→区域）
 if selected_month_hot:
     df1 = df1[df1["到货年月"].isin(selected_month_hot)]
 if selected_log_hot != "全部":
@@ -2044,13 +2044,16 @@ if selected_log_hot != "全部":
 if selected_region_hot != "全部":
     df1 = df1[df1["区域"] == selected_region_hot]
 
-# 2. 第二步：对耗时字段进行数值清洗
+# 2. 清洗耗时
 df1[col1] = pd.to_numeric(df1[col1], errors="coerce")
-df1 = df1.dropna(subset=[col1])  # 去除无效数据
-df1 = df1[df1[col1] >= 0]         # 确保时间为正
+df1 = df1.dropna(subset=[col1])
+df1 = df1[df1[col1] >= 0]
 
-# 3. 第三步：严格执行【到货年月 + 货件单号】组合去重
-df1 = df1.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
+# ✅ 关键：到货年月 + 物流方式 + 货件单号 三字段去重！！
+df1 = df1.drop_duplicates(
+    subset=["到货年月", "物流方式", "货件单号"],
+    keep="first"
+)
 
 if not df1.empty:
     df1['区间'] = pd.cut(df1[col1], bins=bins1, labels=labels1, right=True)
@@ -2074,7 +2077,7 @@ if not df1.empty:
             else:bg,fc="#e66a00","white"
             row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
         row["加权耗时"] = math.ceil(ws) if total>0 else 0
-        row["票数"] = total  # 此票数已严格等于去重后的货件总数
+        row["票数"] = total
         row["合计"] = total_all
         rows.append(row)
 
@@ -2102,10 +2105,10 @@ labels2= ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15',
 vals2  = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
 col2   = "提柜-签收"
 
-# ✅ 同样：直接从最原始、未经过任何去重的纯净数据开始
+# ✅ 用纯净数据 df_clean
 df2 = df_clean.copy()
 
-# 1. 第一步：严格按照【年月 → 物流 → 区域】的顺序进行筛选
+# 1. 先筛选
 if selected_month_hot:
     df2 = df2[df2["到货年月"].isin(selected_month_hot)]
 if selected_log_hot != "全部":
@@ -2113,12 +2116,15 @@ if selected_log_hot != "全部":
 if selected_region_hot != "全部":
     df2 = df2[df2["区域"] == selected_region_hot]
 
-# 2. 第二步：对耗时字段进行数值清洗
+# 2. 清洗耗时
 df2[col2] = pd.to_numeric(df2[col2], errors="coerce").fillna(0)
-df2 = df2[df2[col2] >= 0]  # 确保时间为正
+df2 = df2[df2[col2] >= 0]
 
-# 3. 第三步：严格执行【到货年月 + 货件单号】组合去重
-df2 = df2.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
+# ✅ 到货年月 + 物流方式 + 货件单号 三字段去重
+df2 = df2.drop_duplicates(
+    subset=["到货年月", "物流方式", "货件单号"],
+    keep="first"
+)
 
 if not df2.empty:
     df2['区间'] = pd.cut(df2[col2], bins=bins2, labels=labels2, right=True)
@@ -2142,7 +2148,7 @@ if not df2.empty:
             else:bg,fc="#e66a00","white"
             row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
         row["加权耗时"] = math.ceil(ws) if total>0 else 0
-        row["票数"] = total  # 此票数已严格等于去重后的货件总数
+        row["票数"] = total
         row["合计"] = total_all
         rows.append(row)
 
