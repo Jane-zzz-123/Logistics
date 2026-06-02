@@ -2025,6 +2025,78 @@ else:
 
 # ==============================================
 # ==============================================
+# 1. 开船 - 提柜（按物流方式）✅ 纯净数据重新筛选+去重
+# ==============================================
+st.markdown("### 🔸 开船-提柜 耗时分布（按物流方式）")
+bins1  = [9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,999]
+labels1= ['10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29+']
+vals1  = [10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+col1   = "开船-提柜"
+
+# ✅ 关键：不用 df_current，直接拿【原始未去重的纯净数据】
+df1 = df_clean.copy()   # 这里换成你真正的“纯净、未去重”数据源名字
+
+# 1. 先筛选：年月 + 物流（和主面板一致）
+if selected_month_hot:
+    df1 = df1[df1["到货年月"].isin(selected_month_hot)]
+if selected_log_hot != "全部":
+    df1 = df1[df1["物流方式"] == selected_log_hot]
+if selected_region_hot != "全部":
+    df1 = df1[df1["区域"] == selected_region_hot]
+
+# 2. 数值清洗
+df1[col1] = pd.to_numeric(df1[col1], errors="coerce")
+df1 = df1.dropna(subset=[col1])
+df1 = df1[df1[col1] >= 0]
+
+# 3. 严格按你要求：到货年月 + 货件单号 组合去重
+df1 = df1.drop_duplicates(subset=["到货年月", "货件单号"], keep="first")
+
+if not df1.empty:
+    df1['区间'] = pd.cut(df1[col1], bins=bins1, labels=labels1, right=True)
+    cross = pd.crosstab(df1['物流方式'], df1['区间'], dropna=False)
+    total_all = cross.sum().sum()
+    rows = []
+    for m in cross.index:
+        total = cross.loc[m].sum()
+        row = {"分组":m, "加权耗时":0}
+        ws = 0
+        for i, l in enumerate(labels1):
+            cnt = cross.loc[m, l]
+            pct = cnt/total*100 if total>0 else 0
+            wv = vals1[i] * (cnt/total) if total>0 else 0
+            ws += wv
+            if pct==0:bg,fc="#fff7e6","black"
+            elif pct<10:bg,fc="#ffe2b3","black"
+            elif pct<20:bg,fc="#ffc880","black"
+            elif pct<30:bg,fc="#ffad4d","black"
+            elif pct<40:bg,fc="#ff941a","white"
+            else:bg,fc="#e66a00","white"
+            row[l] = f"""<div style='background:{bg};color:{fc};padding:2px;text-align:center'><b>{pct:.2f}%</b><br><small>{wv:.2f}</small></div>"""
+        row["加权耗时"] = math.ceil(ws) if total>0 else 0
+        row["票数"] = total
+        row["合计"] = total_all
+        rows.append(row)
+
+    order = ["分组","加权耗时"]+labels1+["票数","合计"]
+    h = "".join([f"<th>{x}</th>" for x in order])
+    b = ""
+    for r in rows:
+        cs = []
+        for c in order:
+            if c in ["分组","加权耗时","票数","合计"]:
+                cs.append(f"<td style='padding:4px;font-size:13px;text-align:center'>{r[c]}</td>")
+            else:
+                cs.append(f"<td style='padding:0'>{r[c]}</td>")
+        b += "<tr>"+"".join(cs)+"</tr>"
+
+    st.markdown(f"""
+    <style>table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:2px;font-size:12px}}th{{background:#f5f5f5}}</style>
+    <table>{h}{b}</table>""", unsafe_allow_html=True)
+else:
+    st.warning("暂无开船-提柜数据")
+
+# ==============================================
 # 2. 提柜-签收 耗时分布（按区域）✅ 纯净数据重新筛选+去重
 # ==============================================
 st.markdown("### 🔸 提柜-签收 耗时分布（按区域）")
