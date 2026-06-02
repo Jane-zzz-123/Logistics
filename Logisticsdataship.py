@@ -162,7 +162,7 @@ data_filter = st.radio(
 if data_filter == "纯净数据（剔除异常）":
     df_selected_FBA = df_clean.copy()
     # ✅ 你要的：到货年月 + 货件单号 组合去重
-    df_selected = df_clean.drop_duplicates(subset=["到货年月", "货件单号"], keep="first").copy()
+    df_selected = df_clean.copy()
 
     # 异常统计（同样组合去重）
     df_excluded = df_all[df_all["是否为异常数据"] == "是"]
@@ -184,7 +184,7 @@ if data_filter == "纯净数据（剔除异常）":
 else:
     df_selected_FBA = df_all.copy()
     # ✅ 你要的：到货年月 + 货件单号 组合去重
-    df_selected = df_all.drop_duplicates(subset=["到货年月", "货件单号"], keep="first").copy()
+    df_selected = df_all.copy()
 
     # 异常统计
     total_shipment = len(df_selected)
@@ -239,7 +239,7 @@ selected_logistics = st.selectbox(
 df_current = df_selected[df_selected["到货年月"] == selected_month].copy()
 if selected_logistics != '全部':
     df_current = df_current[df_current['物流方式'] == selected_logistics].copy()
-
+    df_current = df_current.drop_duplicates(subset=["货件单号"], keep="first")
 # B. FBA不去重（仓库分析用）→ 新增
 df_current_FBA = df_selected_FBA[df_selected_FBA["到货年月"] == selected_month].copy()
 if selected_logistics != '全部':
