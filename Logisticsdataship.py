@@ -1920,33 +1920,44 @@ else:
 # ---------------------- 【最终调整版：加总订单数+去差异列】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
-source_df = df_clean if data_filter == "纯净数据（剔除异常）" else df_all
+# 固定：无查验从纯净df_clean取；查验异常单独从df_all捞
+df_clean_source = df_clean
+df_all_source = df_all
 
-if "是否查验" in source_df.columns and "是否为异常数据" in source_df.columns:
+if "是否查验" in df_all_source.columns and "是否为异常数据" in df_all_source.columns:
 
+    # 共用筛选条件（年月/物流/区域三套筛选通用）
     if selected_month_hot:
-        mask_month = source_df["到货年月"].isin(selected_month_hot)
+        mask_month = df_all_source["到货年月"].isin(selected_month_hot)
     else:
         mask_month = True
     if selected_log_hot != "全部":
-        mask_log = source_df["物流方式"] == selected_log_hot
+        mask_log = df_all_source["物流方式"] == selected_log_hot
     else:
         mask_log = True
     if selected_region_hot != "全部":
-        mask_region = source_df["区域"] == selected_region_hot
+        mask_region = df_all_source["区域"] == selected_region_hot
     else:
         mask_region = True
 
-    # ========== 改这里两行筛选 ==========
-    # 左：正常+无查验
-    mask_left = ((source_df["是否为异常数据"] == "否") & (source_df["是否查验"] == "否")) & mask_month & mask_log & mask_region
-    df_left = source_df[mask_left].copy()
+    # ①左图：无查验 → 纯净数据+未查验（异常全剔除，只有正常无查验）
+    mask_left = ((df_clean_source["是否查验"] == "否")) & mask_month & mask_log & mask_region
+    df_left = df_clean_source[mask_left].copy()
     df_left = df_left.drop_duplicates(subset=["货件单号"], keep="first")
 
-    # 右：全部正常货件（含无查验+查验）
-    mask_right = (source_df["是否为异常数据"] == "否") & mask_month & mask_log & mask_region
-    df_right = source_df[mask_right].copy()
-    df_right = df_right.drop_duplicates(subset=["货件单号"], keep="first")
+    # ②右图：含查验 = 全部纯净正常货件 + 当月查验异常货件
+    # 正常部分：纯净全量
+    mask_right_normal = mask_month & mask_log & mask_region
+    df_right_normal = df_clean_source[mask_right_normal].copy()
+    df_right_normal = df_right_normal.drop_duplicates(subset=["货件单号"], keep="first")
+    # 查验异常部分：从原始df_all拿【异常=是+查验=是】
+    mask_right_check = ((df_all_source["是否为异常数据"] == "是") & (df_all_source["是否查验"] == "是")) & mask_month & mask_log & mask_region
+    df_right_check = df_all_source[mask_right_check].copy()
+    df_right_check = df_right_check.drop_duplicates(subset=["货件单号"], keep="first")
+    # 合并=含查验全量
+    df_right = pd.concat([df_right_normal, df_right_check]).drop_duplicates(subset=["货件单号"], keep="first")
+
+    # 后面清洗、绘图代码完全原样不动
     # ==========================================================================
 
     # 清洗时效
