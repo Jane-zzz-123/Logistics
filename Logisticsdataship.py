@@ -239,7 +239,7 @@ selected_logistics = st.selectbox(
 df_current = df_selected[df_selected["到货年月"] == selected_month].copy()
 if selected_logistics != '全部':
     df_current = df_current[df_current['物流方式'] == selected_logistics].copy()
-    df_current = df_current.drop_duplicates(subset=["货件单号"], keep="first")
+df_current = df_current.drop_duplicates(subset=["货件单号"], keep="first")
 # B. FBA不去重（仓库分析用）→ 新增
 df_current_FBA = df_selected_FBA[df_selected_FBA["到货年月"] == selected_month].copy()
 if selected_logistics != '全部':
@@ -254,7 +254,7 @@ prev_month = get_prev_month(selected_month)
 df_prev = df_selected[df_selected["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
 if selected_logistics != '全部' and not df_prev.empty:
     df_prev = df_prev[df_prev['物流方式'] == selected_logistics].copy()
-    df_prev = df_prev.drop_duplicates(subset=["货件单号"], keep="first")
+df_prev = df_prev.drop_duplicates(subset=["货件单号"], keep="first")
 # B. FBA不去重（仓库分析用）→ 新增
 df_prev_FBA = df_selected_FBA[df_selected_FBA["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
 if selected_logistics != '全部' and not df_prev.empty:
