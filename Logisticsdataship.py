@@ -1920,13 +1920,10 @@ else:
 # ---------------------- 【最终调整版：加总订单数+去差异列】 ----------------------
 st.markdown("### 📊 各物流方式 - 时效分布 + 查验差异对比")
 
-# ===================== 这里只加一行：跟随顶部的 全部/纯净数据 开关 =====================
 source_df = df_clean if data_filter == "纯净数据（剔除异常）" else df_all
-# ====================================================================================
 
 if "是否查验" in source_df.columns and "是否为异常数据" in source_df.columns:
 
-    # ===================== 把所有 df_all 改成 source_df =====================
     if selected_month_hot:
         mask_month = source_df["到货年月"].isin(selected_month_hot)
     else:
@@ -1940,13 +1937,14 @@ if "是否查验" in source_df.columns and "是否为异常数据" in source_df.
     else:
         mask_region = True
 
-    # 1. 左图：无查验（是否异常=否）
-    mask_left = (source_df["是否为异常数据"] == "否") & mask_month & mask_log & mask_region
+    # ========== 改这里两行筛选 ==========
+    # 左：正常+无查验
+    mask_left = ((source_df["是否为异常数据"] == "否") & (source_df["是否查验"] == "否")) & mask_month & mask_log & mask_region
     df_left = source_df[mask_left].copy()
     df_left = df_left.drop_duplicates(subset=["货件单号"], keep="first")
 
-    # 2. 右图：含查验（是否异常=否 OR 是否查验=是）
-    mask_right = ((source_df["是否为异常数据"] == "否") | (source_df["是否查验"] == "是")) & mask_month & mask_log & mask_region
+    # 右：全部正常货件（含无查验+查验）
+    mask_right = (source_df["是否为异常数据"] == "否") & mask_month & mask_log & mask_region
     df_right = source_df[mask_right].copy()
     df_right = df_right.drop_duplicates(subset=["货件单号"], keep="first")
     # ==========================================================================
