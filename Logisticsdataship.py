@@ -1010,6 +1010,9 @@ else:
     # --------------------------
     # 7. 均值对比（已修复精度bug）
     # --------------------------
+    # --------------------------
+    # 7. 均值对比（已修复精度bug）
+    # --------------------------
     st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
     normal_mean_by_method_region = df_normal.groupby([ship_method_col, region_col, "归类标签"])[all_stage_cols].mean()
     warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean() if warehouse_count > 0 else None
@@ -1032,12 +1035,12 @@ else:
                 (df_forwarder_delay[ship_method_col] == method) &
                 (df_forwarder_delay[region_col] == region) &
                 (df_forwarder_delay["归类标签"] == tag)
-                ]
+            ]
             normal_sub = df_normal[
                 (df_normal[ship_method_col] == method) &
                 (df_normal[region_col] == region) &
                 (df_normal["归类标签"] == tag)
-                ]
+            ]
 
             # 标题
             if tag == YIXING_REAL_NAME:
@@ -1049,30 +1052,24 @@ else:
                 std = NORMAL_REGION_THRESHOLD.get(region, 6)
                 st.markdown(f"##### {prefix} {method} - {region}")
 
-            # 逐环节计算（现场实时算，保证 13.5 = 13.5）
+            # 逐环节：原始值不提前round，差值用原始计算
             for stage in forwarder_stage_cols:
-                # 原始真实值，不提前四舍五入（修复关键）
                 n_raw = normal_sub[stage].mean() if len(normal_sub) > 0 else 0.0
                 d_raw = delay_sub[stage].mean() if len(delay_sub) > 0 else 0.0
-
-                # 展示用
-                n_show = round(n_raw, 2)
-                d_show = round(d_raw, 2)
-
-                # 差值用原始值计算
-                diff = round(d_raw - n_raw, 1)
+                n_show = round(n_raw,2)
+                d_show = round(d_raw,2)
+                diff = round(d_raw - n_raw,1)
 
                 if stage == signoff_stage:
-                    s_diff = round(d_raw - std, 1)
+                    s_diff = round(d_raw - std,1)
                     if s_diff >= 1:
-                        st.markdown(
-                            f"- **{stage}**：正常标准≤{std}天 | 延期均值 **:red[{d_show} 天]** | **:red[超时 {s_diff} 天]**")
+                        st.markdown(f"- **{stage}**：正常标准≤{std}天 | 延期均值 **:red[{d_show} 天]** | **:red[超时 {s_diff} 天]**")
                     elif s_diff < 0:
                         st.markdown(f"- **{stage}**：正常标准≤{std}天 | 延期均值 {d_show} 天 | ✅ 快了 {abs(s_diff)} 天")
                     else:
                         st.markdown(f"- **{stage}**：正常标准≤{std}天 | 延期均值 {d_show} 天 | ✅ 符合标准")
                 else:
-                    if diff >= 3:
+                    if diff >= abnormal_threshold_days:
                         st.markdown(f"- **{stage}**：正常{n_show}天 | 延期**:red[{d_show}天]** | **:red[慢{diff}天]**")
                     elif diff > 0:
                         st.markdown(f"- **{stage}**：正常{n_show}天 | 延期{d_show}天 | 慢{diff}天")
