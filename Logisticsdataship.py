@@ -867,7 +867,7 @@ for col in all_stage_cols:
 
 # 归类标签
 df_current["归类标签"] = df_current[real_ship_col].apply(
-    lambda x: YIXING_REAL_NAME if x == YIXING_REAL else "常规")
+    lambda x: YIXING_REAL_NAME if x == YIXING_REAL_NAME else "常规")
 
 # --------------------------
 # 2. 筛选数据集
