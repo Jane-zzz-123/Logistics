@@ -1008,51 +1008,69 @@ else:
         """)
 
     # --------------------------
-    # 7. 均值对比（已修复精度bug）
-    # --------------------------
-    # --------------------------
-    # 7. 均值对比（已修复精度bug）
+    # 7. 均值对比（最终版：严格匹配标准）
     # --------------------------
     st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
-    normal_mean_by_method_region = df_normal.groupby([ship_method_col, region_col, "归类标签"])[all_stage_cols].mean()
     warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean() if warehouse_count > 0 else None
     abnormal_threshold_days = 3
     WAREHOUSE_STANDARD = 3
 
-    # ==============================
-    # ✅ 这里开始：修复计算逻辑（唯一改动区）
-    # ==============================
+    # 自定义分组&匹配签收标准
+    def get_group_info(row):
+        reg = row[region_col]
+        real_log = row[real_ship_col]
+        if reg == "美东" and real_log == YIXING_REAL_NAME:
+            group_name = YIXING_REAL_NAME
+            sign_std = 4
+        elif reg == "美东":
+            group_name = "常规"
+            sign_std = 11
+        elif reg == "美中":
+            group_name = "常规"
+            sign_std = 10
+        elif reg == "美西":
+            group_name = "常规"
+            sign_std = 6
+        else:
+            group_name = "常规"
+            sign_std = 6
+        return group_name, sign_std
+
+    # 拆分分组名称、签收标准
+    df_normal[["分组名称","签收标准"]] = df_normal.apply(lambda x: get_group_info(x), axis=1, result_type='expand')
+    df_forwarder_delay[["分组名称","签收标准"]] = df_forwarder_delay.apply(lambda x: get_group_info(x), axis=1, result_type='expand')
+
     st.markdown("#### 🔹 货代负责环节（开船-到港 → 提柜-签收）")
     if forwarder_count > 0:
-        unique_groups = df_forwarder_delay[[ship_method_col, region_col, "归类标签"]].drop_duplicates()
+        # 按【物流方式、区域、分组名称】去重遍历
+        unique_groups = df_forwarder_delay[[ship_method_col, region_col, "分组名称"]].drop_duplicates()
         for _, g_row in unique_groups.iterrows():
             method = g_row[ship_method_col]
             region = g_row[region_col]
-            tag = g_row["归类标签"]
+            tag = g_row["分组名称"]
 
-            # 实时筛选当前分组
+            # 筛选对应数据
             delay_sub = df_forwarder_delay[
-                (df_forwarder_delay[ship_method_col] == method) &
-                (df_forwarder_delay[region_col] == region) &
-                (df_forwarder_delay["归类标签"] == tag)
+                (df_forwarder_delay[ship_method_col]==method) &
+                (df_forwarder_delay[region_col]==region) &
+                (df_forwarder_delay["分组名称"]==tag)
             ]
             normal_sub = df_normal[
-                (df_normal[ship_method_col] == method) &
-                (df_normal[region_col] == region) &
-                (df_normal["归类标签"] == tag)
+                (df_normal[ship_method_col]==method) &
+                (df_normal[region_col]==region) &
+                (df_normal["分组名称"]==tag)
             ]
+
+            # 当前分组签收标准
+            curr_std = delay_sub["签收标准"].iloc[0] if len(delay_sub)>0 else normal_sub["签收标准"].iloc[0]
 
             # 标题
             if tag == YIXING_REAL_NAME:
-                prefix = "🚆"
-                std = YIXING_REGION_THRESHOLD.get(region, 4)
-                st.markdown(f"##### {prefix} {method}【以星转火车】 - {region}")
+                st.markdown(f"##### 🚆 {method}【以星转火车】 - {region}")
             else:
-                prefix = "🚛"
-                std = NORMAL_REGION_THRESHOLD.get(region, 6)
-                st.markdown(f"##### {prefix} {method} - {region}")
+                st.markdown(f"##### 🚛 {method} - {region}")
 
-            # 逐环节：原始值不提前round，差值用原始计算
+            # 逐环节计算：原值运算，仅展示四舍五入
             for stage in forwarder_stage_cols:
                 n_raw = normal_sub[stage].mean() if len(normal_sub) > 0 else 0.0
                 d_raw = delay_sub[stage].mean() if len(delay_sub) > 0 else 0.0
@@ -1060,14 +1078,15 @@ else:
                 d_show = round(d_raw,2)
                 diff = round(d_raw - n_raw,1)
 
+                # 签收环节用区域对应标准
                 if stage == signoff_stage:
-                    s_diff = round(d_raw - std,1)
+                    s_diff = round(d_raw - curr_std,1)
                     if s_diff >= 1:
-                        st.markdown(f"- **{stage}**：正常标准≤{std}天 | 延期均值 **:red[{d_show} 天]** | **:red[超时 {s_diff} 天]**")
+                        st.markdown(f"- **{stage}**：正常标准≤{curr_std}天 | 延期均值 **:red[{d_show} 天]** | **:red[超时 {s_diff} 天]**")
                     elif s_diff < 0:
-                        st.markdown(f"- **{stage}**：正常标准≤{std}天 | 延期均值 {d_show} 天 | ✅ 快了 {abs(s_diff)} 天")
+                        st.markdown(f"- **{stage}**：正常标准≤{curr_std}天 | 延期均值 {d_show} 天 | ✅ 快了 {abs(s_diff)} 天")
                     else:
-                        st.markdown(f"- **{stage}**：正常标准≤{std}天 | 延期均值 {d_show} 天 | ✅ 符合标准")
+                        st.markdown(f"- **{stage}**：正常标准≤{curr_std}天 | 延期均值 {d_show} 天 | ✅ 符合标准")
                 else:
                     if diff >= abnormal_threshold_days:
                         st.markdown(f"- **{stage}**：正常{n_show}天 | 延期**:red[{d_show}天]** | **:red[慢{diff}天]**")
