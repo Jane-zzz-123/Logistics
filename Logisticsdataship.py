@@ -1820,6 +1820,15 @@ if missing_cols:
     st.warning(f"缺失字段：{missing_cols}")
 else:
     df_analysis = df_current.copy()
+
+    # ======================
+    # ✅ 你要的：月份+物流方式+货件单号 三重去重
+    # ======================
+    df_analysis = df_analysis.drop_duplicates(
+        subset=["到货年月", "物流方式", "货件单号"],
+        keep="first"
+    )
+
     for col in [time_col, stage1_col, stage2_col, stage3_col]:
         df_analysis[col] = pd.to_numeric(df_analysis[col], errors="coerce").fillna(0)
     df_analysis = df_analysis[(df_analysis[time_col] > 0)].reset_index(drop=True)
