@@ -1009,10 +1009,6 @@ else:
 
     # --------------------------
     # 7. 均值对比（最终版：严格匹配标准）
-    # --------------------------
-    # --------------------------
-    # 7. 均值对比（最终版：严格匹配标准）
-    # --------------------------
     st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
     warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean() if warehouse_count > 0 else None
     abnormal_threshold_days = 3
@@ -1021,7 +1017,7 @@ else:
     # 自定义分组&匹配签收标准【增加异常兜底】
     def get_group_info(row):
         try:
-            reg = row[region]
+            reg = row[region_col]
             real_log = row[real_ship_col]
             if reg == "美东" and real_log == YIXING_REAL_NAME:
                 group_name = YIXING_REAL_NAME
@@ -1043,27 +1039,33 @@ else:
             # 脏数据强制返回固定二元组，保证长度永远=2
             return ("常规", 6.0)
 
-    # 拆分分组名称、签收标准【分开单列赋值，规避多列同时赋值报错】
-    # 处理正常订单
-    apply_normal = df_normal.apply(get_group_info, axis=1, result_type='expand')
-    df_normal["分组名称"] = apply_normal[0]
-    df_normal["签收标准"] = apply_normal[1]
+    # ========== 修复：先判断df_normal是否非空再执行apply ==========
+    if not df_normal.empty:
+        apply_normal = df_normal.apply(get_group_info, axis=1, result_type='expand')
+        df_normal["分组名称"] = apply_normal[0]
+        df_normal["签收标准"] = apply_normal[1]
+    else:
+        # 无正常订单，手动创建空占位列避免后续代码报错
+        df_normal["分组名称"] = ""
+        df_normal["签收标准"] = 0
 
-    # 处理货代延期订单
-    apply_delay = df_forwarder_delay.apply(get_group_info, axis=1, result_type='expand')
-    df_forwarder_delay["分组名称"] = apply_delay[0]
-    df_forwarder_delay["签收标准"] = apply_delay[1]
+    # ========== 修复：先判断df_forwarder_delay是否非空再执行apply ==========
+    if not df_forwarder_delay.empty:
+        apply_delay = df_forwarder_delay.apply(get_group_info, axis=1, result_type='expand')
+        df_forwarder_delay["分组名称"] = apply_delay[0]
+        df_forwarder_delay["签收标准"] = apply_delay[1]
+    else:
+        df_forwarder_delay["分组名称"] = ""
+        df_forwarder_delay["签收标准"] = 0
 
     st.markdown("#### 🔹 货代负责环节（开船-到港 → 提柜-签收）")
     if forwarder_count > 0:
-        # 按【物流方式、区域、分组名称】去重遍历
         unique_groups = df_forwarder_delay[[ship_method_col, region_col, "分组名称"]].drop_duplicates()
         for _, g_row in unique_groups.iterrows():
             method = g_row[ship_method_col]
             region = g_row[region_col]
             tag = g_row["分组名称"]
 
-            # 筛选对应数据
             delay_sub = df_forwarder_delay[
                 (df_forwarder_delay[ship_method_col]==method) &
                 (df_forwarder_delay[region_col]==region) &
@@ -1075,16 +1077,13 @@ else:
                 (df_normal["分组名称"]==tag)
             ]
 
-            # 当前分组签收标准
             curr_std = delay_sub["签收标准"].iloc[0] if len(delay_sub)>0 else normal_sub["签收标准"].iloc[0]
 
-            # 标题
             if tag == YIXING_REAL_NAME:
                 st.markdown(f"##### 🚆 {method}【以星转火车】 - {region}")
             else:
                 st.markdown(f"##### 🚛 {method} - {region}")
 
-            # 逐环节计算：原值运算，仅展示四舍五入
             for stage in forwarder_stage_cols:
                 n_raw = normal_sub[stage].mean() if len(normal_sub) > 0 else 0.0
                 d_raw = delay_sub[stage].mean() if len(delay_sub) > 0 else 0.0
@@ -1092,7 +1091,6 @@ else:
                 d_show = round(d_raw,2)
                 diff = round(d_raw - n_raw,1)
 
-                # 签收环节用区域对应标准
                 if stage == signoff_stage:
                     s_diff = round(d_raw - curr_std,1)
                     if s_diff >= 1:
