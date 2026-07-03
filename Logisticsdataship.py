@@ -1010,35 +1010,49 @@ else:
     # --------------------------
     # 7. 均值对比（最终版：严格匹配标准）
     # --------------------------
+    # --------------------------
+    # 7. 均值对比（最终版：严格匹配标准）
+    # --------------------------
     st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
     warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean() if warehouse_count > 0 else None
     abnormal_threshold_days = 3
     WAREHOUSE_STANDARD = 3
 
-    # 自定义分组&匹配签收标准
+    # 自定义分组&匹配签收标准【增加异常兜底】
     def get_group_info(row):
-        reg = row[region_col]
-        real_log = row[real_ship_col]
-        if reg == "美东" and real_log == YIXING_REAL_NAME:
-            group_name = YIXING_REAL_NAME
-            sign_std = 4
-        elif reg == "美东":
-            group_name = "常规"
-            sign_std = 11
-        elif reg == "美中":
-            group_name = "常规"
-            sign_std = 10
-        elif reg == "美西":
-            group_name = "常规"
-            sign_std = 6
-        else:
-            group_name = "常规"
-            sign_std = 6
-        return group_name, sign_std
+        try:
+            reg = row[region]
+            real_log = row[real_ship_col]
+            if reg == "美东" and real_log == YIXING_REAL_NAME:
+                group_name = YIXING_REAL_NAME
+                sign_std = 4
+            elif reg == "美东":
+                group_name = "常规"
+                sign_std = 11
+            elif reg == "美中":
+                group_name = "常规"
+                sign_std = 10
+            elif reg == "美西":
+                group_name = "常规"
+                sign_std = 6
+            else:
+                group_name = "常规"
+                sign_std = 6
+            return (str(group_name), float(sign_std))
+        except Exception:
+            # 脏数据强制返回固定二元组，保证长度永远=2
+            return ("常规", 6.0)
 
-    # 拆分分组名称、签收标准
-    df_normal[["分组名称","签收标准"]] = df_normal.apply(lambda x: get_group_info(x), axis=1, result_type='expand')
-    df_forwarder_delay[["分组名称","签收标准"]] = df_forwarder_delay.apply(lambda x: get_group_info(x), axis=1, result_type='expand')
+    # 拆分分组名称、签收标准【分开单列赋值，规避多列同时赋值报错】
+    # 处理正常订单
+    apply_normal = df_normal.apply(get_group_info, axis=1, result_type='expand')
+    df_normal["分组名称"] = apply_normal[0]
+    df_normal["签收标准"] = apply_normal[1]
+
+    # 处理货代延期订单
+    apply_delay = df_forwarder_delay.apply(get_group_info, axis=1, result_type='expand')
+    df_forwarder_delay["分组名称"] = apply_delay[0]
+    df_forwarder_delay["签收标准"] = apply_delay[1]
 
     st.markdown("#### 🔹 货代负责环节（开船-到港 → 提柜-签收）")
     if forwarder_count > 0:
