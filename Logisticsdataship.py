@@ -1684,18 +1684,23 @@ else:
 
     # ===== 8. 总结（带区域）=====
     # ===== 8. 总结（分三列：美东 | 美中 | 美西）=====
+    # ===== 8. 总结（分三列：美东 | 美中 | 美西，新增其他区域兜底）=====
     st.markdown("### 仓库当月表现总结")
     col_east, col_mid, col_west = st.columns(3)
-
-    # 按区域分组整理总结文字
+    # 按区域分组整理总结文字 ——新增其他区域key
     summary_by_region = {
         "美东": [],
         "美中": [],
-        "美西": []
+        "美西": [],
+        "其他区域": []
     }
 
     for _, row in warehouse_stats.iterrows():
         region = row["区域"]
+        # 兜底：不在预定义区域则归入【其他区域】，杜绝KeyError
+        if region not in summary_by_region:
+            region = "其他区域"
+
         name = row["仓库"]
         orders = row["总订单数"]
         ratio = row["订单量占比(%)"]
@@ -1754,6 +1759,12 @@ else:
             st.markdown("\n".join(summary_by_region["美西"]), unsafe_allow_html=True)
         else:
             st.markdown("暂无美西区域仓库数据")
+
+    # ========== 新增：渲染其他区域 ==========
+    if summary_by_region["其他区域"]:
+        st.markdown("---")
+        st.markdown("#### ⚠️ 其他/未知区域（原始数据区域脏值）")
+        st.markdown("\n".join(summary_by_region["其他区域"]), unsafe_allow_html=True)
 
     # 下载
     csv_data = warehouse_stats.to_csv(index=False, encoding="utf-8-sig")
